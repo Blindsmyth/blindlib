@@ -1,0 +1,533 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="8encoder" uuid="fbcfabdd-81e5-4602-861d-dc88a3b3ef8a">
+      <sDescription>8 rotary encoders with acceleration, table storage, configurable modes, and integrated dial/text display.</sDescription>
+      <author>Gavin / Enhanced + Display Integration</author>
+      <license>BSD</license>
+      <helpPatch>logic.axh</helpPatch>
+      <inlets>
+         <bool32.rising name="trig1"/>
+         <bool32.rising name="dir1"/>
+         <bool32.rising name="trig2"/>
+         <bool32.rising name="dir2"/>
+         <bool32.rising name="trig3"/>
+         <bool32.rising name="dir3"/>
+         <bool32.rising name="trig4"/>
+         <bool32.rising name="dir4"/>
+         <bool32.rising name="trig5"/>
+         <bool32.rising name="dir5"/>
+         <bool32.rising name="trig6"/>
+         <bool32.rising name="dir6"/>
+         <bool32.rising name="trig7"/>
+         <bool32.rising name="dir7"/>
+         <bool32.rising name="trig8"/>
+         <bool32.rising name="dir8"/>
+         <int32 name="page"/>
+      </inlets>
+      <outlets>
+         <frac32 name="o1"/>
+         <frac32 name="o2"/>
+         <frac32 name="o3"/>
+         <frac32 name="o4"/>
+         <frac32 name="o5"/>
+         <frac32 name="o6"/>
+         <frac32 name="o7"/>
+         <frac32 name="o8"/>
+         <int32 name="debugintval"/>
+         <int32 name="debugtableval"/>
+         <int32 name="loaded"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="acceltime" MinValue="1" MaxValue="1000" DefaultValue="0"/>
+         <spinner name="accelmultiplier" MinValue="1" MaxValue="10" DefaultValue="0"/>
+         <objref name="table"/>
+         <spinner name="page" MinValue="0" MaxValue="7" DefaultValue="0"/>
+      </attribs>
+      <code.declaration><![CDATA[
+// Encoder data
+float encoderPos[8];
+int accel[8];
+uint32_t lastTrigTime[8];
+int lastTrigState[8];
+int lastPage = -1;
+uint32_t timeCounter = 0;
+
+// Display system
+rootc::instancesketchy__render::dial_t dials[8];
+
+// Mode constants - simplified to 3 modes
+#define MODE_FRAC_UNI     0  // 0.0 to 1.0, unipolar, shows dial
+#define MODE_FRAC_BI      1  // -1.0 to 1.0, bipolar, shows dial  
+#define MODE_INT          2  // integer, auto uni/bipolar, shows text
+
+// Mode configuration for encoders (8 encoders x 8 pages)
+const int8_t encoderModes[64] = {
+    // Page 0 (encoders 0-7)
+    0, 1, 0, 2, 1, 0, 2, 1,
+    // Page 1 (encoders 8-15) 
+    1, 0, 2, 1, 2, 0, 1, 0,
+    // Page 2 (encoders 16-23)
+    2, 1, 0, 0, 1, 2, 0, 1,
+    // Page 3 (encoders 24-31)
+    0, 0, 1, 2, 1, 1, 2, 2,
+    // Page 4 (encoders 32-39)
+    0, 1, 0, 1, 0, 1, 0, 1,
+    // Page 5 (encoders 40-47)
+    1, 0, 1, 0, 1, 0, 1, 0,
+    // Page 6 (encoders 48-55)
+    2, 2, 2, 2, 2, 2, 2, 2,
+    // Page 7 (encoders 56-63)
+    0, 1, 2, 0, 1, 2, 0, 1
+};
+
+// Min values for integer modes
+const int16_t intMin[64] = {
+    // Page 0
+    0, 0, 0, -64, 0, 0, 0, 0,
+    // Page 1
+    0, 0, 0, 0, -32, 0, 1, 0,
+    // Page 2
+    0, 0, 0, 0, 0, -100, 0, 0,
+    // Page 3
+    0, 0, 0, 0, 0, 0, -50, -25,
+    // Page 4
+    0, 0, 0, 0, 0, 0, 0, 0,
+    // Page 5
+    0, 0, 0, 0, 0, 0, 0, 0,
+    // Page 6
+    -200, -150, -100, -50, 0, 10, 20, 30,
+    // Page 7
+    0, 0, -999, 0, 0, -500, 0, 0
+};
+
+// Max values for integer modes
+const int16_t intMax[64] = {
+    // Page 0
+    127, 127, 127, 63, 127, 127, 100, 16,
+    // Page 1
+    127, 64, 32, 127, 31, 127, 10, 127,
+    // Page 2
+    50, 200, 127, 127, 255, 99, 127, 8,
+    // Page 3
+    127, 127, 127, 20, 15, 7, 49, 24,
+    // Page 4
+    127, 127, 127, 127, 127, 127, 127, 127,
+    // Page 5
+    127, 127, 127, 127, 127, 127, 127, 127,
+    // Page 6
+    200, 150, 100, 50, 255, 500, 1000, 9999,
+    // Page 7
+    127, 127, 999, 127, 127, 500, 127, 127
+};
+
+// Current integer values (for int modes)
+int intValues[8];
+
+// Dynamic labels for integer display
+char dynamicLabels[8][8]; // 8 encoders, 8 chars each
+
+// Page assignments for each dial (8 encoders x 8 pages)
+const int8_t dialPages[64] = {
+    // Page 0 (encoders 0-7)
+    0, 0, 0, 0, 0, 0, 0, 0,
+    // Page 1 (encoders 8-15) 
+    1, 1, 1, 1, 1, 1, 1, 1,
+    // Page 2 (encoders 16-23)
+    2, 2, 2, 2, 2, 2, 2, 2,
+    // Page 3 (encoders 24-31)
+    3, 3, 3, 3, 3, 3, 3, 3,
+    // Page 4 (encoders 32-39)
+    4, 4, 4, 4, 4, 4, 4, 4,
+    // Page 5 (encoders 40-47)
+    5, 5, 5, 5, 5, 5, 5, 5,
+    // Page 6 (encoders 48-55)
+    6, 6, 6, 6, 6, 6, 6, 6,
+    // Page 7 (encoders 56-63)
+    7, 7, 7, 7, 7, 7, 7, 7
+};
+
+// Parameter assignments for each encoder (STATIC - same for all pages)
+const int8_t encoderParams[8] = {
+    0, 1, 2, 3, 4, 5, 6, 7  // 0-based indexing (programmer logic)
+};
+
+// X positions for each encoder (STATIC - same for all pages)
+// NOTE: BUG - Manual 2px left shift required! Individual dials work at 26,52,78,104
+// but array-based dials bleed at those positions. Root cause unknown - possibly 
+// sketchy render system handles arrays differently. Should be 26,52,78,104.
+const int8_t encoderX[8] = {
+    24, 50, 76, 102,  // Top row (should be 26,52,78,104)
+    24, 50, 76, 102   // Bottom row (should be 26,52,78,104)
+};
+
+// Y positions for each encoder (STATIC - same for all pages)
+const int8_t encoderY[8] = {
+    13, 13, 13, 13,  // Top row
+    39, 39, 39, 39   // Bottom row
+};
+
+// Width and height settings - 24 pixels for all
+const int8_t encoderWidth[8] = {24, 24, 24, 24, 24, 24, 24, 24};
+const int8_t encoderHeight[8] = {24, 24, 24, 24, 24, 24, 24, 24};
+
+// Default values (as integers, will be converted to fixed point)
+const int16_t encoderDefaults[64] = {
+    // Page 0 - various default values
+    64, 32, 0, 0, 16, 48, 50, 8,
+    // Page 1
+    0, 32, 16, 64, 16, 80, 5, 64,
+    // Page 2
+    25, 100, 64, 64, 127, 0, 64, 4,
+    // Page 3
+    64, 64, 64, 10, 7, 3, 0, 0,
+    // Page 4
+    64, 64, 64, 64, 64, 64, 64, 64,
+    // Page 5
+    64, 64, 64, 64, 64, 64, 64, 64,
+    // Page 6
+    0, 0, 0, 0, 128, 255, 500, 1000,
+    // Page 7
+    64, 64, 0, 64, 64, 0, 64, 64
+};
+
+// Labels for each encoder
+const char* encoderLabels[64] = {
+    // Page 0
+    "PIT", "FLT", "RES", "ATK", "DEC", "SUS", "REL", "DRV",
+    // Page 1
+    "OSC", "SUB", "PWM", "LFO", "MOD", "FBK", "DLY", "REV",
+    // Page 2
+    "LP1", "LP2", "HP1", "HP2", "BP1", "BP2", "NT1", "NT2",
+    // Page 3
+    "ENV", "LF1", "LF2", "LF3", "SEQ", "ARP", "CHD", "SCL",
+    // Page 4
+    "E40", "E41", "E42", "E43", "E44", "E45", "E46", "E47",
+    // Page 5
+    "E48", "E49", "E50", "E51", "E52", "E53", "E54", "E55",
+    // Page 6
+    "E56", "E57", "E58", "E59", "E60", "E61", "E62", "E63",
+    // Page 7
+    "E64", "E65", "E66", "E67", "E68", "E69", "E70", "E71"
+};
+
+// Helper functions
+float applyModeConstraints(float value, int mode, int encoderIndex) {
+    switch(mode) {
+        case MODE_FRAC_UNI:
+            if(value < 0.0f) return 0.0f;
+            if(value > 1.0f) return 1.0f;
+            return value;
+            
+        case MODE_FRAC_BI:
+            if(value < -1.0f) return -1.0f;
+            if(value > 1.0f) return 1.0f;
+            return value;
+            
+        case MODE_INT:
+            // For integer modes, we work with the intValues array
+            return value; // Pass through, actual clamping done on intValues
+            
+        default:
+            return value;
+    }
+}
+
+void updateIntValue(int encoderIndex, int direction, int page) {
+    int arrayIndex = page * 8 + encoderIndex;
+    int minVal = intMin[arrayIndex];
+    int maxVal = intMax[arrayIndex];
+    
+    // Simple increment/decrement
+    if (direction == 0) {
+        intValues[encoderIndex]--;
+    } else {
+        intValues[encoderIndex]++;
+    }
+    
+    // Clamp to range
+    if (intValues[encoderIndex] < minVal) intValues[encoderIndex] = minVal;
+    if (intValues[encoderIndex] > maxVal) intValues[encoderIndex] = maxVal;
+}
+
+void loadIntValue(int encoderIndex, int page) {
+    int arrayIndex = page * 8 + encoderIndex;
+    int minVal = intMin[arrayIndex];
+    int maxVal = intMax[arrayIndex];
+    
+    // Load integer directly from table
+    int index = page * 8 + encoderIndex;
+    if (index < attr_table.LENGTH) {
+        intValues[encoderIndex] = attr_table.array[index];
+    } else {
+        intValues[encoderIndex] = minVal; // Default to minimum if out of bounds
+    }
+    
+    // Clamp to range
+    if (intValues[encoderIndex] < minVal) intValues[encoderIndex] = minVal;
+    if (intValues[encoderIndex] > maxVal) intValues[encoderIndex] = maxVal;
+}
+
+void updateIntegerLabel(int encoderIndex, int page) {
+    int arrayIndex = page * 8 + encoderIndex;
+    
+    // Create label with format "ABC####" where ABC is 3-char label and #### is integer
+    const char* baseLabel = encoderLabels[arrayIndex];
+    int intVal = intValues[encoderIndex];
+    
+    // Copy first 3 chars of base label, pad with spaces if needed
+    for (int i = 0; i < 3; i++) {
+        if (i < strlen(baseLabel)) {
+            dynamicLabels[encoderIndex][i] = baseLabel[i];
+        } else {
+            dynamicLabels[encoderIndex][i] = ' ';
+        }
+    }
+    
+    // Format integer into last 4 characters (clamp to range)
+    if (intVal > 9999) intVal = 9999;
+    else if (intVal < -999) intVal = -999;
+    
+    // Clear number part
+    dynamicLabels[encoderIndex][3] = ' ';
+    dynamicLabels[encoderIndex][4] = ' ';
+    dynamicLabels[encoderIndex][5] = ' ';
+    dynamicLabels[encoderIndex][6] = ' ';
+    dynamicLabels[encoderIndex][7] = 0; // Null terminator
+    
+    if (intVal == 0) {
+        dynamicLabels[encoderIndex][6] = '0';
+    } else if (intVal > 0) {
+        // Positive numbers: fill from right to left
+        if (intVal >= 1000) {
+            dynamicLabels[encoderIndex][3] = '0' + (intVal / 1000); intVal %= 1000;
+            dynamicLabels[encoderIndex][4] = '0' + (intVal / 100); intVal %= 100;
+            dynamicLabels[encoderIndex][5] = '0' + (intVal / 10); intVal %= 10;
+            dynamicLabels[encoderIndex][6] = '0' + intVal;
+        } else if (intVal >= 100) {
+            dynamicLabels[encoderIndex][4] = '0' + (intVal / 100); intVal %= 100;
+            dynamicLabels[encoderIndex][5] = '0' + (intVal / 10); intVal %= 10;
+            dynamicLabels[encoderIndex][6] = '0' + intVal;
+        } else if (intVal >= 10) {
+            dynamicLabels[encoderIndex][5] = '0' + (intVal / 10);
+            dynamicLabels[encoderIndex][6] = '0' + (intVal % 10);
+        } else {
+            dynamicLabels[encoderIndex][6] = '0' + intVal;
+        }
+    } else {
+        // Negative numbers
+        intVal = -intVal;
+        if (intVal >= 100) {
+            dynamicLabels[encoderIndex][3] = '-';
+            dynamicLabels[encoderIndex][4] = '0' + (intVal / 100); intVal %= 100;
+            dynamicLabels[encoderIndex][5] = '0' + (intVal / 10); intVal %= 10;
+            dynamicLabels[encoderIndex][6] = '0' + intVal;
+        } else if (intVal >= 10) {
+            dynamicLabels[encoderIndex][4] = '-';
+            dynamicLabels[encoderIndex][5] = '0' + (intVal / 10);
+            dynamicLabels[encoderIndex][6] = '0' + (intVal % 10);
+        } else {
+            dynamicLabels[encoderIndex][5] = '-';
+            dynamicLabels[encoderIndex][6] = '0' + intVal;
+        }
+    }
+}
+
+void setupDisplay(int encoderIndex, int page) {
+    int arrayIndex = page * 8 + encoderIndex;
+    int currentMode = encoderModes[arrayIndex];
+    
+    // Setup dial display
+    dials[encoderIndex].page = dialPages[arrayIndex];
+    dials[encoderIndex].param = encoderParams[encoderIndex];
+    dials[encoderIndex].x = encoderX[encoderIndex];
+    dials[encoderIndex].y = encoderY[encoderIndex];
+    dials[encoderIndex].width = encoderWidth[encoderIndex];
+    dials[encoderIndex].height = encoderHeight[encoderIndex];
+    dials[encoderIndex].show_value = false; // Never use show_value
+    
+    if (currentMode == MODE_INT) {
+        // For integer mode: dynamic label shows value, dial position controlled externally
+        dials[encoderIndex].is_bipolar = false;
+        updateIntegerLabel(encoderIndex, page);
+        dials[encoderIndex].label = dynamicLabels[encoderIndex];
+    } else {
+        // For fractional modes: static label, dial position controlled externally
+        dials[encoderIndex].is_bipolar = (currentMode == MODE_FRAC_BI);
+        dials[encoderIndex].label = encoderLabels[arrayIndex];
+    }
+    
+    // Always init the dial after setting up all properties
+    parent->instancesketchy__render_i.dial_init(&dials[encoderIndex]);
+}
+]]></code.declaration>
+      <code.init><![CDATA[for (int i = 0; i < 8; i++) {
+    encoderPos[i] = 0.0f;
+    accel[i] = 1;
+    lastTrigTime[i] = 0;
+    lastTrigState[i] = 0;
+    intValues[i] = 0; // Initialize to 0, will be set properly when page loads
+}
+lastPage = -1;
+timeCounter = 0;
+
+// Clear entire table first to remove any old fixed-point data
+for (int i = 0; i < attr_table.LENGTH; i++) {
+    attr_table.array[i] = 0;
+}
+
+// Initialize table positions for integer modes to their minimum values
+for (int page = 0; page < 8; page++) {
+    for (int enc = 0; enc < 8; enc++) {
+        int arrayIndex = page * 8 + enc;
+        int tableIndex = page * 8 + enc;
+        if (tableIndex < attr_table.LENGTH && encoderModes[arrayIndex] == MODE_INT) {
+            attr_table.array[tableIndex] = intMin[arrayIndex];
+        }
+    }
+}
+
+// Initialize display for page 0
+for (int i = 0; i < 8; i++) {
+    setupDisplay(i, 0);
+}
+lastPage = 0;]]></code.init>
+      <code.krate><![CDATA[timeCounter++;
+
+// Calculate current page and its base offset once
+int page = inlet_page;
+int page_offset = page * 8; 
+
+// Load from table when 'page' changes
+if (inlet_page != lastPage && page >= 0 && page < 8) { // Max 8 pages (0-7)
+    for (int i = 0; i < 8; i++) { // 8 encoders
+        int arrayIndex = page_offset + i;
+        
+        // Bounds check for encoderModes array (max index 63 for 8 pages * 8 encoders)
+        if (arrayIndex >= 64) continue; 
+
+        int currentMode = encoderModes[arrayIndex];
+        
+        if (currentMode == MODE_INT) {
+            loadIntValue(i, page);
+        } else {
+            // Fractional modes
+            int table_idx = page_offset + i;
+            if (table_idx < attr_table.LENGTH) {
+                int raw = attr_table.array[table_idx];
+                encoderPos[i] = (float)raw / 1000.0f; 
+                encoderPos[i] = applyModeConstraints(encoderPos[i], currentMode, i);
+            }
+        }
+        
+        // Setup display for new page
+        setupDisplay(i, page);
+    }
+    lastPage = inlet_page;
+}
+
+// Process encoder inputs
+bool trig[8] = {inlet_trig1, inlet_trig2, inlet_trig3, inlet_trig4, 
+                inlet_trig5, inlet_trig6, inlet_trig7, inlet_trig8};
+bool dir[8]  = {inlet_dir1,  inlet_dir2,  inlet_dir3,  inlet_dir4,  
+                inlet_dir5,  inlet_dir6,  inlet_dir7,  inlet_dir8};
+
+for (int i = 0; i < 8; i++) {
+    bool edge = (trig[i] == 1) && (lastTrigState[i] == 0);
+    lastTrigState[i] = trig[i];
+
+    if (edge) {
+        int arrayIndex = page_offset + i;
+        
+        // Bounds check for encoderModes array
+        if (arrayIndex >= 64) continue;
+
+        int currentMode = encoderModes[arrayIndex];
+        
+        if (currentMode == MODE_INT) {
+            updateIntValue(i, dir[i], page);
+            int table_idx = page_offset + i;
+            if (table_idx < attr_table.LENGTH) {
+                attr_table.array[table_idx] = intValues[i];
+            }
+            
+            // Update dial label to show integer value (no dial movement)
+            encoderPos[i] = 0.0f;  // Keep fractional output at 0
+            
+            // Only update label if it actually changed to avoid unnecessary redraws
+            char oldLabel[8];
+            strcpy(oldLabel, dynamicLabels[i]);
+            updateIntegerLabel(i, page);
+            
+            if (strcmp(oldLabel, dynamicLabels[i]) != 0) {
+                dials[i].label = dynamicLabels[i];
+                parent->instancesketchy__render_i.dial_init(&dials[i]);
+            }
+            
+            // Debug: output current integer value on encoder 0 for testing
+            if (i == 0) {
+                outlet_debugintval = intValues[i];
+            }
+            
+        } else {
+            // Fractional modes
+            uint32_t diff = timeCounter - lastTrigTime[i];
+            if (diff < attr_acceltime) {
+                accel[i]++;
+                if (accel[i] > attr_accelmultiplier) accel[i] = attr_accelmultiplier;
+            } else {
+                accel[i] = 1;
+            }
+            float inc = 0.0078125f * accel[i]; // 1/128
+            if (dir[i] == 0) {
+                encoderPos[i] -= inc;
+            } else {
+                encoderPos[i] += inc;
+            }
+            encoderPos[i] = applyModeConstraints(encoderPos[i], currentMode, i);
+            
+            int table_idx = page_offset + i;
+            if (table_idx < attr_table.LENGTH) {
+                attr_table.array[table_idx] = (int)(encoderPos[i] * 1000.0f); 
+            }
+        }
+        lastTrigTime[i] = timeCounter;
+    }
+}
+
+// Update displays
+for (int i = 0; i < 8; i++) {
+    parent->instancesketchy__render_i.dial_update(&dials[i]);
+}
+
+// Output values - only for fractional modes, integer modes output 0
+outlet_o1 = (page_offset + 0 < 64 && encoderModes[page_offset + 0] == MODE_INT) ? 0 : (int)(encoderPos[0] * (float)(1 << 27));
+outlet_o2 = (page_offset + 1 < 64 && encoderModes[page_offset + 1] == MODE_INT) ? 0 : (int)(encoderPos[1] * (float)(1 << 27));
+outlet_o3 = (page_offset + 2 < 64 && encoderModes[page_offset + 2] == MODE_INT) ? 0 : (int)(encoderPos[2] * (float)(1 << 27));
+outlet_o4 = (page_offset + 3 < 64 && encoderModes[page_offset + 3] == MODE_INT) ? 0 : (int)(encoderPos[3] * (float)(1 << 27));
+outlet_o5 = (page_offset + 4 < 64 && encoderModes[page_offset + 4] == MODE_INT) ? 0 : (int)(encoderPos[4] * (float)(1 << 27));
+outlet_o6 = (page_offset + 5 < 64 && encoderModes[page_offset + 5] == MODE_INT) ? 0 : (int)(encoderPos[5] * (float)(1 << 27));
+outlet_o7 = (page_offset + 6 < 64 && encoderModes[page_offset + 6] == MODE_INT) ? 0 : (int)(encoderPos[6] * (float)(1 << 27));
+outlet_o8 = (page_offset + 7 < 64 && encoderModes[page_offset + 7] == MODE_INT) ? 0 : (int)(encoderPos[7] * (float)(1 << 27));
+
+// Debug outlet - shows raw integer value for encoder 3 (index 2)
+outlet_debugintval = intValues[2];
+
+// Debug table value for encoder 3 (index 2)
+int debug_encoder_array_idx = page_offset + 2;
+int debug_encoder_table_idx = page_offset + 2; 
+
+if (debug_encoder_array_idx < 64 && debug_encoder_table_idx < attr_table.LENGTH) {
+    if (encoderModes[debug_encoder_array_idx] == MODE_INT) {
+        outlet_debugtableval = attr_table.array[debug_encoder_table_idx];
+    } else {
+        outlet_debugtableval = -2; // Indicate fractional mode for this slot
+    }
+} else {
+    outlet_debugtableval = -1; // Indicate out of bounds for modes array or table
+}
+
+// Confirmation outlet - always outputs 12352 to verify object is loaded and running (v8 - fixed static array issue)
+outlet_loaded = 12352;]]></code.krate>
+   </obj.normal>
+</objdefs>
