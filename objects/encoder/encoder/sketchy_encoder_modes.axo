@@ -1,0 +1,216 @@
+<objdefs appVersion="1.0.12">
+  <obj.normal id="sketchy_encoder_modes" uuid="auto-generated-sketchy-encoder-modes">
+    <sDescription>8 rotary encoders with acceleration, table storage, configurable modes, and direct write to sketchy param table.</sDescription>
+    <author>Fused by AI</author>
+    <license>BSD</license>
+    <helpPatch>logic.axh</helpPatch>
+    <inlets>
+      <bool32.rising name="trig1"/>
+      <bool32.rising name="dir1"/>
+      <bool32.rising name="trig2"/>
+      <bool32.rising name="dir2"/>
+      <bool32.rising name="trig3"/>
+      <bool32.rising name="dir3"/>
+      <bool32.rising name="trig4"/>
+      <bool32.rising name="dir4"/>
+      <bool32.rising name="trig5"/>
+      <bool32.rising name="dir5"/>
+      <bool32.rising name="trig6"/>
+      <bool32.rising name="dir6"/>
+      <bool32.rising name="trig7"/>
+      <bool32.rising name="dir7"/>
+      <bool32.rising name="trig8"/>
+      <bool32.rising name="dir8"/>
+      <int32 name="a"/>
+    </inlets>
+    <outlets>
+      <frac32 name="o1"/>
+      <frac32 name="o2"/>
+      <frac32 name="o3"/>
+      <frac32 name="o4"/>
+      <frac32 name="o5"/>
+      <frac32 name="o6"/>
+      <frac32 name="o7"/>
+      <frac32 name="o8"/>
+    </outlets>
+    <displays/>
+    <params/>
+    <attribs>
+      <spinner name="acceltime" MinValue="1" MaxValue="1000" DefaultValue="100"/>
+      <spinner name="accelmultiplier" MinValue="1" MaxValue="10" DefaultValue="6"/>
+      <spinner name="firstparam" MinValue="0" MaxValue="118" DefaultValue="0"/>
+    </attribs>
+    <includes/>
+    <code.declaration><![CDATA[
+// Encoder data
+float encoderPos[8];
+int accel[8];
+uint32_t lastTrigTime[8];
+int lastTrigState[8];
+int lastA = -1;
+uint32_t timeCounter = 0;
+
+// Mode constants
+#define MODE_FRAC_PLUS    0  // 0.0 to 1.0, positive only
+#define MODE_INT_PLUS     1  // min to max, positive only  
+#define MODE_INT_BIPOLAR  2  // min to max, bipolar
+
+// Mode configuration for encoders (8 encoders x multiple layers)
+const int8_t encoderModes[64] = {
+    0, 0, 0, 1, 0, 0, 0, 1,
+    0, 0, 0, 0, 2, 0, 1, 0,
+    1, 1, 0, 0, 1, 2, 0, 1,
+    0, 0, 0, 1, 1, 1, 2, 2,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0
+};
+const int16_t intMin[64] = {
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, -32, 0, 1, 0,
+    0, 0, 0, 0, 0, -100, 0, 0,
+    0, 0, 0, 0, 0, 0, -50, -25,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0
+};
+const int16_t intMax[64] = {
+    127, 127, 127, 63, 127, 127, 100, 999,
+    127, 64, 32, 127, 31, 127, 10, 127,
+    50, 200, 127, 127, 255, 99, 127, 8,
+    127, 127, 127, 20, 15, 7, 49, 24,
+    127, 127, 127, 127, 127, 127, 127, 127,
+    127, 127, 127, 127, 127, 127, 127, 127,
+    127, 127, 127, 127, 127, 127, 127, 127,
+    127, 127, 127, 127, 127, 127, 127, 127
+};
+int intValues[8];
+
+float applyModeConstraints(float value, int mode, int encoderIndex) {
+    switch(mode) {
+        case MODE_FRAC_PLUS:
+            if(value < 0.0f) return 0.0f;
+            if(value > 1.0f) return 1.0f;
+            return value;
+        case MODE_INT_PLUS:
+        case MODE_INT_BIPOLAR:
+            return value;
+        default:
+            return value;
+    }
+}
+void updateIntValue(int encoderIndex, int direction, int layer) {
+    int arrayIndex = layer * 8 + encoderIndex;
+    int minVal = intMin[arrayIndex];
+    int maxVal = intMax[arrayIndex];
+    if (direction == 0) {
+        intValues[encoderIndex]--;
+    } else {
+        intValues[encoderIndex]++;
+    }
+    if (intValues[encoderIndex] < minVal) intValues[encoderIndex] = minVal;
+    if (intValues[encoderIndex] > maxVal) intValues[encoderIndex] = maxVal;
+}
+void loadIntValue(int encoderIndex, int layer) {
+    int arrayIndex = layer * 8 + encoderIndex;
+    int minVal = intMin[arrayIndex];
+    int maxVal = intMax[arrayIndex];
+    int index = layer * 8 + encoderIndex;
+    // Default to min if out of bounds
+    intValues[encoderIndex] = minVal;
+    if (intValues[encoderIndex] < minVal) intValues[encoderIndex] = minVal;
+    if (intValues[encoderIndex] > maxVal) intValues[encoderIndex] = maxVal;
+}
+]]></code.declaration>
+    <code.init><![CDATA[
+for (int i = 0; i < 8; i++) {
+    encoderPos[i] = 0.0f;
+    accel[i] = 1;
+    lastTrigTime[i] = 0;
+    lastTrigState[i] = 0;
+    intValues[i] = 0;
+}
+lastA = -1;
+timeCounter = 0;
+]]></code.init>
+    <code.krate><![CDATA[
+timeCounter++;
+int layer = inlet_a;
+int layer_offset = layer * 8;
+if (inlet_a != lastA && layer >= 0 && layer < 8) {
+    for (int i = 0; i < 8; i++) {
+        int arrayIndex = layer_offset + i;
+        if (arrayIndex >= 64) continue;
+        int currentMode = encoderModes[arrayIndex];
+        if (currentMode == MODE_INT_PLUS || currentMode == MODE_INT_BIPOLAR) {
+            loadIntValue(i, layer);
+        } else {
+            encoderPos[i] = 0.0f;
+            encoderPos[i] = applyModeConstraints(encoderPos[i], currentMode, i);
+        }
+    }
+    lastA = inlet_a;
+}
+bool trig[8] = {inlet_trig1, inlet_trig2, inlet_trig3, inlet_trig4, 
+                inlet_trig5, inlet_trig6, inlet_trig7, inlet_trig8};
+bool dir[8]  = {inlet_dir1,  inlet_dir2,  inlet_dir3,  inlet_dir4,  
+                inlet_dir5,  inlet_dir6,  inlet_dir7,  inlet_dir8};
+for (int i = 0; i < 8; i++) {
+    bool edge = (trig[i] == 1) && (lastTrigState[i] == 0);
+    lastTrigState[i] = trig[i];
+    if (edge) {
+        int arrayIndex = layer_offset + i;
+        if (arrayIndex >= 64) continue;
+        int currentMode = encoderModes[arrayIndex];
+        if (currentMode == MODE_INT_PLUS || currentMode == MODE_INT_BIPOLAR) {
+            updateIntValue(i, dir[i], layer);
+        } else {
+            uint32_t diff = timeCounter - lastTrigTime[i];
+            if (diff < attr_acceltime) {
+                accel[i]++;
+                if (accel[i] > attr_accelmultiplier) accel[i] = attr_accelmultiplier;
+            } else {
+                accel[i] = 1;
+            }
+            float inc = 0.0078125f * accel[i];
+            if (dir[i] == 0) {
+                encoderPos[i] -= inc;
+            } else {
+                encoderPos[i] += inc;
+            }
+            if (encoderPos[i] < 0.0f) encoderPos[i] = 0.0f;
+            if (encoderPos[i] > 1.0f) encoderPos[i] = 1.0f;
+        }
+        lastTrigTime[i] = timeCounter;
+    }
+}
+// Write directly to sketchy param table
+rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+rootc::instancesketchy__render* renderer = &parent->instancesketchy__render_i;
+int page = renderer->getCurrentPage();
+int firstparam = attr_firstparam;
+for (int i = 0; i < 8; i++) {
+    int arrayIndex = layer_offset + i;
+    int currentMode = encoderModes[arrayIndex];
+    int32_t value = 0;
+    if (currentMode == MODE_INT_PLUS || currentMode == MODE_INT_BIPOLAR) {
+        value = intValues[i];
+    } else {
+        value = (int32_t)(encoderPos[i] * (float)(1 << 27));
+    }
+    param_table->array[page][firstparam + i] = value;
+}
+// Output values for patch compatibility
+outlet_o1 = (layer_offset + 0 < 64 && (encoderModes[layer_offset + 0] == MODE_INT_PLUS || encoderModes[layer_offset + 0] == MODE_INT_BIPOLAR)) ? 0 : (int)(encoderPos[0] * (float)(1 << 27));
+outlet_o2 = (layer_offset + 1 < 64 && (encoderModes[layer_offset + 1] == MODE_INT_PLUS || encoderModes[layer_offset + 1] == MODE_INT_BIPOLAR)) ? 0 : (int)(encoderPos[1] * (float)(1 << 27));
+outlet_o3 = (layer_offset + 2 < 64 && (encoderModes[layer_offset + 2] == MODE_INT_PLUS || encoderModes[layer_offset + 2] == MODE_INT_BIPOLAR)) ? 0 : (int)(encoderPos[2] * (float)(1 << 27));
+outlet_o4 = (layer_offset + 3 < 64 && (encoderModes[layer_offset + 3] == MODE_INT_PLUS || encoderModes[layer_offset + 3] == MODE_INT_BIPOLAR)) ? 0 : (int)(encoderPos[3] * (float)(1 << 27));
+outlet_o5 = (layer_offset + 4 < 64 && (encoderModes[layer_offset + 4] == MODE_INT_PLUS || encoderModes[layer_offset + 4] == MODE_INT_BIPOLAR)) ? 0 : (int)(encoderPos[4] * (float)(1 << 27));
+outlet_o6 = (layer_offset + 5 < 64 && (encoderModes[layer_offset + 5] == MODE_INT_PLUS || encoderModes[layer_offset + 5] == MODE_INT_BIPOLAR)) ? 0 : (int)(encoderPos[5] * (float)(1 << 27));
+outlet_o7 = (layer_offset + 6 < 64 && (encoderModes[layer_offset + 6] == MODE_INT_PLUS || encoderModes[layer_offset + 6] == MODE_INT_BIPOLAR)) ? 0 : (int)(encoderPos[6] * (float)(1 << 27));
+outlet_o8 = (layer_offset + 7 < 64 && (encoderModes[layer_offset + 7] == MODE_INT_PLUS || encoderModes[layer_offset + 7] == MODE_INT_BIPOLAR)) ? 0 : (int)(encoderPos[7] * (float)(1 << 27));
+]]></code.krate>
+  </obj.normal>
+</objdefs> 
