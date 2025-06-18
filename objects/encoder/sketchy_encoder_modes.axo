@@ -1,48 +1,47 @@
 <objdefs appVersion="1.0.12">
-   <obj.normal id="8encoder_modes" uuid="b338a79a-e171-4826-ba58-cff5f5889413">
-      <sDescription>8 rotary encoders with acceleration, table storage, configurable modes, and direct write to sketchy param table.</sDescription>
-      <author>Fused by AI</author>
-      <license>BSD</license>
-      <helpPatch>logic.axh</helpPatch>
-      <inlets>
-         <bool32.rising name="trig1"/>
-         <bool32.rising name="dir1"/>
-         <bool32.rising name="trig2"/>
-         <bool32.rising name="dir2"/>
-         <bool32.rising name="trig3"/>
-         <bool32.rising name="dir3"/>
-         <bool32.rising name="trig4"/>
-         <bool32.rising name="dir4"/>
-         <bool32.rising name="trig5"/>
-         <bool32.rising name="dir5"/>
-         <bool32.rising name="trig6"/>
-         <bool32.rising name="dir6"/>
-         <bool32.rising name="trig7"/>
-         <bool32.rising name="dir7"/>
-         <bool32.rising name="trig8"/>
-         <bool32.rising name="dir8"/>
-         <int32 name="a"/>
-      </inlets>
-      <outlets>
-         <frac32 name="o1"/>
-         <frac32 name="o2"/>
-         <frac32 name="o3"/>
-         <frac32 name="o4"/>
-         <frac32 name="o5"/>
-         <frac32 name="o6"/>
-         <frac32 name="o7"/>
-         <frac32 name="o8"/>
-         <int32 name="debug_int_val"/>
-         <int32 name="debug_table_val"/>
-      </outlets>
-      <displays/>
-      <params/>
-      <attribs>
-         <spinner name="acceltime" MinValue="1" MaxValue="1000" DefaultValue="100"/>
-         <spinner name="accelmultiplier" MinValue="1" MaxValue="10" DefaultValue="6"/>
-         <spinner name="firstparam" MinValue="0" MaxValue="118" DefaultValue="0"/>
-      </attribs>
-      <code.declaration><![CDATA[
+  <obj.normal id="sketchy_encoder_modes" uuid="auto-generated-sketchy-encoder-modes">
+    <sDescription>8 rotary encoders with acceleration, table storage, configurable modes, and direct write to sketchy param table.</sDescription>
+    <author>Fused by AI</author>
+    <license>BSD</license>
+    <helpPatch>logic.axh</helpPatch>
+    <inlets>
+      <bool32.rising name="trig1"/>
+      <bool32.rising name="dir1"/>
+      <bool32.rising name="trig2"/>
+      <bool32.rising name="dir2"/>
+      <bool32.rising name="trig3"/>
+      <bool32.rising name="dir3"/>
+      <bool32.rising name="trig4"/>
+      <bool32.rising name="dir4"/>
+      <bool32.rising name="trig5"/>
+      <bool32.rising name="dir5"/>
+      <bool32.rising name="trig6"/>
+      <bool32.rising name="dir6"/>
+      <bool32.rising name="trig7"/>
+      <bool32.rising name="dir7"/>
+      <bool32.rising name="trig8"/>
+      <bool32.rising name="dir8"/>
+      <int32 name="a"/>
+    </inlets>
+    <outlets>
+      <frac32 name="o1"/>
+      <frac32 name="o2"/>
+      <frac32 name="o3"/>
+      <frac32 name="o4"/>
+      <frac32 name="o5"/>
+      <frac32 name="o6"/>
+      <frac32 name="o7"/>
+      <frac32 name="o8"/>
+    </outlets>
+    <displays/>
+    <params/>
+    <attribs>
+      <spinner name="acceltime" MinValue="1" MaxValue="1000" DefaultValue="100"/>
+      <spinner name="accelmultiplier" MinValue="1" MaxValue="10" DefaultValue="6"/>
+      <spinner name="firstparam" MinValue="0" MaxValue="118" DefaultValue="0"/>
+    </attribs>
+    <includes/>
+    <code.declaration><![CDATA[
 // Encoder data
 float encoderPos[8];
 int accel[8];
@@ -55,6 +54,21 @@ uint32_t timeCounter = 0;
 #define MODE_FRAC_PLUS    0  // 0.0 to 1.0, positive only
 #define MODE_INT_PLUS     1  // min to max, positive only  
 #define MODE_INT_BIPOLAR  2  // min to max, bipolar
+
+// Dial configuration
+rootc::instancesketchy__render::dial_t dials[8];
+
+// Labels for each encoder
+const char* encoderLabels[8] = {
+    "FIN",  // Encoder 1
+    "WAV",  // Encoder 2
+    "PHS",  // Encoder 3
+    "a",    // Encoder 4
+    "DET",  // Encoder 5
+    "FRM",  // Encoder 6
+    "UNI",  // Encoder 7
+    "sd"    // Encoder 8
+};
 
 // Mode configuration for encoders (8 encoders x multiple layers)
 const int8_t encoderModes[64] = {
@@ -118,76 +132,43 @@ void loadIntValue(int encoderIndex, int layer) {
     int arrayIndex = layer * 8 + encoderIndex;
     int minVal = intMin[arrayIndex];
     int maxVal = intMax[arrayIndex];
-    
-    // Load value from sketchy param table
-    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
-    int firstparam = attr_firstparam;
-    
-    // Load the actual value from the table using the layer parameter as page
-    intValues[encoderIndex] = param_table->array[layer][firstparam + encoderIndex];
-    
-    // Clamp to range
+    int index = layer * 8 + encoderIndex;
+    // Default to min if out of bounds
+    intValues[encoderIndex] = minVal;
     if (intValues[encoderIndex] < minVal) intValues[encoderIndex] = minVal;
     if (intValues[encoderIndex] > maxVal) intValues[encoderIndex] = maxVal;
 }
 ]]></code.declaration>
-      <code.init><![CDATA[
+    <code.init><![CDATA[
 for (int i = 0; i < 8; i++) {
     encoderPos[i] = 0.0f;
     accel[i] = 1;
     lastTrigTime[i] = 0;
     lastTrigState[i] = 0;
     intValues[i] = 0;
+
+    // Initialize dial configuration
+    dials[i].page = 0;
+    dials[i].param = i;
+    dials[i].is_bipolar = (encoderModes[i] == MODE_INT_BIPOLAR);
+    dials[i].x = 26 + (i * 26);  // Position dials horizontally
+    dials[i].y = (i < 4) ? 13 : 39;  // Position dials in two rows
+    dials[i].width = 24;
+    dials[i].height = 24;
+    dials[i].label = encoderLabels[i];
+    dials[i].show_value = (i < 4);  // Show value for first 4 dials
+    dials[i].default_value = 0;
+
+    parent->instancesketchy__render_i.dial_init(&dials[i]);
 }
 lastA = -1;
 timeCounter = 0;
-
-// Initialize param table with default values
-rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
-int firstparam = attr_firstparam;
-
-for (int page = 0; page < 8; page++) {
-    for (int enc = 0; enc < 8; enc++) {
-        int arrayIndex = page * 8 + enc;
-        if (arrayIndex >= 64) continue;
-        int currentMode = encoderModes[arrayIndex];
-        
-        if (currentMode == MODE_INT_PLUS || currentMode == MODE_INT_BIPOLAR) {
-            // Initialize integer modes to their minimum values
-            param_table->array[page][firstparam + enc] = intMin[arrayIndex];
-        } else {
-            // Initialize fractional modes to 0
-            param_table->array[page][firstparam + enc] = 0;
-        }
-    }
-}
 ]]></code.init>
-      <code.krate><![CDATA[
+    <code.krate><![CDATA[
 timeCounter++;
 int layer = inlet_a;
 int layer_offset = layer * 8;
 if (inlet_a != lastA && layer >= 0 && layer < 8) {
-    // Save current values before switching (write to table)
-    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
-    int firstparam = attr_firstparam;
-    
-    if (lastA >= 0 && lastA < 8) {
-        int old_layer_offset = lastA * 8;
-        for (int i = 0; i < 8; i++) {
-            int arrayIndex = old_layer_offset + i;
-            if (arrayIndex >= 64) continue;
-            int currentMode = encoderModes[arrayIndex];
-            int32_t value = 0;
-            if (currentMode == MODE_INT_PLUS || currentMode == MODE_INT_BIPOLAR) {
-                value = intValues[i];
-            } else {
-                value = (int32_t)(encoderPos[i] * (float)(1 << 27));
-            }
-            param_table->array[lastA][firstparam + i] = value;
-        }
-    }
-    
-    // Load values for new page
     for (int i = 0; i < 8; i++) {
         int arrayIndex = layer_offset + i;
         if (arrayIndex >= 64) continue;
@@ -195,9 +176,7 @@ if (inlet_a != lastA && layer >= 0 && layer < 8) {
         if (currentMode == MODE_INT_PLUS || currentMode == MODE_INT_BIPOLAR) {
             loadIntValue(i, layer);
         } else {
-            // Load fractional value from table
-            int32_t stored_value = param_table->array[layer][firstparam + i];
-            encoderPos[i] = (float)stored_value / (float)(1 << 27);
+            encoderPos[i] = 0.0f;
             encoderPos[i] = applyModeConstraints(encoderPos[i], currentMode, i);
         }
     }
@@ -238,6 +217,8 @@ for (int i = 0; i < 8; i++) {
 }
 // Write directly to sketchy param table
 rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+rootc::instancesketchy__render* renderer = &parent->instancesketchy__render_i;
+int page = renderer->getCurrentPage();
 int firstparam = attr_firstparam;
 for (int i = 0; i < 8; i++) {
     int arrayIndex = layer_offset + i;
@@ -248,7 +229,7 @@ for (int i = 0; i < 8; i++) {
     } else {
         value = (int32_t)(encoderPos[i] * (float)(1 << 27));
     }
-    param_table->array[layer][firstparam + i] = value;
+    param_table->array[page][firstparam + i] = value;
 }
 // Output values for patch compatibility
 outlet_o1 = (layer_offset + 0 < 64 && (encoderModes[layer_offset + 0] == MODE_INT_PLUS || encoderModes[layer_offset + 0] == MODE_INT_BIPOLAR)) ? 0 : (int)(encoderPos[0] * (float)(1 << 27));
@@ -260,5 +241,5 @@ outlet_o6 = (layer_offset + 5 < 64 && (encoderModes[layer_offset + 5] == MODE_IN
 outlet_o7 = (layer_offset + 6 < 64 && (encoderModes[layer_offset + 6] == MODE_INT_PLUS || encoderModes[layer_offset + 6] == MODE_INT_BIPOLAR)) ? 0 : (int)(encoderPos[6] * (float)(1 << 27));
 outlet_o8 = (layer_offset + 7 < 64 && (encoderModes[layer_offset + 7] == MODE_INT_PLUS || encoderModes[layer_offset + 7] == MODE_INT_BIPOLAR)) ? 0 : (int)(encoderPos[7] * (float)(1 << 27));
 ]]></code.krate>
-   </obj.normal>
-</objdefs>
+  </obj.normal>
+</objdefs> 
