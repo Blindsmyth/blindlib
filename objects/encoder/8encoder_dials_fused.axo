@@ -41,6 +41,14 @@
          <spinner name="acceltime" MinValue="1" MaxValue="1000" DefaultValue="100"/>
          <spinner name="accelmultiplier" MinValue="1" MaxValue="10" DefaultValue="6"/>
          <spinner name="firstparam" MinValue="0" MaxValue="118" DefaultValue="0"/>
+         <table name="default1" table="0.0"/>
+         <table name="default2" table="0.0"/>
+         <table name="default3" table="0.0"/>
+         <table name="default4" table="0.0"/>
+         <table name="default5" table="0.0"/>
+         <table name="default6" table="0.0"/>
+         <table name="default7" table="0.0"/>
+         <table name="default8" table="0.0"/>
       </attribs>
       <includes/>
       <code.declaration><![CDATA[// Unified configuration structure for each encoder+dial
@@ -50,7 +58,6 @@ typedef struct {
     bool show_value;        // Show/hide value (for fractional modes)
     const char* label;      // Label text
     const char* options;    // List options (for mode 3)
-    float default_value;    // Default value (for fractional modes)
     int16_t int_min;        // Minimum value (for int/list modes)
     int16_t int_max;        // Maximum value (for int/list modes)
 } encoder_dial_config_t;
@@ -59,14 +66,14 @@ typedef struct {
 const encoder_dial_config_t configs[8][8] = {
     // PAGE 0 - Oscillator controls
     {
-        {1, 0, true,  "FIN", "", 0.0f, 0, 127},                           // Fine tune
-        {1, 1, true,  "WAV", "", 0.0f, 0, 127},                           // Waveform
-        {1, 2, true,  "PHS", "", 0.0f, 0, 127},                           // Phase
-        {3, 3, false, "", "Sin,Tri,Saw,Sqr,Nse", 0.0f, 0, 4},            // Wave selector
-        {0, 4, false, "DET", "", 0.0f, 0, 127},                           // Detune
-        {0, 5, false, "SUB", "", 0.0f, 0, 127},                           // Sub osc
-        {0, 6, false, "MIX", "", 0.0f, 0, 127},                           // Mix
-        {2, 7, false, "OCT", "", 0.0f, -4, 4}                             // Octave
+        {1, 0, true,  "FIN", "", 0, 127},                           // Fine tune
+        {1, 1, true,  "WAV", "", 0, 127},                           // Waveform
+        {1, 2, true,  "PHS", "", 0, 127},                           // Phase
+        {3, 3, false, "", "Sin,Tri,Saw,Sqr,Nse", 0, 4},            // Wave selector
+        {0, 4, false, "DET", "", 0, 127},                           // Detune
+        {0, 5, false, "SUB", "", 0, 127},                           // Sub osc
+        {0, 6, false, "MIX", "", 0, 127},                           // Mix
+        {2, 7, false, "OCT", "", -4, 4}                             // Octave
     },
     // PAGE 1 - Filter controls
     {
@@ -340,7 +347,12 @@ if (inlet_page != lastPage && page >= 0 && page < 8) {
             
             if (old_config->mode == MODE_INT || old_config->mode == MODE_LIST) {
                 value = intValues[i];
+            } else if (old_config->mode == MODE_FRAC_BIPOLAR) {
+                // Convert bipolar (-1.0 to 1.0) to unipolar (0.0 to 1.0) for table storage
+                float unipolar_value = (encoderPos[i] + 1.0f) * 0.5f;
+                value = (int32_t)(unipolar_value * (float)(1 << 27));
             } else {
+                // Unipolar mode - direct conversion
                 value = (int32_t)(encoderPos[i] * (float)(1 << 27));
             }
             param_table->array[lastPage][firstparam + i] = value;
@@ -356,7 +368,15 @@ if (inlet_page != lastPage && page >= 0 && page < 8) {
         } else {
             // Load fractional value from table
             int32_t stored_value = param_table->array[page][firstparam + i];
-            encoderPos[i] = (float)stored_value / (float)(1 << 27);
+            float table_value = (float)stored_value / (float)(1 << 27);
+            
+            if (config->mode == MODE_FRAC_BIPOLAR) {
+                // Convert from unipolar table storage (0.0 to 1.0) back to bipolar (-1.0 to 1.0)
+                encoderPos[i] = (table_value * 2.0f) - 1.0f;
+            } else {
+                // Unipolar mode - direct assignment
+                encoderPos[i] = table_value;
+            }
             encoderPos[i] = applyModeConstraints(encoderPos[i], config->mode, i);
         }
     }
