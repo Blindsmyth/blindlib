@@ -105,7 +105,7 @@ void init_dial(uint8_t index, const dial_config_t* config) {
             selects[index].y = (index < 4) ? ROW1_Y : ROW2_Y;
             selects[index].width = DIAL_WIDTH;
             selects[index].height = DIAL_HEIGHT;
-            selects[index].is_int = false;
+            selects[index].is_int = true;
             selects[index].label = config->options;
             parent->instancesketchy__render_i.select_init(&selects[index]);
             break;
