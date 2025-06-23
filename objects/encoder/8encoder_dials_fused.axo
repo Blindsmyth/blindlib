@@ -56,94 +56,95 @@ typedef struct {
 } encoder_dial_config_t;
 
 // Configuration for 8 pages, 8 encoders each (64 total configurations)
+// Default values now use Axoloti-friendly ranges: 0-64 (unipolar), -64 to +64 (bipolar)
 const encoder_dial_config_t configs[8][8] = {
     // PAGE 0 - Oscillator controls
     {
-        {1, 0, true,  "FIN", "", 0.0f, 0, 127},                           // Fine tune
-        {1, 1, true,  "WAV", "", 0.0f, 0, 127},                           // Waveform
-        {1, 2, true,  "PHS", "", 0.0f, 0, 127},                           // Phase
-        {3, 3, false, "", "Sin,Tri,Saw,Sqr,Nse", 0.0f, 0, 4},            // Wave selector
-        {0, 4, false, "DET", "", 0.0f, 0, 127},                           // Detune
-        {0, 5, false, "SUB", "", 0.0f, 0, 127},                           // Sub osc
-        {0, 6, false, "MIX", "", 0.0f, 0, 127},                           // Mix
-        {2, 7, false, "OCT", "", 0.0f, -4, 4}                             // Octave
+        {1, 0, true,  "FIN", "", 0.0f, 0, 127},                           // Fine tune (center)
+        {1, 1, true,  "WAV", "", 0.0f, 0, 127},                           // Waveform (center)
+        {1, 2, true,  "PHS", "", 0.0f, 0, 127},                           // Phase (center)
+        {3, 3, false, "", "Sin,Tri,Saw,Sqr,Nse", 0.0f, 0, 4},            // Wave selector (Sin)
+        {0, 4, false, "DET", "", 0.0f, 0, 127},                           // Detune (off)
+        {0, 5, false, "SUB", "", 0.0f, 0, 127},                           // Sub osc (off)
+        {0, 6, false, "MIX", "", 32.0f, 0, 127},                          // Mix (25% default)
+        {2, 7, false, "OCT", "", 0.0f, -4, 4}                             // Octave (center)
     },
     // PAGE 1 - Filter controls
     {
-        {0, 0, true,  "CUT", "", 0.5f, 0, 127},                           // Cutoff
-        {1, 1, true,  "RES", "", 0.0f, 0, 127},                           // Resonance
-        {1, 2, false, "ENV", "", 0.0f, -64, 64},                          // Env amount
-        {3, 3, false, "", "LP,HP,BP,BR", 0.0f, 0, 3},                     // Filter type
-        {0, 4, false, "KBD", "", 0.0f, 0, 127},                           // Keyboard track
-        {0, 5, false, "VEL", "", 0.0f, 0, 127},                           // Velocity
-        {0, 6, false, "LFO", "", 0.0f, 0, 127},                           // LFO amount
-        {2, 7, false, "DRV", "", 0.0f, 0, 100}                            // Drive
+        {0, 0, true,  "CUT", "", 32.0f, 0, 127},                          // Cutoff (50% default)
+        {1, 1, true,  "RES", "", 0.0f, 0, 127},                           // Resonance (center)
+        {1, 2, false, "ENV", "", 0.0f, -64, 64},                          // Env amount (center)
+        {3, 3, false, "", "LP,HP,BP,BR", 0.0f, 0, 3},                     // Filter type (LP)
+        {0, 4, false, "KBD", "", 16.0f, 0, 127},                          // Keyboard track (25%)
+        {0, 5, false, "VEL", "", 0.0f, 0, 127},                           // Velocity (off)
+        {0, 6, false, "LFO", "", 0.0f, 0, 127},                           // LFO amount (off)
+        {2, 7, false, "DRV", "", 0.0f, 0, 100}                            // Drive (off)
     },
     // PAGE 2 - Envelope controls
     {
-        {0, 0, false, "ATK", "", 0.0f, 0, 127},                           // Attack
-        {0, 1, false, "DEC", "", 0.0f, 0, 127},                           // Decay
-        {0, 2, false, "SUS", "", 0.7f, 0, 127},                           // Sustain
-        {0, 3, false, "REL", "", 0.0f, 0, 127},                           // Release
-        {1, 4, false, "VEL", "", 0.0f, -100, 100},                        // Velocity
-        {1, 5, false, "CRV", "", 0.0f, -50, 50},                          // Curve
-        {0, 6, false, "TIM", "", 0.0f, 0, 127},                           // Time scale
-        {3, 7, false, "", "Lin,Exp,Log", 0.0f, 0, 2}                      // Curve type
+        {0, 0, false, "ATK", "", 8.0f, 0, 127},                           // Attack (fast)
+        {0, 1, false, "DEC", "", 16.0f, 0, 127},                          // Decay (medium)
+        {0, 2, false, "SUS", "", 48.0f, 0, 127},                          // Sustain (75%)
+        {0, 3, false, "REL", "", 24.0f, 0, 127},                          // Release (medium)
+        {1, 4, false, "VEL", "", 0.0f, -100, 100},                        // Velocity (center)
+        {1, 5, false, "CRV", "", 0.0f, -50, 50},                          // Curve (linear)
+        {0, 6, false, "TIM", "", 32.0f, 0, 127},                          // Time scale (50%)
+        {3, 7, false, "", "Lin,Exp,Log", 0.0f, 0, 2}                      // Curve type (Linear)
     },
     // PAGE 3 - LFO controls
     {
-        {0, 0, true,  "RAT", "", 0.0f, 0, 127},                           // Rate
-        {1, 1, false, "DEP", "", 0.0f, -127, 127},                        // Depth
-        {1, 2, false, "PHS", "", 0.0f, -127, 127},                        // Phase
-        {3, 3, false, "", "Sin,Tri,Saw,Sqr,S&H", 0.0f, 0, 4},            // LFO shape
-        {0, 4, false, "SYN", "", 0.0f, 0, 127},                           // Sync
-        {0, 5, false, "DEL", "", 0.0f, 0, 127},                           // Delay
-        {0, 6, false, "FAD", "", 0.0f, 0, 127},                           // Fade in
-        {2, 7, false, "DIV", "", 0.0f, 1, 32}                             // Division
+        {0, 0, true,  "RAT", "", 16.0f, 0, 127},                          // Rate (25%)
+        {1, 1, false, "DEP", "", 0.0f, -127, 127},                        // Depth (center)
+        {1, 2, false, "PHS", "", 0.0f, -127, 127},                        // Phase (center)
+        {3, 3, false, "", "Sin,Tri,Saw,Sqr,S&H", 0.0f, 0, 4},            // LFO shape (Sin)
+        {0, 4, false, "SYN", "", 0.0f, 0, 127},                           // Sync (off)
+        {0, 5, false, "DEL", "", 0.0f, 0, 127},                           // Delay (off)
+        {0, 6, false, "FAD", "", 0.0f, 0, 127},                           // Fade in (off)
+        {2, 7, false, "DIV", "", 4.0f, 1, 32}                             // Division (1/4)
     },
     // PAGE 4 - Effects controls
     {
-        {0, 0, false, "REV", "", 0.0f, 0, 127},                           // Reverb
-        {0, 1, false, "DEL", "", 0.0f, 0, 127},                           // Delay
-        {0, 2, false, "CHO", "", 0.0f, 0, 127},                           // Chorus
-        {0, 3, false, "DIS", "", 0.0f, 0, 127},                           // Distortion
-        {1, 4, false, "TIM", "", 0.0f, -64, 64},                          // Delay time
-        {1, 5, false, "FBK", "", 0.0f, -100, 100},                        // Feedback
-        {0, 6, false, "MIX", "", 0.0f, 0, 127},                           // Wet/Dry
-        {3, 7, false, "", "Off,Hall,Room,Plate", 0.0f, 0, 3}              // Reverb type
+        {0, 0, false, "REV", "", 16.0f, 0, 127},                          // Reverb (25%)
+        {0, 1, false, "DEL", "", 0.0f, 0, 127},                           // Delay (off)
+        {0, 2, false, "CHO", "", 0.0f, 0, 127},                           // Chorus (off)
+        {0, 3, false, "DIS", "", 0.0f, 0, 127},                           // Distortion (off)
+        {1, 4, false, "TIM", "", 0.0f, -64, 64},                          // Delay time (center)
+        {1, 5, false, "FBK", "", 0.0f, -100, 100},                        // Feedback (center)
+        {0, 6, false, "MIX", "", 32.0f, 0, 127},                          // Wet/Dry (50%)
+        {3, 7, false, "", "Off,Hall,Room,Plate", 1.0f, 0, 3}              // Reverb type (Hall)
     },
     // PAGE 5 - Sequencer controls
     {
-        {2, 0, true,  "STP", "", 16.0f, 1, 64},                           // Steps
-        {0, 1, true,  "SPD", "", 0.5f, 0, 127},                           // Speed
-        {1, 2, false, "SWG", "", 0.0f, -50, 50},                          // Swing
-        {3, 3, false, "", "Fwd,Rev,P-P,Rnd", 0.0f, 0, 3},                // Direction
-        {0, 4, false, "GAT", "", 0.8f, 0, 127},                           // Gate
-        {1, 5, false, "ACC", "", 0.0f, -127, 127},                        // Accent
-        {0, 6, false, "SLD", "", 0.0f, 0, 127},                           // Slide
-        {2, 7, false, "RST", "", 0.0f, 0, 1}                              // Reset
+        {2, 0, true,  "STP", "", 16.0f, 1, 64},                           // Steps (16)
+        {0, 1, true,  "SPD", "", 32.0f, 0, 127},                          // Speed (50%)
+        {1, 2, false, "SWG", "", 0.0f, -50, 50},                          // Swing (center)
+        {3, 3, false, "", "Fwd,Rev,P-P,Rnd", 0.0f, 0, 3},                // Direction (Forward)
+        {0, 4, false, "GAT", "", 48.0f, 0, 127},                          // Gate (75%)
+        {1, 5, false, "ACC", "", 0.0f, -127, 127},                        // Accent (center)
+        {0, 6, false, "SLD", "", 0.0f, 0, 127},                           // Slide (off)
+        {2, 7, false, "RST", "", 0.0f, 0, 1}                              // Reset (off)
     },
     // PAGE 6 - Modulation controls
     {
-        {1, 0, false, "M1A", "", 0.0f, -127, 127},                        // Mod 1 amount
-        {1, 1, false, "M2A", "", 0.0f, -127, 127},                        // Mod 2 amount
-        {1, 2, false, "M3A", "", 0.0f, -127, 127},                        // Mod 3 amount
-        {3, 3, false, "", "LFO,ENV,VEL,RND", 0.0f, 0, 3},                // Mod source
-        {3, 4, false, "", "Cut,Res,Amp,Pan", 0.0f, 0, 3},                // Mod dest 1
-        {3, 5, false, "", "Pit,Phs,PWM,FM", 0.0f, 0, 3},                 // Mod dest 2
-        {0, 6, false, "ATN", "", 0.0f, 0, 127},                           // Attenuator
-        {2, 7, false, "LAG", "", 0.0f, 0, 100}                            // Lag
+        {1, 0, false, "M1A", "", 0.0f, -127, 127},                        // Mod 1 amount (center)
+        {1, 1, false, "M2A", "", 0.0f, -127, 127},                        // Mod 2 amount (center)
+        {1, 2, false, "M3A", "", 0.0f, -127, 127},                        // Mod 3 amount (center)
+        {3, 3, false, "", "LFO,ENV,VEL,RND", 0.0f, 0, 3},                // Mod source (LFO)
+        {3, 4, false, "", "Cut,Res,Amp,Pan", 0.0f, 0, 3},                // Mod dest 1 (Cutoff)
+        {3, 5, false, "", "Pit,Phs,PWM,FM", 0.0f, 0, 3},                 // Mod dest 2 (Pitch)
+        {0, 6, false, "ATN", "", 64.0f, 0, 127},                          // Attenuator (100%)
+        {2, 7, false, "LAG", "", 0.0f, 0, 100}                            // Lag (off)
     },
     // PAGE 7 - Global controls
     {
-        {0, 0, true,  "VOL", "", 0.8f, 0, 127},                           // Volume
-        {1, 1, false, "PAN", "", 0.0f, -64, 64},                          // Pan
-        {0, 2, false, "TUN", "", 0.0f, 0, 127},                           // Tune
-        {2, 3, true,  "TRS", "", 0.0f, -24, 24},                          // Transpose
-        {0, 4, false, "VEL", "", 0.8f, 0, 127},                           // Velocity
-        {0, 5, false, "POR", "", 0.0f, 0, 127},                           // Portamento
-        {2, 6, false, "CHN", "", 1.0f, 1, 16},                            // MIDI channel
-        {3, 7, false, "", "Poly,Mono,Leg", 0.0f, 0, 2}                    // Play mode
+        {0, 0, true,  "VOL", "", 48.0f, 0, 127},                          // Volume (75%)
+        {1, 1, false, "PAN", "", 0.0f, -64, 64},                          // Pan (center)
+        {0, 2, false, "TUN", "", 32.0f, 0, 127},                          // Tune (center)
+        {2, 3, true,  "TRS", "", 0.0f, -24, 24},                          // Transpose (center)
+        {0, 4, false, "VEL", "", 48.0f, 0, 127},                          // Velocity (75%)
+        {0, 5, false, "POR", "", 0.0f, 0, 127},                           // Portamento (off)
+        {2, 6, false, "CHN", "", 1.0f, 1, 16},                            // MIDI channel (1)
+        {3, 7, false, "", "Poly,Mono,Leg", 0.0f, 0, 2}                    // Play mode (Poly)
     }
 };
 
@@ -315,8 +316,21 @@ for (int page = 0; page < 8; page++) {
             if (default_int > config->int_max) default_int = config->int_max;
             param_table->array[page][firstparam + enc] = default_int;
         } else {
-            // Initialize fractional modes to default value
-            param_table->array[page][firstparam + enc] = (int32_t)(config->default_value * (float)(1 << 27));
+            // Initialize fractional modes: convert from Axoloti range to normalized 0.0-1.0
+            float normalized_default;
+            if (config->mode == MODE_FRAC_BIPOLAR) {
+                // Convert from -64 to +64 range to -1.0 to +1.0, then to 0.0-1.0 for storage
+                float bipolar_value = config->default_value / 64.0f;  // -1.0 to +1.0
+                if (bipolar_value < -1.0f) bipolar_value = -1.0f;
+                if (bipolar_value > 1.0f) bipolar_value = 1.0f;
+                normalized_default = (bipolar_value + 1.0f) * 0.5f;  // 0.0 to 1.0
+            } else {
+                // Convert from 0-64 range to 0.0-1.0
+                normalized_default = config->default_value / 64.0f;
+                if (normalized_default < 0.0f) normalized_default = 0.0f;
+                if (normalized_default > 1.0f) normalized_default = 1.0f;
+            }
+            param_table->array[page][firstparam + enc] = (int32_t)(normalized_default * (float)(1 << 27));
         }
     }
 }
@@ -331,9 +345,21 @@ for (int i = 0; i < 8; i++) {
         if (default_int > config->int_max) default_int = config->int_max;
         intValues[i] = default_int;
     } else {
-        float default_frac = config->default_value;
-        default_frac = applyModeConstraints(default_frac, config->mode, i);
-        encoderPos[i] = default_frac;
+        // Convert from Axoloti range to encoder position range
+        if (config->mode == MODE_FRAC_BIPOLAR) {
+            // Convert from -64 to +64 range to -1.0 to +1.0 for encoder position
+            float bipolar_value = config->default_value / 64.0f;  // -1.0 to +1.0
+            if (bipolar_value < -1.0f) bipolar_value = -1.0f;
+            if (bipolar_value > 1.0f) bipolar_value = 1.0f;
+            encoderPos[i] = bipolar_value;
+        } else {
+            // Convert from 0-64 range to 0.0-1.0 for encoder position
+            float unipolar_value = config->default_value / 64.0f;
+            if (unipolar_value < 0.0f) unipolar_value = 0.0f;
+            if (unipolar_value > 1.0f) unipolar_value = 1.0f;
+            encoderPos[i] = unipolar_value;
+        }
+        encoderPos[i] = applyModeConstraints(encoderPos[i], config->mode, i);
     }
 }
 
@@ -393,20 +419,6 @@ if (inlet_page != lastPage && page >= 0 && page < 8) {
         }
     }
     lastPage = inlet_page;
-    
-    // Debug: Force write current page defaults to verify they're loaded
-    rootc::instancesketchy__params* debug_table = &parent->instancesketchy__params_i;
-    for (int i = 0; i < 8; i++) {
-        const encoder_dial_config_t* config = &configs[page][i];
-        if (config->mode == MODE_INT || config->mode == MODE_LIST) {
-            int default_int = (int)config->default_value;
-            if (default_int < config->int_min) default_int = config->int_min;
-            if (default_int > config->int_max) default_int = config->int_max;
-            debug_table->array[page][attr_firstparam + i] = default_int;
-        } else {
-            debug_table->array[page][attr_firstparam + i] = (int32_t)(config->default_value * (float)(1 << 27));
-        }
-    }
 }
 
 // Process encoder inputs
