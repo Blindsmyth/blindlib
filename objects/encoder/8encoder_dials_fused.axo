@@ -291,11 +291,11 @@ void update_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* 
 }]]></code.declaration>
       <code.init><![CDATA[// Initialize encoder values
 for (int i = 0; i < 8; i++) {
-    encoderPos[i] = 0.0f;
+    encoderPos[i] = 0.0f;  // Will be set to defaults below
     accel[i] = 1;
     lastTrigTime[i] = 0;
     lastTrigState[i] = 0;
-    intValues[i] = 0;
+    intValues[i] = 0;  // Will be set to defaults below
 }
 lastPage = -1;
 timeCounter = 0;
@@ -309,12 +309,31 @@ for (int page = 0; page < 8; page++) {
         const encoder_dial_config_t* config = &configs[page][enc];
         
         if (config->mode == MODE_INT || config->mode == MODE_LIST) {
-            // Initialize integer/list modes to their minimum values
-            param_table->array[page][firstparam + enc] = config->int_min;
+            // Initialize integer/list modes to their default values (clamped to range)
+            int default_int = (int)config->default_value;
+            if (default_int < config->int_min) default_int = config->int_min;
+            if (default_int > config->int_max) default_int = config->int_max;
+            param_table->array[page][firstparam + enc] = default_int;
         } else {
             // Initialize fractional modes to default value
             param_table->array[page][firstparam + enc] = (int32_t)(config->default_value * (float)(1 << 27));
         }
+    }
+}
+
+// Initialize local encoder arrays to match default values for page 0
+for (int i = 0; i < 8; i++) {
+    const encoder_dial_config_t* config = &configs[0][i];  // Use page 0 defaults
+    
+    if (config->mode == MODE_INT || config->mode == MODE_LIST) {
+        int default_int = (int)config->default_value;
+        if (default_int < config->int_min) default_int = config->int_min;
+        if (default_int > config->int_max) default_int = config->int_max;
+        intValues[i] = default_int;
+    } else {
+        float default_frac = config->default_value;
+        default_frac = applyModeConstraints(default_frac, config->mode, i);
+        encoderPos[i] = default_frac;
     }
 }
 
@@ -327,7 +346,7 @@ for (uint8_t page = 0; page < 8; page++) {
       <code.krate><![CDATA[timeCounter++;
 int page = inlet_page;
 
-// Handle page changes
+// Handle page changes (including initial page 0)
 if (inlet_page != lastPage && page >= 0 && page < 8) {
     // Save current values before switching (write to table)
     rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
@@ -374,6 +393,20 @@ if (inlet_page != lastPage && page >= 0 && page < 8) {
         }
     }
     lastPage = inlet_page;
+    
+    // Debug: Force write current page defaults to verify they're loaded
+    rootc::instancesketchy__params* debug_table = &parent->instancesketchy__params_i;
+    for (int i = 0; i < 8; i++) {
+        const encoder_dial_config_t* config = &configs[page][i];
+        if (config->mode == MODE_INT || config->mode == MODE_LIST) {
+            int default_int = (int)config->default_value;
+            if (default_int < config->int_min) default_int = config->int_min;
+            if (default_int > config->int_max) default_int = config->int_max;
+            debug_table->array[page][attr_firstparam + i] = default_int;
+        } else {
+            debug_table->array[page][attr_firstparam + i] = (int32_t)(config->default_value * (float)(1 << 27));
+        }
+    }
 }
 
 // Process encoder inputs
@@ -391,6 +424,9 @@ for (int i = 0; i < 8; i++) {
         
         if (config->mode == MODE_INT || config->mode == MODE_LIST) {
             updateIntValue(i, dir[i], page);
+            // Write INT/LIST value to param table immediately
+            rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+            param_table->array[page][attr_firstparam + i] = intValues[i];
         } else {
             uint32_t diff = timeCounter - lastTrigTime[i];
             if (diff < attr_acceltime) {
@@ -406,29 +442,22 @@ for (int i = 0; i < 8; i++) {
                 encoderPos[i] += inc;
             }
             encoderPos[i] = applyModeConstraints(encoderPos[i], config->mode, i);
+            
+            // Write FRAC value to param table immediately
+            rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+            int32_t value;
+            if (config->mode == MODE_FRAC_BIPOLAR) {
+                // Convert bipolar (-1.0 to 1.0) to unipolar (0.0 to 1.0) for table storage
+                float unipolar_value = (encoderPos[i] + 1.0f) * 0.5f;
+                value = (int32_t)(unipolar_value * (float)(1 << 27));
+            } else {
+                // Unipolar mode - direct conversion
+                value = (int32_t)(encoderPos[i] * (float)(1 << 27));
+            }
+            param_table->array[page][attr_firstparam + i] = value;
         }
         lastTrigTime[i] = timeCounter;
     }
-}
-
-// Write values to sketchy param table
-rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
-int firstparam = attr_firstparam;
-for (int i = 0; i < 8; i++) {
-    const encoder_dial_config_t* config = &configs[page][i];
-    int32_t value = 0;
-    
-    if (config->mode == MODE_INT || config->mode == MODE_LIST) {
-        value = intValues[i];
-    } else if (config->mode == MODE_FRAC_BIPOLAR) {
-        // Convert bipolar (-1.0 to 1.0) to unipolar (0.0 to 1.0) for table storage
-        float unipolar_value = (encoderPos[i] + 1.0f) * 0.5f;
-        value = (int32_t)(unipolar_value * (float)(1 << 27));
-    } else {
-        // Unipolar mode - direct conversion
-        value = (int32_t)(encoderPos[i] * (float)(1 << 27));
-    }
-    param_table->array[page][firstparam + i] = value;
 }
 
 // Update displays for current page only
@@ -447,6 +476,8 @@ outlet_o7 = (configs[page][6].mode == MODE_INT || configs[page][6].mode == MODE_
 outlet_o8 = (configs[page][7].mode == MODE_INT || configs[page][7].mode == MODE_LIST) ? 0 : (int)(encoderPos[7] * (float)(1 << 27));
 
 // Debug outputs
+rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+int firstparam = attr_firstparam;
 outlet_debugintval = (page >= 0 && page < 8) ? intValues[0] : -1;
 outlet_debugtableval = (page >= 0 && page < 8) ? param_table->array[page][firstparam] : -1;]]></code.krate>
    </obj.normal>
