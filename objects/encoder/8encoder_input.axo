@@ -1,0 +1,257 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="8encoder_input" uuid="7d3e8f1a-2b9c-4d5e-8f6a-1c2d3e4f5a6b">
+      <sDescription>8 rotary encoders with acceleration and table storage. Provides encoder input processing for use with display objects like sketchy_dials.</sDescription>
+      <author>AI Assistant</author>
+      <license>BSD</license>
+      <helpPatch>logic.axh</helpPatch>
+      <inlets>
+         <bool32.rising name="trig1"/>
+         <bool32.rising name="dir1"/>
+         <bool32.rising name="trig2"/>
+         <bool32.rising name="dir2"/>
+         <bool32.rising name="trig3"/>
+         <bool32.rising name="dir3"/>
+         <bool32.rising name="trig4"/>
+         <bool32.rising name="dir4"/>
+         <bool32.rising name="trig5"/>
+         <bool32.rising name="dir5"/>
+         <bool32.rising name="trig6"/>
+         <bool32.rising name="dir6"/>
+         <bool32.rising name="trig7"/>
+         <bool32.rising name="dir7"/>
+         <bool32.rising name="trig8"/>
+         <bool32.rising name="dir8"/>
+         <int32 name="page"/>
+      </inlets>
+      <outlets>
+         <frac32 name="o1"/>
+         <frac32 name="o2"/>
+         <frac32 name="o3"/>
+         <frac32 name="o4"/>
+         <frac32 name="o5"/>
+         <frac32 name="o6"/>
+         <frac32 name="o7"/>
+         <frac32 name="o8"/>
+         <int32 name="debugintval"/>
+         <int32 name="debugtableval"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="acceltime" MinValue="1" MaxValue="1000" DefaultValue="100"/>
+         <spinner name="accelmultiplier" MinValue="1" MaxValue="10" DefaultValue="6"/>
+         <spinner name="firstparam" MinValue="0" MaxValue="118" DefaultValue="0"/>
+      </attribs>
+      <includes/>
+      <code.declaration><![CDATA[// Encoder data
+float encoderPos[8];
+int accel[8];
+uint32_t lastTrigTime[8];
+int lastTrigState[8];
+int lastPage = -1;
+uint32_t timeCounter = 0;
+int intValues[8];
+
+// Mode constants for compatibility
+#define MODE_FRAC_UNIPOLAR 0  // 0.0 to 1.0, positive only
+#define MODE_FRAC_BIPOLAR  1  // 0-1 encoder maps to -64 to +64 display
+#define MODE_INT           2  // min to max, integer
+#define MODE_LIST          3  // selector mode
+
+// Helper functions
+float applyModeConstraints(float value, int mode, int encoderIndex) {
+    // Encoder positions are ALWAYS 0-1 for renderer compatibility
+    if(value < 0.0f) return 0.0f;
+    if(value > 1.0f) return 1.0f;
+    return value;
+}
+
+// Convert from encoder position (0-1) to display value based on mode
+float encoderToDisplayValue(float encoderPos, int mode) {
+    switch(mode) {
+        case MODE_FRAC_UNIPOLAR:
+            // 0-1 encoder maps to 0-64 display
+            return encoderPos * 64.0f;
+        case MODE_FRAC_BIPOLAR:
+            // 0-1 encoder maps to -64 to +64 display (0.0 = -64, 0.5 = 0, 1.0 = +64)
+            return (encoderPos * 128.0f) - 64.0f;  // -64 to +64
+        case MODE_INT:
+        case MODE_LIST:
+            // Not used for these modes
+            return 0.0f;
+        default:
+            return encoderPos;
+    }
+}
+
+// Convert from display value to encoder position (0-1)
+float displayToEncoderValue(float displayValue, int mode) {
+    switch(mode) {
+        case MODE_FRAC_UNIPOLAR:
+            // 0-64 display maps to 0-1 encoder
+            return displayValue / 64.0f;
+        case MODE_FRAC_BIPOLAR:
+            // -64 to +64 display maps to 0-1 encoder (-64 = 0.0, 0 = 0.5, +64 = 1.0)
+            return (displayValue + 64.0f) / 128.0f;
+        case MODE_INT:
+        case MODE_LIST:
+            // Not used for these modes
+            return 0.0f;
+        default:
+            return displayValue;
+    }
+}
+
+void updateIntValue(int encoderIndex, int direction, int page, int minVal, int maxVal) {
+    if (direction == 0) {
+        intValues[encoderIndex]--;
+    } else {
+        intValues[encoderIndex]++;
+    }
+    
+    if (intValues[encoderIndex] < minVal) intValues[encoderIndex] = minVal;
+    if (intValues[encoderIndex] > maxVal) intValues[encoderIndex] = maxVal;
+}
+
+void loadIntValue(int encoderIndex, int page, int minVal, int maxVal) {
+    // Load value from sketchy param table
+    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+    int firstparam = attr_firstparam;
+    
+    // Load the actual value from the table using the page parameter
+    intValues[encoderIndex] = param_table->array[page][firstparam + encoderIndex];
+    
+    // Clamp to range
+    if (intValues[encoderIndex] < minVal) intValues[encoderIndex] = minVal;
+    if (intValues[encoderIndex] > maxVal) intValues[encoderIndex] = maxVal;
+}
+
+// Public interface for sketchy_dials to call
+void setEncoderMode(int encoderIndex, int mode, float defaultValue, int intMin, int intMax) {
+    if (encoderIndex < 0 || encoderIndex >= 8) return;
+    
+    if (mode == MODE_INT || mode == MODE_LIST) {
+        int default_int = (int)defaultValue;
+        if (default_int < intMin) default_int = intMin;
+        if (default_int > intMax) default_int = intMax;
+        intValues[encoderIndex] = default_int;
+    } else {
+        // Convert from display value to encoder position (0-1 for renderer)
+        encoderPos[encoderIndex] = displayToEncoderValue(defaultValue, mode);
+        encoderPos[encoderIndex] = applyModeConstraints(encoderPos[encoderIndex], mode, encoderIndex);
+    }
+}
+
+// Get current encoder value in display format
+float getEncoderDisplayValue(int encoderIndex, int mode) {
+    if (encoderIndex < 0 || encoderIndex >= 8) return 0.0f;
+    
+    if (mode == MODE_INT || mode == MODE_LIST) {
+        return (float)intValues[encoderIndex];
+    } else {
+        return encoderToDisplayValue(encoderPos[encoderIndex], mode);
+    }
+}
+
+// Get current encoder value in 0-1 format for param table
+float getEncoderParamValue(int encoderIndex, int mode) {
+    if (encoderIndex < 0 || encoderIndex >= 8) return 0.0f;
+    
+    if (mode == MODE_INT || mode == MODE_LIST) {
+        return (float)intValues[encoderIndex];
+    } else {
+        return encoderPos[encoderIndex];  // Already 0-1
+    }
+}]]></code.declaration>
+      <code.init><![CDATA[// Initialize encoder values
+for (int i = 0; i < 8; i++) {
+    encoderPos[i] = 0.0f;
+    accel[i] = 1;
+    lastTrigTime[i] = 0;
+    lastTrigState[i] = 0;
+    intValues[i] = 0;
+}
+lastPage = -1;
+timeCounter = 0;]]></code.init>
+      <code.krate><![CDATA[timeCounter++;
+int page = inlet_page;
+
+// Handle page changes - let sketchy_dials handle the configuration
+// We just need to load/save values from param table
+if (inlet_page != lastPage && page >= 0 && page < 8) {
+    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+    int firstparam = attr_firstparam;
+    
+    // Save current values before switching (if we had a previous page)
+    if (lastPage >= 0 && lastPage < 8) {
+        for (int i = 0; i < 8; i++) {
+            // Store encoder position (0-1) directly for fractional modes
+            // For int modes, the sketchy_dials object will handle the save
+            int32_t value = (int32_t)(encoderPos[i] * (float)(1 << 27));
+            param_table->array[lastPage][firstparam + i] = value;
+        }
+    }
+    
+    // Load values for new page
+    for (int i = 0; i < 8; i++) {
+        // Load fractional value from table (stored as encoder positions 0-1)
+        int32_t stored_value = param_table->array[page][firstparam + i];
+        encoderPos[i] = (float)stored_value / (float)(1 << 27);
+        encoderPos[i] = applyModeConstraints(encoderPos[i], 0, i);  // Default to unipolar constraint
+    }
+    lastPage = inlet_page;
+}
+
+// Process encoder inputs
+bool trig[8] = {inlet_trig1, inlet_trig2, inlet_trig3, inlet_trig4, 
+                inlet_trig5, inlet_trig6, inlet_trig7, inlet_trig8};
+bool dir[8]  = {inlet_dir1,  inlet_dir2,  inlet_dir3,  inlet_dir4,  
+                inlet_dir5,  inlet_dir6,  inlet_dir7,  inlet_dir8};
+
+for (int i = 0; i < 8; i++) {
+    bool edge = (trig[i] == 1) && (lastTrigState[i] == 0);
+    lastTrigState[i] = trig[i];
+    
+    if (edge) {
+        // Basic encoder processing - sketchy_dials will provide mode-specific handling
+        uint32_t diff = timeCounter - lastTrigTime[i];
+        if (diff < attr_acceltime) {
+            accel[i]++;
+            if (accel[i] > attr_accelmultiplier) accel[i] = attr_accelmultiplier;
+        } else {
+            accel[i] = 1;
+        }
+        float inc = 0.0078125f * accel[i];
+        if (dir[i] == 0) {
+            encoderPos[i] -= inc;
+        } else {
+            encoderPos[i] += inc;
+        }
+        encoderPos[i] = applyModeConstraints(encoderPos[i], 0, i);  // Basic 0-1 constraint
+        
+        // Write FRAC value to param table immediately
+        rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+        int32_t value = (int32_t)(encoderPos[i] * (float)(1 << 27));
+        param_table->array[page][attr_firstparam + i] = value;
+        
+        lastTrigTime[i] = timeCounter;
+    }
+}
+
+// Output values for patch compatibility
+outlet_o1 = (int)(encoderPos[0] * (float)(1 << 27));
+outlet_o2 = (int)(encoderPos[1] * (float)(1 << 27));
+outlet_o3 = (int)(encoderPos[2] * (float)(1 << 27));
+outlet_o4 = (int)(encoderPos[3] * (float)(1 << 27));
+outlet_o5 = (int)(encoderPos[4] * (float)(1 << 27));
+outlet_o6 = (int)(encoderPos[5] * (float)(1 << 27));
+outlet_o7 = (int)(encoderPos[6] * (float)(1 << 27));
+outlet_o8 = (int)(encoderPos[7] * (float)(1 << 27));
+
+// Debug outputs
+rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+int firstparam = attr_firstparam;
+outlet_debugintval = (page >= 0 && page < 8) ? intValues[0] : -1;
+outlet_debugtableval = (page >= 0 && page < 8) ? param_table->array[page][firstparam] : -1;]]></code.krate>
+   </obj.normal>
+</objdefs> 

@@ -1,0 +1,267 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sketchy_dials" uuid="9a4b5c6d-7e8f-1a2b-3c4d-5e6f7a8b9c0d">
+      <sDescription>Dial configuration and display system. Works with 8encoder_input to provide configurable dial displays with multiple modes and pages.</sDescription>
+      <author>AI Assistant</author>
+      <license>BSD</license>
+      <helpPatch>logic.axh</helpPatch>
+      <inlets>
+         <int32 name="page"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs/>
+      <includes/>
+      <code.declaration><![CDATA[// Dial configuration structure
+typedef struct {
+    uint8_t mode;           // 0=frac unipolar, 1=frac bipolar, 2=int, 3=list
+    bool show_value;        // Show/hide value (for fractional modes)
+    const char* label;      // Label text
+    const char* options;    // List options (for mode 3)
+    float default_value;    // Default value
+    int16_t int_min;        // Minimum value (for int/list modes)
+    int16_t int_max;        // Maximum value (for int/list modes)
+} encoder_dial_config_t;
+
+// Configuration for 8 pages, 8 encoders each (64 total configurations)
+// Default values use Axoloti-friendly ranges: 0-64 (unipolar), -64 to +64 (bipolar)
+const encoder_dial_config_t configs[8][8] = {
+    // PAGE 0 - Oscillator controls
+    {
+        {1, true,  "FIN", "", 0.0f, 0, 127},                              // Fine tune (center)
+        {1, true,  "WAV", "", 32.0f, 0, 127},                              // Waveform (center)
+        {1, true,  "PHS", "", -64.0f, 0, 127},                              // Phase (center)
+        {3, false, "", "Sin,Tri,Saw,Sqr,Nse", 2.0f, 0, 4},               // Wave selector (Saw)
+        {0, false, "DET", "", 0.0f, 0, 127},                              // Detune (off)
+        {0, false, "SUB", "", 0.0f, 0, 127},                              // Sub osc (off)
+        {0, false, "MIX", "", 32.0f, 0, 127},                             // Mix (25% default)
+        {2, false, "OCT", "", 0.0f, -4, 4}                                // Octave (center)
+    },
+    // PAGE 1 - Filter controls
+    {
+        {0, true,  "CUT", "", 32.0f, 0, 127},                             // Cutoff (50% default)
+        {1, true,  "RES", "", 0.0f, 0, 127},                              // Resonance (center)
+        {1, false, "ENV", "", 0.0f, -64, 64},                             // Env amount (center)
+        {3, false, "", "LP,HP,BP,BR", 0.0f, 0, 3},                        // Filter type (LP)
+        {0, false, "KBD", "", 16.0f, 0, 127},                             // Keyboard track (25%)
+        {0, false, "VEL", "", 0.0f, 0, 127},                              // Velocity (off)
+        {0, false, "LFO", "", 0.0f, 0, 127},                              // LFO amount (off)
+        {2, false, "DRV", "", 8.0f, 0, 100}                               // Drive (8% default)
+    },
+    // PAGE 2 - Envelope controls
+    {
+        {0, false, "ATK", "", 8.0f, 0, 127},                              // Attack (fast)
+        {0, false, "DEC", "", 16.0f, 0, 127},                             // Decay (medium)
+        {0, false, "SUS", "", 48.0f, 0, 127},                             // Sustain (75%)
+        {0, false, "REL", "", 24.0f, 0, 127},                             // Release (medium)
+        {1, false, "VEL", "", 0.0f, -100, 100},                           // Velocity (center)
+        {1, false, "CRV", "", 0.0f, -50, 50},                             // Curve (linear)
+        {0, false, "TIM", "", 32.0f, 0, 127},                             // Time scale (50%)
+        {3, false, "", "Lin,Exp,Log", 1.0f, 0, 2}                         // Curve type (Exponential)
+    },
+    // PAGE 3 - LFO controls
+    {
+        {0, true,  "RAT", "", 16.0f, 0, 127},                             // Rate (25%)
+        {1, false, "DEP", "", 0.0f, -127, 127},                           // Depth (center)
+        {1, false, "PHS", "", 0.0f, -127, 127},                           // Phase (center)
+        {3, false, "", "Sin,Tri,Saw,Sqr,S&H", 1.0f, 0, 4},               // LFO shape (Triangle)
+        {0, false, "SYN", "", 0.0f, 0, 127},                              // Sync (off)
+        {0, false, "DEL", "", 0.0f, 0, 127},                              // Delay (off)
+        {0, false, "FAD", "", 0.0f, 0, 127},                              // Fade in (off)
+        {2, false, "DIV", "", 8.0f, 1, 32}                                // Division (1/8)
+    },
+    // PAGE 4 - Effects controls
+    {
+        {0, false, "REV", "", 16.0f, 0, 127},                             // Reverb (25%)
+        {0, false, "DEL", "", 0.0f, 0, 127},                              // Delay (off)
+        {0, false, "CHO", "", 0.0f, 0, 127},                              // Chorus (off)
+        {0, false, "DIS", "", 0.0f, 0, 127},                              // Distortion (off)
+        {1, false, "TIM", "", 0.0f, -64, 64},                             // Delay time (center)
+        {1, false, "FBK", "", 0.0f, -100, 100},                           // Feedback (center)
+        {0, false, "MIX", "", 32.0f, 0, 127},                             // Wet/Dry (50%)
+        {3, false, "", "Off,Hall,Room,Plate", 2.0f, 0, 3}                 // Reverb type (Room)
+    },
+    // PAGE 5 - Sequencer controls
+    {
+        {2, true,  "STP", "", 8.0f, 1, 64},                               // Steps (8)
+        {0, true,  "SPD", "", 32.0f, 0, 127},                             // Speed (50%)
+        {1, false, "SWG", "", 0.0f, -50, 50},                             // Swing (center)
+        {3, false, "", "Fwd,Rev,P-P,Rnd", 0.0f, 0, 3},                   // Direction (Forward)
+        {0, false, "GAT", "", 48.0f, 0, 127},                             // Gate (75%)
+        {1, false, "ACC", "", 0.0f, -127, 127},                           // Accent (center)
+        {0, false, "SLD", "", 0.0f, 0, 127},                              // Slide (off)
+        {2, false, "RST", "", 0.0f, 0, 1}                                 // Reset (off)
+    },
+    // PAGE 6 - Modulation controls
+    {
+        {1, false, "M1A", "", 0.0f, -127, 127},                           // Mod 1 amount (center)
+        {1, false, "M2A", "", 0.0f, -127, 127},                           // Mod 2 amount (center)
+        {1, false, "M3A", "", 0.0f, -127, 127},                           // Mod 3 amount (center)
+        {3, false, "", "LFO,ENV,VEL,RND", 0.0f, 0, 3},                   // Mod source (LFO)
+        {3, false, "", "Cut,Res,Amp,Pan", 0.0f, 0, 3},                   // Mod dest 1 (Cutoff)
+        {3, false, "", "Pit,Phs,PWM,FM", 0.0f, 0, 3},                    // Mod dest 2 (Pitch)
+        {0, false, "ATN", "", 64.0f, 0, 127},                             // Attenuator (100%)
+        {2, false, "LAG", "", 0.0f, 0, 100}                               // Lag (off)
+    },
+    // PAGE 7 - Global controls
+    {
+        {0, true,  "VOL", "", 48.0f, 0, 127},                             // Volume (75%)
+        {1, false, "PAN", "", 0.0f, -64, 64},                             // Pan (center)
+        {0, false, "TUN", "", 32.0f, 0, 127},                             // Tune (center)
+        {2, true,  "TRS", "", 0.0f, -24, 24},                             // Transpose (center)
+        {0, false, "VEL", "", 48.0f, 0, 127},                             // Velocity (75%)
+        {0, false, "POR", "", 0.0f, 0, 127},                              // Portamento (off)
+        {2, false, "CHN", "", 1.0f, 1, 16},                               // MIDI channel (1)
+        {3, false, "", "Poly,Mono,Leg", 0.0f, 0, 2}                       // Play mode (Poly)
+    }
+};
+
+// Mode constants
+#define MODE_FRAC_UNIPOLAR 0  // 0.0 to 1.0, positive only
+#define MODE_FRAC_BIPOLAR  1  // -1.0 to 1.0, bipolar
+#define MODE_INT           2  // min to max, integer
+#define MODE_LIST          3  // selector mode
+
+// Display structures for each type - 64 total (8 pages x 8 dials)
+rootc::instancesketchy__render::dial_t dials[64];
+rootc::instancesketchy__render::intdisplay_t intdisplays[64];
+rootc::instancesketchy__render::select_t selects[64];
+
+// Fixed layout positions
+const uint8_t DIAL_WIDTH = 24;
+const uint8_t DIAL_HEIGHT = 24;
+const uint8_t ROW1_Y = 13;
+const uint8_t ROW2_Y = 39;
+const uint8_t COL_X[4] = {26, 52, 78, 104};
+
+// Convert from display value to encoder position (0-1)
+float displayToEncoderValue(float displayValue, int mode) {
+    switch(mode) {
+        case MODE_FRAC_UNIPOLAR:
+            // 0-64 display maps to 0-1 encoder
+            return displayValue / 64.0f;
+        case MODE_FRAC_BIPOLAR:
+            // -64 to +64 display maps to 0-1 encoder (-64 = 0.0, 0 = 0.5, +64 = 1.0)
+            return (displayValue + 64.0f) / 128.0f;
+        case MODE_INT:
+        case MODE_LIST:
+            // Not used for these modes
+            return 0.0f;
+        default:
+            return displayValue;
+    }
+}
+
+// Initialize a single dial based on its configuration
+void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* config) {
+    uint8_t array_index = page * 8 + dial_index;
+    float encoder_pos;  // Declare variable outside switch
+    
+    switch (config->mode) {
+        case MODE_FRAC_UNIPOLAR:
+        case MODE_FRAC_BIPOLAR:
+            dials[array_index].page = page;
+            dials[array_index].param = dial_index;
+            dials[array_index].is_bipolar = (config->mode == MODE_FRAC_BIPOLAR);
+            dials[array_index].x = COL_X[dial_index % 4];
+            dials[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+            dials[array_index].width = DIAL_WIDTH;
+            dials[array_index].height = DIAL_HEIGHT;
+            dials[array_index].label = config->label;
+            dials[array_index].show_value = config->show_value;
+            // Convert config default to encoder position (0-1), then to display format for renderer
+            encoder_pos = displayToEncoderValue(config->default_value, config->mode);
+            if (encoder_pos < 0.0f) encoder_pos = 0.0f;
+            if (encoder_pos > 1.0f) encoder_pos = 1.0f;
+            dials[array_index].default_value = (int32_t)(encoder_pos * (float)(1 << 27));
+            parent->instancesketchy__render_i.dial_init(&dials[array_index]);
+            break;
+            
+        case MODE_INT:
+            intdisplays[array_index].page = page;
+            intdisplays[array_index].param = dial_index;
+            intdisplays[array_index].x = COL_X[dial_index % 4];
+            intdisplays[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+            intdisplays[array_index].width = DIAL_WIDTH;
+            intdisplays[array_index].height = DIAL_HEIGHT;
+            intdisplays[array_index].label = config->label;
+            parent->instancesketchy__render_i.intdisplay_init(&intdisplays[array_index]);
+            break;
+            
+        case MODE_LIST:
+            selects[array_index].page = page;
+            selects[array_index].param = dial_index;
+            selects[array_index].x = COL_X[dial_index % 4];
+            selects[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+            selects[array_index].width = DIAL_WIDTH;
+            selects[array_index].height = DIAL_HEIGHT;
+            selects[array_index].is_int = true;
+            selects[array_index].label = config->options;
+            parent->instancesketchy__render_i.select_init(&selects[array_index]);
+            break;
+    }
+}
+
+// Update a single dial based on its configuration
+void update_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* config) {
+    uint8_t array_index = page * 8 + dial_index;
+    
+    switch (config->mode) {
+        case MODE_FRAC_UNIPOLAR:
+        case MODE_FRAC_BIPOLAR:
+            parent->instancesketchy__render_i.dial_update(&dials[array_index]);
+            break;
+            
+        case MODE_INT:
+            parent->instancesketchy__render_i.intdisplay_update(&intdisplays[array_index]);
+            break;
+            
+        case MODE_LIST:
+            parent->instancesketchy__render_i.select_update(&selects[array_index]);
+            break;
+    }
+}
+
+// Initialize param table with default values
+void init_param_table() {
+    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+    
+    for (int page = 0; page < 8; page++) {
+        for (int enc = 0; enc < 8; enc++) {
+            const encoder_dial_config_t* config = &configs[page][enc];
+            
+            if (config->mode == MODE_INT || config->mode == MODE_LIST) {
+                // Initialize integer/list modes to their default values (clamped to range)
+                int default_int = (int)config->default_value;
+                if (default_int < config->int_min) default_int = config->int_min;
+                if (default_int > config->int_max) default_int = config->int_max;
+                param_table->array[page][enc] = default_int;
+            } else {
+                // Initialize fractional modes: store encoder position (0-1) directly
+                float encoder_pos = displayToEncoderValue(config->default_value, config->mode);
+                if (encoder_pos < 0.0f) encoder_pos = 0.0f;
+                if (encoder_pos > 1.0f) encoder_pos = 1.0f;
+                param_table->array[page][enc] = (int32_t)(encoder_pos * (float)(1 << 27));
+            }
+        }
+    }
+}]]></code.declaration>
+      <code.init><![CDATA[// Initialize param table with default values
+init_param_table();
+
+// Initialize all dials for all pages
+for (uint8_t page = 0; page < 8; page++) {
+    for (uint8_t dial = 0; dial < 8; dial++) {
+        init_dial(page, dial, &configs[page][dial]);
+    }
+}]]></code.init>
+      <code.krate><![CDATA[int page = inlet_page;
+
+// Update displays for current page only
+if (page >= 0 && page < 8) {
+    for (uint8_t dial = 0; dial < 8; dial++) {
+        update_dial(page, dial, &configs[page][dial]);
+    }
+}]]></code.krate>
+   </obj.normal>
+</objdefs> 
