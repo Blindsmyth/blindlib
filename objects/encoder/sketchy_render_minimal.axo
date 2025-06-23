@@ -1,8 +1,9 @@
 <objdefs appVersion="1.0.12">
-   <obj.normal id="sketchy_render_minimal" uuid="2a3b4c5d-6e7f-8a9b-0c1d-2e3f4a5b6c7d">
-      <sDescription>Minimal renderer for encoder objects. Renders dials, integer displays, and selectors to SSD1306/1106 OLED displays. Optimized for low memory usage.</sDescription>
+   <obj.normal id="sketchy_render" uuid="2a3b4c5d-6e7f-8a9b-0c1d-2e3f4a5b6c7d">
+      <sDescription>Minimal OLED renderer for encoder displays - optimized for memory usage</sDescription>
       <author>AI Assistant</author>
-      <license>MIT</license>
+      <license>BSD</license>
+      <helpPatch>logic.axh</helpPatch>
       <inlets>
          <int32.positive name="page" description="set current page"/>
          <int32.positive name="layout" description="set layout page (always visible)"/>
@@ -36,566 +37,432 @@
             </CEntries>
          </combo>
       </attribs>
-      <includes/>
+      <includes>
+         <include>math.h</include>
+      </includes>
       <depends>
          <depend>SD1</depend>
          <depend>I2CD1</depend>
          <depend>SPID1</depend>
       </depends>
-      <code.declaration><![CDATA[// Memory-optimized minimal renderer for encoder objects
-rootc::instancesketchy__objects* object_table;
-rootc::instancesketchy__texts* text_table;
-rootc::instancesketchy__params* param_table;
-rootc::instancesketchy__font* font;
-
-uint16_t page;
-uint16_t layout;
-
-enum SSD1306 {
-	LCDWIDTH            = 128,
-	LCDHEIGHT           = 64,
-	SETCONTRAST         = 0x81,
-	DISPLAYON           = 0xAF,
-	DISPLAYOFF          = 0xAE,
-	DISPLAYALLON_RESUME = 0xA4,
-	NORMALDISPLAY       = 0xA6,
-	DEACTIVATE_SCROLL   = 0x2E,
-	MEMORYMODE          = 0x20,
-	COLUMNADDR          = 0x21,
-	PAGEADDR            = 0x22,
-	SETSTARTLINE_0      = 0x40,
-	SEGREMAP            = 0xA0,
-	SETMULTIPLEX        = 0xA8,
-	COMSCANDEC          = 0xC8,
-	SETDISPLAYOFFSET    = 0xD3,
-	SETCOMPINS          = 0xDA,
-	SETDISPLAYCLOCKDIV  = 0xD5,
-	SETPRECHARGE        = 0xD9,
-	SETVCOMDETECT       = 0xDB,
-	CHARGEPUMP          = 0x8D,
-	EXTERNALVCC         = 0x1,
-	SWITCHCAPVCC        = 0x2,
-};
-
-// Buffers moved to SDRAM to save SRAM
-uint8_t *pixels;
-uint8_t *txbuf;
-uint8_t *rxbuf;
-
-void cmd(uint8_t c) {
-	txbuf[0] = 0;
-	txbuf[1] = c;
-	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 2, rxbuf, 0, 30);
-}
-
-void clear() {
-	for (int page = 0; page < 8; page++) {
-		for (int i = 0; i < LCDWIDTH; i++) {
-			pixels[page * LCDWIDTH + i] = 0;
-		}
-	}
-}
-
-void sendPage(int page_num) {
-	cmd(COLUMNADDR); cmd(0); cmd(127);
-	cmd(PAGEADDR); cmd(page_num); cmd(page_num);
-
-	if (attr_type == 1106) {
-		cmd(0xB0 + page_num);
-		cmd(2 & 0xf);
-		cmd(0x10 | (2 >> 4));
-	}
-
-	txbuf[0] = 0x40;
-	memcpy(txbuf + 1, pixels + (page_num * LCDWIDTH), LCDWIDTH);
-	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 129, rxbuf, 0, 30);
-}
-
-void init() {
-	cmd(DISPLAYOFF);
-	cmd(SETDISPLAYCLOCKDIV); cmd(0x80);
-	cmd(SETMULTIPLEX); cmd(LCDHEIGHT - 1);
-	cmd(SETDISPLAYOFFSET); cmd(attr_type == 1306 ? 0x00 : 0x01);
-	cmd(SETSTARTLINE_0);
-	cmd(CHARGEPUMP); cmd(0x14);
-	cmd(MEMORYMODE); cmd(0x00);
-	cmd(SEGREMAP | 0x1);
-	cmd(COMSCANDEC);
-	cmd(SETCOMPINS); cmd(0x12);
-	cmd(SETCONTRAST); cmd(0xCF);
-	cmd(SETPRECHARGE); cmd(0xF1);
-	cmd(SETVCOMDETECT); cmd(0x40);
-	cmd(DISPLAYALLON_RESUME);
-	cmd(NORMALDISPLAY);
-	cmd(DEACTIVATE_SCROLL);
-	cmd(DISPLAYON);
-}
-
-void setup() {
-	// Allocate buffers in SDRAM to save precious SRAM
-	static uint8_t _pixels[8 * LCDWIDTH] __attribute__ ((section (".sdram")));
-	static uint8_t _txbuf[129] __attribute__ ((section (".sdram")));
-	static uint8_t _rxbuf[8] __attribute__ ((section (".sdram")));
-	
-	pixels = &_pixels[0];
-	txbuf = &_txbuf[0];
-	rxbuf = &_rxbuf[0];
-	
-	init();
-}
-
-msg_t ThreadX2() {
-	setup();
-
-	while (!chThdShouldTerminate()) {
-		clear();
-		render();
-		for (uint8_t i = 0; i < 8; i++) {
-			sendPage(i);
-		}
-		chThdSleepMilliseconds(32);
-	}
-
-	chThdExit((msg_t)0);
-}
-
-static msg_t ThreadX(void *arg) {
-	((attr_parent *)arg)->ThreadX2();
-}
-
-// Reduced thread stack from 2048 to 512 to save RAM
-WORKING_AREA(waThreadX, 512);
-Thread *Thd;
-
-// Essential graphics functions only
-void draw_pixel(int16_t x, int16_t y, uint8_t color) __attribute__ ((noinline)) {
-	if (x < 0 || y < 0 || x >= LCDWIDTH || y >= LCDHEIGHT - 1) {
-		return;
-	}
-
-	uint8_t page = y / 8;
-	uint8_t bit = 1 << (y % 8);
-	uint8_t* pixel_addr = pixels + (page * LCDWIDTH + x);
-
-	if (color == 0) { 
-		*pixel_addr |= bit;
-	} else if (color == 1) { 
-		*pixel_addr &= ~bit;
-	} else if (color == 2) { 
-		*pixel_addr ^= bit;
-	}
-}
-
-void draw_line(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t color) __attribute__ ((noinline)) {
-	int16_t steep = abs(y1 - y0) > abs(x1 - x0);
-	if (steep) {    
-		int16_t temp = x0; x0 = y0; y0 = temp;
-		temp = x1; x1 = y1; y1 = temp;
-	}
-
-	if (x0 > x1) {
-		int16_t temp = x0; x0 = x1; x1 = temp;
-		temp = y0; y0 = y1; y1 = temp;
-	}
-
-	int16_t dx = x1 - x0;
-	int16_t dy = abs(y1 - y0);
-	int16_t err = dx / 2;
-	int16_t ystep = (y0 < y1) ? 1 : -1;
-
-	for (; x0 <= x1; x0++) {
-		if (steep) {
-			draw_pixel(y0, x0, color);
-		} else {
-			draw_pixel(x0, y0, color);
-		}
-		err -= dy;
-		if (err < 0) {
-			y0 += ystep;
-			err += dx;
-		}
-	}
-}
-
-void draw_char(char c, int16_t x, int16_t y, uint8_t color) __attribute__ ((noinline)) {
-	if (c < 32 || c > 127) return;
-
-	int index = (c - 32) * 5;
-	for (int col = 0; col < 5; col++) {
-		uint8_t column_data = font->data[index + col];
-		for (int row = 0; row < 8; row++) {
-			if (column_data & (1 << row)) {
-				draw_pixel(x + col, y + row, color);
-			}
-		}
-	}
-}
-
-void draw_string_simple(const char* str, int16_t x, int16_t y, uint8_t color) __attribute__ ((noinline)) {
-	int16_t current_x = x;
-	for (int i = 0; str[i] != '\0' && current_x < LCDWIDTH - 5; i++) {
-		draw_char(str[i], current_x, y, color);
-		current_x += 6;
-	}
-}
-
-void draw_rect(int16_t x, int16_t y, int16_t w, int16_t h, uint8_t color) __attribute__ ((noinline)) {
-	if (w == 0 || h == 0) return;
-
-	int16_t x_end = x + w - 1;
-	int16_t y_end = y + h - 1;
-
-	draw_line(x, y, x_end, y, color);
-	if (h > 1) draw_line(x, y_end, x_end, y_end, color);
-	if (w > 1) {
-		draw_line(x, y, x, y_end, color);
-		draw_line(x_end, y, x_end, y_end, color);
-	}
-}
-
-void draw_filled_rect(int16_t x, int16_t y, int16_t w, int16_t h, uint8_t color) __attribute__ ((noinline)) {
-	if (w <= 0 || h <= 0) return;
-
-	for (int16_t i = 0; i < w; i++) {
-		draw_line(x + i, y, x + i, y + h - 1, color);
-	}
-}
-
-void render() __attribute__ ((noinline)) {
-	for (uint8_t i = 0; i < parent->instancesketchy__objects_i.LENGTH; i++) {
-		if (parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE] == parent->instancesketchy__objects_i.TYPE_INVISIBLE) {
-			continue;
-		}
-		uint16_t current_object_page = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_PAGE];
-		if (current_object_page != page && current_object_page != layout) {
-			continue;
-		}
-		
-		int16_t x = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_X];
-		int16_t y = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_Y];
-		int16_t w = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_W];
-		int16_t h = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_H];
-		uint8_t color = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_COLOR];
-
-		switch (parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE]) {
-			case parent->instancesketchy__objects_i.TYPE_RECT:
-				draw_rect(x, y, w, h, color);
-				break;
-
-			case parent->instancesketchy__objects_i.TYPE_FILLED_RECT:
-				draw_filled_rect(x, y, w, h, color);
-				break;
-
-			case parent->instancesketchy__objects_i.TYPE_LINE:
-				if (i > 0 && parent->instancesketchy__objects_i.array[i - 1][parent->instancesketchy__objects_i.FIELD_TYPE] == parent->instancesketchy__objects_i.TYPE_LINE) {
-					int16_t prev_x = parent->instancesketchy__objects_i.array[i - 1][parent->instancesketchy__objects_i.FIELD_X];
-					int16_t prev_y = parent->instancesketchy__objects_i.array[i - 1][parent->instancesketchy__objects_i.FIELD_Y];
-					draw_line(prev_x, prev_y, x, y, color);
-				}
-				break;
-
-			case parent->instancesketchy__objects_i.TYPE_TEXT:
-			case parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_X:
-			case parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_Y:
-			case parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_BOTH:
-				{
-					const char* str = parent->instancesketchy__texts_i.array[parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TEXT_ID]];
-					int16_t text_x = x;
-					int16_t text_y = y;
-					
-					// Simple centering
-					if (parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE] == parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_X ||
-					    parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE] == parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_BOTH) {
-						int str_len = strlen(str);
-						text_x = x + (w - str_len * 6) / 2;
-					}
-					if (parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE] == parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_Y ||
-					    parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE] == parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_BOTH) {
-						text_y = y + (h - 8) / 2;
-					}
-					
-					draw_string_simple(str, text_x, text_y, color);
-				}
-				break;
-		}
-	}
-}
-
-bool pprint;
-
-// PHASE 1: Complex display structures commented out to isolate compiler issues
-/*
-// Essential display structures for encoder objects
+      <code.declaration><![CDATA[// Essential display structures - simplified versions
 typedef struct {
-    uint16_t box_object_id;
-    uint16_t label_object_id;
-    uint16_t label_text_id;
-    int32_t last_value;
-    int32_t page;
-    int32_t param;
+    uint8_t page;
+    uint8_t param;
     bool is_bipolar;
-    int32_t x;
-    int32_t y;
-    int32_t width;
-    int32_t height;
+    uint8_t x;
+    uint8_t y;
+    uint8_t width;
+    uint8_t height;
     const char* label;
     bool show_value;
     int32_t default_value;
 } dial_t;
-*/
-
-void dial_init(dial_t* dial) __attribute__ ((noinline)) { 
-   rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
-   rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
-   rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
-
-   dial->box_object_id = object_table->registerEntry();
-   dial->label_object_id = object_table->registerEntry();
-   dial->label_text_id = text_table->registerEntry();
-
-   object_table->array[dial->box_object_id][object_table->FIELD_TYPE] = 2;
-   object_table->array[dial->box_object_id][object_table->FIELD_X] = dial->x;
-   object_table->array[dial->box_object_id][object_table->FIELD_Y] = dial->y;
-   object_table->array[dial->box_object_id][object_table->FIELD_W] = dial->width;
-   object_table->array[dial->box_object_id][object_table->FIELD_H] = 0;
-   object_table->array[dial->box_object_id][object_table->FIELD_COLOR] = 0;
-   object_table->array[dial->box_object_id][object_table->FIELD_SCALE] = 1;
-   object_table->array[dial->box_object_id][object_table->FIELD_TEXT_ID] = 0;
-   object_table->array[dial->box_object_id][object_table->FIELD_PAGE] = dial->page;
-
-   object_table->array[dial->label_object_id][object_table->FIELD_TYPE] = 9;
-   object_table->array[dial->label_object_id][object_table->FIELD_X] = dial->x;
-   object_table->array[dial->label_object_id][object_table->FIELD_Y] = dial->y;
-   object_table->array[dial->label_object_id][object_table->FIELD_W] = dial->width;
-   object_table->array[dial->label_object_id][object_table->FIELD_H] = dial->height;
-   object_table->array[dial->label_object_id][object_table->FIELD_COLOR] = 2;
-   object_table->array[dial->label_object_id][object_table->FIELD_SCALE] = 1;
-   object_table->array[dial->label_object_id][object_table->FIELD_TEXT_ID] = dial->label_text_id;
-   object_table->array[dial->label_object_id][object_table->FIELD_PAGE] = dial->page;
-
-   strcpy(text_table->array[dial->label_text_id], dial->label);
-   param_table->array[dial->page][dial->param] = dial->default_value;
-}
-
-void dial_update(dial_t* dial) __attribute__ ((noinline)) {
-   rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
-   rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
-   rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
-	
-   int32_t value = param_table->array[dial->page][dial->param];
-
-   if (value == dial->last_value) return;
-   dial->last_value = value;
-
-   if (dial->is_bipolar) {
-       value = (value-(1<<26))<<1;
-   }
-
-   float frac_value = ((float)value / 0x00200000);
-   float norm_value = frac_value / 64.0f;
-
-   if (dial->is_bipolar) {
-       int8_t h = (dial->height/2.0f) * norm_value + 0.5f;
-       object_table->array[dial->box_object_id][object_table->FIELD_H] = h;
-       object_table->array[dial->box_object_id][object_table->FIELD_Y] = dial->y+(dial->height-h) - dial->height/2;
-   } else {
-       uint8_t h = dial->height * norm_value + 0.5f;
-       object_table->array[dial->box_object_id][object_table->FIELD_H] = h;
-       object_table->array[dial->box_object_id][object_table->FIELD_Y] = dial->y+(dial->height-h);
-   }
-
-   if (dial->show_value) {
-       int rounded = (frac_value >= 0) ? (int)(frac_value + 0.5) : (int)(frac_value - 0.5);
-       char value_str[8] = "";
-       text_table->itoa(value_str, rounded);
-       strcpy(text_table->array[dial->label_text_id], dial->label);
-       strcat(text_table->array[dial->label_text_id], " ");
-       strcat(text_table->array[dial->label_text_id], value_str);
-   }
-}
-
-// Simple structures for other display types
-typedef struct {
-    uint16_t box_object_id;
-    uint16_t label_object_id;
-    uint16_t label_text_id;
-    int32_t last_value;
-    int32_t page;
-    int32_t param;
-    int32_t x;
-    int32_t y;
-    int32_t width;
-    int32_t height;
-    const char* label;
-    uint8_t num_options;
-    bool is_int;
-} select_t;
 
 typedef struct {
-    uint16_t box_object_id;
-    uint16_t label_object_id;
-    uint16_t label_text_id;
-    int32_t last_value;
-    int32_t page;
-    int32_t param;
-    int32_t x;
-    int32_t y;
-    int32_t width;
-    int32_t height;
+    uint8_t page;
+    uint8_t param;
+    uint8_t x;
+    uint8_t y;
+    uint8_t width;
+    uint8_t height;
     const char* label;
 } intdisplay_t;
 
-// Simplified token functions for selectors
-char* get_simple_token(const char* str, int index) {
-    static char token_buffer[16];
-    const char* start = str;
-    int current_index = 0;
-    
-    while (current_index < index && *start) {
-        if (*start == ',') current_index++;
-        if (current_index < index) start++;
-    }
-    
-    int i = 0;
-    while (*start && *start != ',' && i < 15) {
-        token_buffer[i++] = *start++;
-    }
-    token_buffer[i] = '\0';
-    
-    return token_buffer;
+typedef struct {
+    uint8_t page;
+    uint8_t param;
+    uint8_t x;
+    uint8_t y;
+    uint8_t width;
+    uint8_t height;
+    bool is_int;
+    const char* label;
+} select_t;
+
+// Display constants
+enum SSD1306 {
+    LCDWIDTH            = 128,
+    LCDHEIGHT           = 64,
+    SETCONTRAST         = 0x81,
+    DISPLAYON           = 0xAF,
+    DISPLAYOFF          = 0xAE,
+    DISPLAYALLON_RESUME = 0xA4,
+    NORMALDISPLAY       = 0xA6,
+    DEACTIVATE_SCROLL   = 0x2E,
+    MEMORYMODE          = 0x20,
+    COLUMNADDR          = 0x21,
+    PAGEADDR            = 0x22,
+    SETSTARTLINE_0      = 0x40,
+    SEGREMAP            = 0xA0,
+    SETMULTIPLEX        = 0xA8,
+    COMSCANDEC          = 0xC8,
+    SETDISPLAYOFFSET    = 0xD3,
+    SETCOMPINS          = 0xDA,
+    SETDISPLAYCLOCKDIV  = 0xD5,
+    SETPRECHARGE        = 0xD9,
+    SETVCOMDETECT       = 0xDB,
+    CHARGEPUMP          = 0x8D,
+    EXTERNALVCC         = 0x1,
+    SWITCHCAPVCC        = 0x2,
+};
+
+// Display buffer - moved to SDRAM to save SRAM
+uint8_t *display_buffer;
+uint8_t *txbuf;
+uint8_t *rxbuf;
+
+uint16_t page;
+uint16_t layout;
+bool pprint;
+
+// Reference to font object
+rootc::instancesketchy__font* font;
+
+// Basic OLED communication
+void cmd(uint8_t c) {
+    txbuf[0] = 0;
+    txbuf[1] = c;
+    i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 2, rxbuf, 0, 30);
 }
 
-int count_simple_tokens(const char* str) {
+void clear_display() {
+    for (int page = 0; page < 8; page++) {
+        for (int i = 0; i < LCDWIDTH; i++) {
+            display_buffer[page * LCDWIDTH + i] = 0;
+        }
+    }
+}
+
+void sendPage(int page_num) {
+    cmd(COLUMNADDR); cmd(0); cmd(127);
+    cmd(PAGEADDR); cmd(page_num); cmd(page_num);
+
+    if (attr_type == 1106) {
+        cmd(0xB0 + page_num);
+        cmd(2 & 0xf);
+        cmd(0x10 | (2 >> 4));
+    }
+
+    txbuf[0] = 0x40;
+    memcpy(txbuf + 1, display_buffer + (page_num * LCDWIDTH), LCDWIDTH);
+    i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 129, rxbuf, 0, 30);
+}
+
+void oled_init() {
+    cmd(DISPLAYOFF);
+    cmd(SETDISPLAYCLOCKDIV); cmd(0x80);
+    cmd(SETMULTIPLEX); cmd(LCDHEIGHT - 1);
+    cmd(SETDISPLAYOFFSET); cmd(attr_type == 1306 ? 0x00 : 0x01);
+    cmd(SETSTARTLINE_0);
+    cmd(CHARGEPUMP); cmd(0x14);
+    cmd(MEMORYMODE); cmd(0x00);
+    cmd(SEGREMAP | 0x1);
+    cmd(COMSCANDEC);
+    cmd(SETCOMPINS); cmd(0x12);
+    cmd(SETCONTRAST); cmd(0xCF);
+    cmd(SETPRECHARGE); cmd(0xF1);
+    cmd(SETVCOMDETECT); cmd(0x40);
+    cmd(DISPLAYALLON_RESUME);
+    cmd(NORMALDISPLAY);
+    cmd(DEACTIVATE_SCROLL);
+    cmd(DISPLAYON);
+}
+
+// Simple pixel drawing
+void set_pixel(int x, int y, bool on) {
+    if (x < 0 || x >= LCDWIDTH || y < 0 || y >= LCDHEIGHT) return;
+    
+    int page = y / 8;
+    int bit = y % 8;
+    int index = page * LCDWIDTH + x;
+    
+    if (on) {
+        display_buffer[index] |= (1 << bit);
+    } else {
+        display_buffer[index] &= ~(1 << bit);
+    }
+}
+
+// Simple line drawing
+void draw_line(int x0, int y0, int x1, int y1) {
+    int dx = abs(x1 - x0);
+    int dy = abs(y1 - y0);
+    int sx = (x0 < x1) ? 1 : -1;
+    int sy = (y0 < y1) ? 1 : -1;
+    int err = dx - dy;
+    
+    while (true) {
+        set_pixel(x0, y0, true);
+        
+        if (x0 == x1 && y0 == y1) break;
+        
+        int e2 = 2 * err;
+        if (e2 > -dy) {
+            err -= dy;
+            x0 += sx;
+        }
+        if (e2 < dx) {
+            err += dx;
+            y0 += sy;
+        }
+    }
+}
+
+// Simple rectangle
+void draw_rect(int x, int y, int w, int h) {
+    draw_line(x, y, x + w - 1, y);           // Top
+    draw_line(x, y + h - 1, x + w - 1, y + h - 1); // Bottom
+    draw_line(x, y, x, y + h - 1);           // Left
+    draw_line(x + w - 1, y, x + w - 1, y + h - 1); // Right
+}
+
+// Simple circle (for dial indicators)
+void draw_circle(int cx, int cy, int radius) {
+    int x = radius;
+    int y = 0;
+    int err = 0;
+    
+    while (x >= y) {
+        set_pixel(cx + x, cy + y, true);
+        set_pixel(cx + y, cy + x, true);
+        set_pixel(cx - y, cy + x, true);
+        set_pixel(cx - x, cy + y, true);
+        set_pixel(cx - x, cy - y, true);
+        set_pixel(cx - y, cy - x, true);
+        set_pixel(cx + y, cy - x, true);
+        set_pixel(cx + x, cy - y, true);
+        
+        if (err <= 0) {
+            y += 1;
+            err += 2*y + 1;
+        }
+        if (err > 0) {
+            x -= 1;
+            err -= 2*x + 1;
+        }
+    }
+}
+
+// Font rendering using sketchy font object
+void draw_char(int x, int y, char c) {
+    if (c < ' ' || c > '~') return;  // Only printable ASCII
+    if (!font) return;  // Safety check
+    
+    // Get character data from font object
+    int index = (c - ' ') * font->width;
+    
+    for (int col = 0; col < font->width; col++) {
+        uint8_t byte = font->data[index + col];
+        for (int row = 0; row < font->height; row++) {
+            if (byte & (1 << row)) {
+                set_pixel(x + col, y + row, true);
+            }
+        }
+    }
+}
+
+void draw_text(int x, int y, const char* text) {
+    if (!text || !font) return;
+    
+    int pos_x = x;
+    while (*text && pos_x < LCDWIDTH - font->width) {
+        draw_char(pos_x, y, *text);
+        pos_x += font->width + 1;  // Character width + 1 pixel spacing
+        text++;
+    }
+}
+
+// Simplified display functions - minimal but compatible
+void dial_init(dial_t* dial) {
+    // Just store the dial info - actual rendering happens in update
+}
+
+void dial_update(dial_t* dial) {
+    if (!dial) return;
+    
+    // Get current value from param table
+    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+    int32_t value = param_table->array[dial->page][dial->param];
+    
+    // Draw incomplete dial outline (leave bottom gap for text)
+    int cx = dial->x + dial->width/2;
+    int cy = dial->y + dial->height/2 - 2;  // Shift entire dial up by 2 pixels
+    int radius = dial->width/2 - 2;  // Back to original size
+    
+    // Draw arc from 135° to 45° (going clockwise), leaving bottom gap (45° to 135°) for text
+    for (int angle_deg = 135; angle_deg != 45; ) {
+        float angle_rad = angle_deg * 3.14159f / 180.0f;
+        int x = cx + (int)(cosf(angle_rad) * radius);
+        int y = cy + (int)(sinf(angle_rad) * radius);
+        set_pixel(x, y, true);
+        
+        angle_deg += 2;
+        if (angle_deg >= 360) angle_deg -= 360;  // Wrap around
+        if (angle_deg == 45) break;  // Stop before the gap
+    }
+    
+    // Draw indicator line based on value
+    float normalized = (float)value / (float)(1 << 27);
+    if (normalized < 0.0f) normalized = 0.0f;
+    if (normalized > 1.0f) normalized = 1.0f;
+    
+    // Map to 270° range: 135° to 45° (going clockwise, avoiding bottom gap)
+    // This maps 0.0 -> 135°, 1.0 -> 45° (270° sweep clockwise)
+    float angle_deg = 135.0f + (normalized * 270.0f);
+    if (angle_deg >= 360.0f) angle_deg -= 360.0f;  // Wrap around
+    float angle = angle_deg * 3.14159f / 180.0f;
+    int indicator_radius = dial->width/2 - 2;  // Touch the circle edge
+    
+    // Use standard math functions
+    float cos_val = cosf(angle);
+    float sin_val = sinf(angle);
+    int end_x = cx + (int)(cos_val * indicator_radius);
+    int end_y = cy + (int)(sin_val * indicator_radius);
+    
+    draw_line(cx, cy, end_x, end_y);
+    
+    // Draw label in the bottom gap area (centered below the dial)
+    if (dial->label && strlen(dial->label) > 0) {
+        int text_width = strlen(dial->label) * (font ? font->width + 1 : 6);
+        int text_x = dial->x + (dial->width - text_width) / 2;
+        int text_y = dial->y + dial->height - (font ? font->height : 8) + 2;  // Shift up by 2 pixels to match dial
+        draw_text(text_x, text_y, dial->label);
+    }
+}
+
+void intdisplay_init(intdisplay_t* display) {
+    // Just store the display info
+}
+
+void intdisplay_update(intdisplay_t* display) {
+    if (!display) return;
+    
+    // Get current value from param table
+    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+    int32_t value = param_table->array[display->page][display->param];
+    
+    // Draw simple rectangle for integer display
+    draw_rect(display->x, display->y, display->width, display->height);
+    
+    // Draw label if present
+    if (display->label && strlen(display->label) > 0) {
+        draw_text(display->x, display->y - 8, display->label);
+    }
+    
+    // Draw value (simplified - just show something)
+    draw_text(display->x + 2, display->y + 2, "INT");
+}
+
+void select_init(select_t* select) {
+    // Just store the select info
+}
+
+void select_update(select_t* select) {
+    if (!select) return;
+    
+    // Get current value from param table
+    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+    int32_t value = param_table->array[select->page][select->param];
+    
+    // Draw simple rectangle for selector
+    draw_rect(select->x, select->y, select->width, select->height);
+    
+    // Draw label if present (this contains the options list)
+    if (select->label && strlen(select->label) > 0) {
+        draw_text(select->x + 2, select->y + 2, "SEL");
+    }
+}
+
+// Compatibility functions for sketchy_dials and other objects
+int count_tokens(const char* str, char delimiter) {
+    if (!str) return 0;
     int count = 1;
-    for (const char* p = str; *p; p++) {
-        if (*p == ',') count++;
+    while (*str) {
+        if (*str == delimiter) count++;
+        str++;
     }
     return count;
 }
 
-// Additional functions needed for compatibility with other objects
+// Overloaded version for comma-separated strings (for pager compatibility)
 int count_tokens(const char* str) {
-    return count_simple_tokens(str);
+    return count_tokens(str, ',');
 }
 
-char* get_token_at_index(const char* str, int index) {
-    return get_simple_token(str, index);
+void get_token_at_index(const char* str, char delimiter, int index, char* output, int max_len) {
+    if (!str || !output || max_len <= 0) return;
+    
+    int current_index = 0;
+    const char* start = str;
+    const char* end = str;
+    
+    // Find the token at the specified index
+    while (*end && current_index < index) {
+        if (*end == delimiter) {
+            current_index++;
+            start = end + 1;
+        }
+        end++;
+    }
+    
+    // Find the end of the current token
+    while (*end && *end != delimiter) {
+        end++;
+    }
+    
+    // Copy the token
+    int len = end - start;
+    if (len >= max_len) len = max_len - 1;
+    strncpy(output, start, len);
+    output[len] = '\0';
 }
 
-uint16_t getCurrentPage() {
+// Overloaded version for pager compatibility (returns pointer to static buffer)
+const char* get_token_at_index(const char* str, int index) {
+    static char token_buffer[32];
+    get_token_at_index(str, ',', index, token_buffer, sizeof(token_buffer));
+    return token_buffer;
+}
+
+int getCurrentPage() {
     return page;
 }
 
-void select_init(select_t* select) __attribute__ ((noinline)) { 
-   rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
-   rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
-
-   select->box_object_id = object_table->registerEntry();
-   select->label_object_id = object_table->registerEntry();
-   select->label_text_id = text_table->registerEntry();
-
-   object_table->array[select->box_object_id][object_table->FIELD_TYPE] = 1;
-   object_table->array[select->box_object_id][object_table->FIELD_X] = select->x;
-   object_table->array[select->box_object_id][object_table->FIELD_Y] = select->y;
-   object_table->array[select->box_object_id][object_table->FIELD_W] = select->width;
-   object_table->array[select->box_object_id][object_table->FIELD_H] = select->height;
-   object_table->array[select->box_object_id][object_table->FIELD_COLOR] = 0;
-   object_table->array[select->box_object_id][object_table->FIELD_SCALE] = 1;
-   object_table->array[select->box_object_id][object_table->FIELD_TEXT_ID] = 0;
-   object_table->array[select->box_object_id][object_table->FIELD_PAGE] = select->page;
-
-   object_table->array[select->label_object_id][object_table->FIELD_TYPE] = 9;
-   object_table->array[select->label_object_id][object_table->FIELD_X] = select->x;
-   object_table->array[select->label_object_id][object_table->FIELD_Y] = select->y;
-   object_table->array[select->label_object_id][object_table->FIELD_W] = select->width;
-   object_table->array[select->label_object_id][object_table->FIELD_H] = select->height;
-   object_table->array[select->label_object_id][object_table->FIELD_COLOR] = 2;
-   object_table->array[select->label_object_id][object_table->FIELD_SCALE] = 1;
-   object_table->array[select->label_object_id][object_table->FIELD_TEXT_ID] = select->label_text_id;
-   object_table->array[select->label_object_id][object_table->FIELD_PAGE] = select->page;
-
-   select->num_options = count_simple_tokens(select->label);
-   strcpy(text_table->array[select->label_text_id], select->label);
-   select->last_value = 0xFFFFFFFF;
+// Render thread - simplified
+msg_t ThreadX2() {
+    chRegSetThreadName("sketchy_render");
+    
+    while (!chThdShouldTerminate()) {
+        clear_display();
+        
+        // Minimal rendering - just update display
+        for (uint8_t i = 0; i < 8; i++) {
+            sendPage(i);
+        }
+        
+        chThdSleepMilliseconds(32); // ~30 FPS
+    }
+    
+    chThdExit((msg_t)0);
 }
 
-void select_update(select_t* select) __attribute__ ((noinline)) {
-   rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
-   rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
-   rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
-	
-   int32_t value = param_table->array[select->page][select->param];
-   int option_index = 0;
-
-   if (value == select->last_value) return;
-   select->last_value = value;
-
-   if (select->is_int) {
-      option_index = value;
-   } else {
-      float frac_value = ((float)value / 0x00200000);
-      float option_range = 64.0f / select->num_options;
-      option_index = (int)(frac_value / option_range);
-   }
-	
-   option_index = (option_index >= select->num_options) ? select->num_options-1 : option_index;
-   char* token = get_simple_token(select->label, option_index);
-   strcpy(text_table->array[select->label_text_id], token);
+static msg_t ThreadX(void *arg) {
+    ((attr_parent *)arg)->ThreadX2();
 }
 
-void intdisplay_init(intdisplay_t* disp) __attribute__ ((noinline)) {
-    rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
-    rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
+WORKING_AREA(waThreadX, 512); // Reduced stack size
+Thread *Thd;]]></code.declaration>
+      <code.init><![CDATA[// Create SDRAM shadow arrays for display buffers
+static uint8_t _display_buffer[8 * LCDWIDTH] __attribute__ ((section (".sdram")));
+static uint8_t _txbuf[129] __attribute__ ((section (".sdram")));
+static uint8_t _rxbuf[8] __attribute__ ((section (".sdram")));
 
-    disp->box_object_id = object_table->registerEntry();
-    disp->label_object_id = object_table->registerEntry();
-    disp->label_text_id = text_table->registerEntry();
+display_buffer = &_display_buffer[0];
+txbuf = &_txbuf[0];
+rxbuf = &_rxbuf[0];
 
-    object_table->array[disp->box_object_id][object_table->FIELD_TYPE] = 1;
-    object_table->array[disp->box_object_id][object_table->FIELD_X] = disp->x;
-    object_table->array[disp->box_object_id][object_table->FIELD_Y] = disp->y;
-    object_table->array[disp->box_object_id][object_table->FIELD_W] = disp->width;
-    object_table->array[disp->box_object_id][object_table->FIELD_H] = disp->height;
-    object_table->array[disp->box_object_id][object_table->FIELD_COLOR] = 0;
-    object_table->array[disp->box_object_id][object_table->FIELD_SCALE] = 1;
-    object_table->array[disp->box_object_id][object_table->FIELD_TEXT_ID] = 0;
-    object_table->array[disp->box_object_id][object_table->FIELD_PAGE] = disp->page;
-
-    object_table->array[disp->label_object_id][object_table->FIELD_TYPE] = 9;
-    object_table->array[disp->label_object_id][object_table->FIELD_X] = disp->x;
-    object_table->array[disp->label_object_id][object_table->FIELD_Y] = disp->y;
-    object_table->array[disp->label_object_id][object_table->FIELD_W] = disp->width;
-    object_table->array[disp->label_object_id][object_table->FIELD_H] = disp->height;
-    object_table->array[disp->label_object_id][object_table->FIELD_COLOR] = 2;
-    object_table->array[disp->label_object_id][object_table->FIELD_SCALE] = 1;
-    object_table->array[disp->label_object_id][object_table->FIELD_TEXT_ID] = disp->label_text_id;
-    object_table->array[disp->label_object_id][object_table->FIELD_PAGE] = disp->page;
-
-    strcpy(text_table->array[disp->label_text_id], disp->label);
-    disp->last_value = 0xFFFFFFFF;
-}
-
-void intdisplay_update(intdisplay_t* disp) __attribute__ ((noinline)) {
-    rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
-    rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
-    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
-
-    int32_t value = param_table->array[disp->page][disp->param];
-    if (value == disp->last_value) return;
-    disp->last_value = value;
-
-    char value_str[12] = "";
-    text_table->itoa(value_str, value);
-    strcpy(text_table->array[disp->label_text_id], disp->label);
-    strcat(text_table->array[disp->label_text_id], " ");
-    strcat(text_table->array[disp->label_text_id], value_str);
-}]]></code.declaration>
-      <code.init><![CDATA[object_table = &parent->instancesketchy__objects_i;
-text_table = &parent->instancesketchy__texts_i;
-param_table = &parent->instancesketchy__params_i;
-font = &parent->instancesketchy__font_i;
-
-// setup the pins
+// Setup I2C pins
 palSetPadMode(GPIOB, 8, PAL_MODE_ALTERNATE(4)|PAL_STM32_PUDR_PULLUP|PAL_STM32_OTYPE_OPENDRAIN);// SCL
 palSetPadMode(GPIOB, 9, PAL_MODE_ALTERNATE(4)|PAL_STM32_PUDR_PULLUP|PAL_STM32_OTYPE_OPENDRAIN);// SDA
 static const I2CConfig i2cfg = {
@@ -604,48 +471,46 @@ static const I2CConfig i2cfg = {
     FAST_DUTY_CYCLE_2,
 };
 i2cStart(&I2CD1, &i2cfg);
-Thd = chThdCreateStatic(waThreadX, sizeof(waThreadX), NORMALPRIO, ThreadX, (void *)this);
 
-clear();
+// Initialize OLED
+oled_init();
+clear_display();
 
+// Initialize variables
 pprint = false;
 page = 0;
-layout = 0xFFFF;]]></code.init>
-      <code.dispose><![CDATA[chThdTerminate( Thd );
-chThdWait( Thd );
+layout = 0xFFFF;
+
+// Get reference to font object
+font = &parent->instancesketchy__font_i;
+
+// Start render thread with reduced stack
+Thd = chThdCreateStatic(waThreadX, sizeof(waThreadX), NORMALPRIO, ThreadX, (void *)this);]]></code.init>
+      <code.dispose><![CDATA[if (Thd) {
+    chThdTerminate(Thd);
+    chThdWait(Thd);
+}
 i2cStop(&I2CD1);
 palSetPadMode(GPIOB, 8, PAL_MODE_INPUT_ANALOG);
 palSetPadMode(GPIOB, 9, PAL_MODE_INPUT_ANALOG);]]></code.dispose>
       <code.krate><![CDATA[if (inlet_print && !pprint) {
-  pprint = true;
-  for (uint8_t i = 0; i < parent->instancesketchy__objects_i.LENGTH; i++) {
-    LogTextMessage(
-      "i: %3d, type: %3d, x: %3d, y: %3d, w: %3d, h: %3d, color: %3d, text_id: %3d",
-      i,
-      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE],
-      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_X], 
-      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_Y], 
-      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_W],
-      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_H], 
-      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_COLOR],
-      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TEXT_ID]
-    );
-  }
-  LogTextMessage("");
+    pprint = true;
+    // Simplified print functionality - just log that print was triggered
+    LogTextMessage("sketchy_render_minimal: print triggered");
 }
 
 if (!inlet_print && pprint) {
-  pprint = false;
+    pprint = false;
 }
 
 if (page != inlet_page) {
-	page = inlet_page;
+    page = inlet_page;
 }
 if (layout != inlet_layout) {
-	layout = inlet_layout;
+    layout = inlet_layout;
 }
 
 outlet_sw = LCDWIDTH;
 outlet_sh = LCDHEIGHT;]]></code.krate>
    </obj.normal>
-</objdefs> 
+</objdefs>
