@@ -46,11 +46,10 @@
       <code.declaration><![CDATA[// Unified configuration structure for each encoder+dial
 typedef struct {
     uint8_t mode;           // 0=frac unipolar, 1=frac bipolar, 2=int, 3=list
-    uint8_t param;          // Parameter index
     bool show_value;        // Show/hide value (for fractional modes)
     const char* label;      // Label text
     const char* options;    // List options (for mode 3)
-    float default_value;    // Default value (for fractional modes)
+    float default_value;    // Default value
     int16_t int_min;        // Minimum value (for int/list modes)
     int16_t int_max;        // Maximum value (for int/list modes)
 } encoder_dial_config_t;
@@ -60,91 +59,91 @@ typedef struct {
 const encoder_dial_config_t configs[8][8] = {
     // PAGE 0 - Oscillator controls
     {
-        {1, 0, true,  "FIN", "", 0.0f, 0, 127},                           // Fine tune (center)
-        {1, 1, true,  "WAV", "", 0.0f, 0, 127},                           // Waveform (center)
-        {1, 2, true,  "PHS", "", 0.0f, 0, 127},                           // Phase (center)
-        {3, 3, false, "", "Sin,Tri,Saw,Sqr,Nse", 0.0f, 0, 4},            // Wave selector (Sin)
-        {0, 4, false, "DET", "", 0.0f, 0, 127},                           // Detune (off)
-        {0, 5, false, "SUB", "", 0.0f, 0, 127},                           // Sub osc (off)
-        {0, 6, false, "MIX", "", 32.0f, 0, 127},                          // Mix (25% default)
-        {2, 7, false, "OCT", "", 0.0f, -4, 4}                             // Octave (center)
+        {1, true,  "FIN", "", 0.0f, 0, 127},                              // Fine tune (center)
+        {1, true,  "WAV", "", 32.0f, 0, 127},                              // Waveform (center)
+        {1, true,  "PHS", "", -64.0f, 0, 127},                              // Phase (center)
+        {3, false, "", "Sin,Tri,Saw,Sqr,Nse", 2.0f, 0, 4},               // Wave selector (Saw)
+        {0, false, "DET", "", 0.0f, 0, 127},                              // Detune (off)
+        {0, false, "SUB", "", 0.0f, 0, 127},                              // Sub osc (off)
+        {0, false, "MIX", "", 32.0f, 0, 127},                             // Mix (25% default)
+        {2, false, "OCT", "", 0.0f, -4, 4}                                // Octave (center)
     },
     // PAGE 1 - Filter controls
     {
-        {0, 0, true,  "CUT", "", 32.0f, 0, 127},                          // Cutoff (50% default)
-        {1, 1, true,  "RES", "", 0.0f, 0, 127},                           // Resonance (center)
-        {1, 2, false, "ENV", "", 0.0f, -64, 64},                          // Env amount (center)
-        {3, 3, false, "", "LP,HP,BP,BR", 0.0f, 0, 3},                     // Filter type (LP)
-        {0, 4, false, "KBD", "", 16.0f, 0, 127},                          // Keyboard track (25%)
-        {0, 5, false, "VEL", "", 0.0f, 0, 127},                           // Velocity (off)
-        {0, 6, false, "LFO", "", 0.0f, 0, 127},                           // LFO amount (off)
-        {2, 7, false, "DRV", "", 0.0f, 0, 100}                            // Drive (off)
+        {0, true,  "CUT", "", 32.0f, 0, 127},                             // Cutoff (50% default)
+        {1, true,  "RES", "", 0.0f, 0, 127},                              // Resonance (center)
+        {1, false, "ENV", "", 0.0f, -64, 64},                             // Env amount (center)
+        {3, false, "", "LP,HP,BP,BR", 0.0f, 0, 3},                        // Filter type (LP)
+        {0, false, "KBD", "", 16.0f, 0, 127},                             // Keyboard track (25%)
+        {0, false, "VEL", "", 0.0f, 0, 127},                              // Velocity (off)
+        {0, false, "LFO", "", 0.0f, 0, 127},                              // LFO amount (off)
+        {2, false, "DRV", "", 8.0f, 0, 100}                               // Drive (8% default)
     },
     // PAGE 2 - Envelope controls
     {
-        {0, 0, false, "ATK", "", 8.0f, 0, 127},                           // Attack (fast)
-        {0, 1, false, "DEC", "", 16.0f, 0, 127},                          // Decay (medium)
-        {0, 2, false, "SUS", "", 48.0f, 0, 127},                          // Sustain (75%)
-        {0, 3, false, "REL", "", 24.0f, 0, 127},                          // Release (medium)
-        {1, 4, false, "VEL", "", 0.0f, -100, 100},                        // Velocity (center)
-        {1, 5, false, "CRV", "", 0.0f, -50, 50},                          // Curve (linear)
-        {0, 6, false, "TIM", "", 32.0f, 0, 127},                          // Time scale (50%)
-        {3, 7, false, "", "Lin,Exp,Log", 0.0f, 0, 2}                      // Curve type (Linear)
+        {0, false, "ATK", "", 8.0f, 0, 127},                              // Attack (fast)
+        {0, false, "DEC", "", 16.0f, 0, 127},                             // Decay (medium)
+        {0, false, "SUS", "", 48.0f, 0, 127},                             // Sustain (75%)
+        {0, false, "REL", "", 24.0f, 0, 127},                             // Release (medium)
+        {1, false, "VEL", "", 0.0f, -100, 100},                           // Velocity (center)
+        {1, false, "CRV", "", 0.0f, -50, 50},                             // Curve (linear)
+        {0, false, "TIM", "", 32.0f, 0, 127},                             // Time scale (50%)
+        {3, false, "", "Lin,Exp,Log", 1.0f, 0, 2}                         // Curve type (Exponential)
     },
     // PAGE 3 - LFO controls
     {
-        {0, 0, true,  "RAT", "", 16.0f, 0, 127},                          // Rate (25%)
-        {1, 1, false, "DEP", "", 0.0f, -127, 127},                        // Depth (center)
-        {1, 2, false, "PHS", "", 0.0f, -127, 127},                        // Phase (center)
-        {3, 3, false, "", "Sin,Tri,Saw,Sqr,S&H", 0.0f, 0, 4},            // LFO shape (Sin)
-        {0, 4, false, "SYN", "", 0.0f, 0, 127},                           // Sync (off)
-        {0, 5, false, "DEL", "", 0.0f, 0, 127},                           // Delay (off)
-        {0, 6, false, "FAD", "", 0.0f, 0, 127},                           // Fade in (off)
-        {2, 7, false, "DIV", "", 4.0f, 1, 32}                             // Division (1/4)
+        {0, true,  "RAT", "", 16.0f, 0, 127},                             // Rate (25%)
+        {1, false, "DEP", "", 0.0f, -127, 127},                           // Depth (center)
+        {1, false, "PHS", "", 0.0f, -127, 127},                           // Phase (center)
+        {3, false, "", "Sin,Tri,Saw,Sqr,S&H", 1.0f, 0, 4},               // LFO shape (Triangle)
+        {0, false, "SYN", "", 0.0f, 0, 127},                              // Sync (off)
+        {0, false, "DEL", "", 0.0f, 0, 127},                              // Delay (off)
+        {0, false, "FAD", "", 0.0f, 0, 127},                              // Fade in (off)
+        {2, false, "DIV", "", 8.0f, 1, 32}                                // Division (1/8)
     },
     // PAGE 4 - Effects controls
     {
-        {0, 0, false, "REV", "", 16.0f, 0, 127},                          // Reverb (25%)
-        {0, 1, false, "DEL", "", 0.0f, 0, 127},                           // Delay (off)
-        {0, 2, false, "CHO", "", 0.0f, 0, 127},                           // Chorus (off)
-        {0, 3, false, "DIS", "", 0.0f, 0, 127},                           // Distortion (off)
-        {1, 4, false, "TIM", "", 0.0f, -64, 64},                          // Delay time (center)
-        {1, 5, false, "FBK", "", 0.0f, -100, 100},                        // Feedback (center)
-        {0, 6, false, "MIX", "", 32.0f, 0, 127},                          // Wet/Dry (50%)
-        {3, 7, false, "", "Off,Hall,Room,Plate", 1.0f, 0, 3}              // Reverb type (Hall)
+        {0, false, "REV", "", 16.0f, 0, 127},                             // Reverb (25%)
+        {0, false, "DEL", "", 0.0f, 0, 127},                              // Delay (off)
+        {0, false, "CHO", "", 0.0f, 0, 127},                              // Chorus (off)
+        {0, false, "DIS", "", 0.0f, 0, 127},                              // Distortion (off)
+        {1, false, "TIM", "", 0.0f, -64, 64},                             // Delay time (center)
+        {1, false, "FBK", "", 0.0f, -100, 100},                           // Feedback (center)
+        {0, false, "MIX", "", 32.0f, 0, 127},                             // Wet/Dry (50%)
+        {3, false, "", "Off,Hall,Room,Plate", 2.0f, 0, 3}                 // Reverb type (Room)
     },
     // PAGE 5 - Sequencer controls
     {
-        {2, 0, true,  "STP", "", 16.0f, 1, 64},                           // Steps (16)
-        {0, 1, true,  "SPD", "", 32.0f, 0, 127},                          // Speed (50%)
-        {1, 2, false, "SWG", "", 0.0f, -50, 50},                          // Swing (center)
-        {3, 3, false, "", "Fwd,Rev,P-P,Rnd", 0.0f, 0, 3},                // Direction (Forward)
-        {0, 4, false, "GAT", "", 48.0f, 0, 127},                          // Gate (75%)
-        {1, 5, false, "ACC", "", 0.0f, -127, 127},                        // Accent (center)
-        {0, 6, false, "SLD", "", 0.0f, 0, 127},                           // Slide (off)
-        {2, 7, false, "RST", "", 0.0f, 0, 1}                              // Reset (off)
+        {2, true,  "STP", "", 8.0f, 1, 64},                               // Steps (8)
+        {0, true,  "SPD", "", 32.0f, 0, 127},                             // Speed (50%)
+        {1, false, "SWG", "", 0.0f, -50, 50},                             // Swing (center)
+        {3, false, "", "Fwd,Rev,P-P,Rnd", 0.0f, 0, 3},                   // Direction (Forward)
+        {0, false, "GAT", "", 48.0f, 0, 127},                             // Gate (75%)
+        {1, false, "ACC", "", 0.0f, -127, 127},                           // Accent (center)
+        {0, false, "SLD", "", 0.0f, 0, 127},                              // Slide (off)
+        {2, false, "RST", "", 0.0f, 0, 1}                                 // Reset (off)
     },
     // PAGE 6 - Modulation controls
     {
-        {1, 0, false, "M1A", "", 0.0f, -127, 127},                        // Mod 1 amount (center)
-        {1, 1, false, "M2A", "", 0.0f, -127, 127},                        // Mod 2 amount (center)
-        {1, 2, false, "M3A", "", 0.0f, -127, 127},                        // Mod 3 amount (center)
-        {3, 3, false, "", "LFO,ENV,VEL,RND", 0.0f, 0, 3},                // Mod source (LFO)
-        {3, 4, false, "", "Cut,Res,Amp,Pan", 0.0f, 0, 3},                // Mod dest 1 (Cutoff)
-        {3, 5, false, "", "Pit,Phs,PWM,FM", 0.0f, 0, 3},                 // Mod dest 2 (Pitch)
-        {0, 6, false, "ATN", "", 64.0f, 0, 127},                          // Attenuator (100%)
-        {2, 7, false, "LAG", "", 0.0f, 0, 100}                            // Lag (off)
+        {1, false, "M1A", "", 0.0f, -127, 127},                           // Mod 1 amount (center)
+        {1, false, "M2A", "", 0.0f, -127, 127},                           // Mod 2 amount (center)
+        {1, false, "M3A", "", 0.0f, -127, 127},                           // Mod 3 amount (center)
+        {3, false, "", "LFO,ENV,VEL,RND", 0.0f, 0, 3},                   // Mod source (LFO)
+        {3, false, "", "Cut,Res,Amp,Pan", 0.0f, 0, 3},                   // Mod dest 1 (Cutoff)
+        {3, false, "", "Pit,Phs,PWM,FM", 0.0f, 0, 3},                    // Mod dest 2 (Pitch)
+        {0, false, "ATN", "", 64.0f, 0, 127},                             // Attenuator (100%)
+        {2, false, "LAG", "", 0.0f, 0, 100}                               // Lag (off)
     },
     // PAGE 7 - Global controls
     {
-        {0, 0, true,  "VOL", "", 48.0f, 0, 127},                          // Volume (75%)
-        {1, 1, false, "PAN", "", 0.0f, -64, 64},                          // Pan (center)
-        {0, 2, false, "TUN", "", 32.0f, 0, 127},                          // Tune (center)
-        {2, 3, true,  "TRS", "", 0.0f, -24, 24},                          // Transpose (center)
-        {0, 4, false, "VEL", "", 48.0f, 0, 127},                          // Velocity (75%)
-        {0, 5, false, "POR", "", 0.0f, 0, 127},                           // Portamento (off)
-        {2, 6, false, "CHN", "", 1.0f, 1, 16},                            // MIDI channel (1)
-        {3, 7, false, "", "Poly,Mono,Leg", 0.0f, 0, 2}                    // Play mode (Poly)
+        {0, true,  "VOL", "", 48.0f, 0, 127},                             // Volume (75%)
+        {1, false, "PAN", "", 0.0f, -64, 64},                             // Pan (center)
+        {0, false, "TUN", "", 32.0f, 0, 127},                             // Tune (center)
+        {2, true,  "TRS", "", 0.0f, -24, 24},                             // Transpose (center)
+        {0, false, "VEL", "", 48.0f, 0, 127},                             // Velocity (75%)
+        {0, false, "POR", "", 0.0f, 0, 127},                              // Portamento (off)
+        {2, false, "CHN", "", 1.0f, 1, 16},                               // MIDI channel (1)
+        {3, false, "", "Poly,Mono,Leg", 0.0f, 0, 2}                       // Play mode (Poly)
     }
 };
 
@@ -177,20 +176,45 @@ const uint8_t COL_X[4] = {26, 52, 78, 104};
 
 // Helper functions
 float applyModeConstraints(float value, int mode, int encoderIndex) {
+    // Encoder positions are ALWAYS 0-1 for renderer compatibility
+    if(value < 0.0f) return 0.0f;
+    if(value > 1.0f) return 1.0f;
+    return value;
+}
+
+// Convert from encoder position (0-1) to display value based on mode
+float encoderToDisplayValue(float encoderPos, int mode) {
     switch(mode) {
         case MODE_FRAC_UNIPOLAR:
-            if(value < 0.0f) return 0.0f;
-            if(value > 1.0f) return 1.0f;
-            return value;
+            // 0-1 encoder maps to 0-64 display
+            return encoderPos * 64.0f;
         case MODE_FRAC_BIPOLAR:
-            if(value < -1.0f) return -1.0f;
-            if(value > 1.0f) return 1.0f;
-            return value;
+            // 0-1 encoder maps to -64 to +64 display (0.0 = -64, 0.5 = 0, 1.0 = +64)
+            return (encoderPos * 128.0f) - 64.0f;  // -64 to +64
         case MODE_INT:
         case MODE_LIST:
-            return value;
+            // Not used for these modes
+            return 0.0f;
         default:
-            return value;
+            return encoderPos;
+    }
+}
+
+// Convert from display value to encoder position (0-1)
+float displayToEncoderValue(float displayValue, int mode) {
+    switch(mode) {
+        case MODE_FRAC_UNIPOLAR:
+            // 0-64 display maps to 0-1 encoder
+            return displayValue / 64.0f;
+        case MODE_FRAC_BIPOLAR:
+            // -64 to +64 display maps to 0-1 encoder (-64 = 0.0, 0 = 0.5, +64 = 1.0)
+            return (displayValue + 64.0f) / 128.0f;
+        case MODE_INT:
+        case MODE_LIST:
+            // Not used for these modes
+            return 0.0f;
+        default:
+            return displayValue;
     }
 }
 
@@ -229,12 +253,13 @@ void loadIntValue(int encoderIndex, int page) {
 // Initialize a single dial based on its configuration
 void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* config) {
     uint8_t array_index = page * 8 + dial_index;
+    float encoder_pos;  // Declare variable outside switch
     
     switch (config->mode) {
         case MODE_FRAC_UNIPOLAR:
         case MODE_FRAC_BIPOLAR:
             dials[array_index].page = page;
-            dials[array_index].param = config->param;
+            dials[array_index].param = dial_index;
             dials[array_index].is_bipolar = (config->mode == MODE_FRAC_BIPOLAR);
             dials[array_index].x = COL_X[dial_index % 4];
             dials[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
@@ -242,13 +267,16 @@ void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* co
             dials[array_index].height = DIAL_HEIGHT;
             dials[array_index].label = config->label;
             dials[array_index].show_value = config->show_value;
-            dials[array_index].default_value = config->default_value * (1 << 21);
+            // Convert config default to encoder position (0-1), then to display format for renderer
+            encoder_pos = displayToEncoderValue(config->default_value, config->mode);
+            encoder_pos = applyModeConstraints(encoder_pos, config->mode, dial_index);
+            dials[array_index].default_value = (int32_t)(encoder_pos * (float)(1 << 27));
             parent->instancesketchy__render_i.dial_init(&dials[array_index]);
             break;
             
         case MODE_INT:
             intdisplays[array_index].page = page;
-            intdisplays[array_index].param = config->param;
+            intdisplays[array_index].param = dial_index;
             intdisplays[array_index].x = COL_X[dial_index % 4];
             intdisplays[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
             intdisplays[array_index].width = DIAL_WIDTH;
@@ -259,7 +287,7 @@ void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* co
             
         case MODE_LIST:
             selects[array_index].page = page;
-            selects[array_index].param = config->param;
+            selects[array_index].param = dial_index;
             selects[array_index].x = COL_X[dial_index % 4];
             selects[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
             selects[array_index].width = DIAL_WIDTH;
@@ -316,21 +344,12 @@ for (int page = 0; page < 8; page++) {
             if (default_int > config->int_max) default_int = config->int_max;
             param_table->array[page][firstparam + enc] = default_int;
         } else {
-            // Initialize fractional modes: convert from Axoloti range to normalized 0.0-1.0
-            float normalized_default;
-            if (config->mode == MODE_FRAC_BIPOLAR) {
-                // Convert from -64 to +64 range to -1.0 to +1.0, then to 0.0-1.0 for storage
-                float bipolar_value = config->default_value / 64.0f;  // -1.0 to +1.0
-                if (bipolar_value < -1.0f) bipolar_value = -1.0f;
-                if (bipolar_value > 1.0f) bipolar_value = 1.0f;
-                normalized_default = (bipolar_value + 1.0f) * 0.5f;  // 0.0 to 1.0
-            } else {
-                // Convert from 0-64 range to 0.0-1.0
-                normalized_default = config->default_value / 64.0f;
-                if (normalized_default < 0.0f) normalized_default = 0.0f;
-                if (normalized_default > 1.0f) normalized_default = 1.0f;
-            }
-            param_table->array[page][firstparam + enc] = (int32_t)(normalized_default * (float)(1 << 27));
+            // Initialize fractional modes: store in param table format (0-1 or -1 to +1)
+            float encoder_pos = displayToEncoderValue(config->default_value, config->mode);
+            encoder_pos = applyModeConstraints(encoder_pos, config->mode, enc);
+            
+            // Store encoder position (0-1) directly - renderer expects 0-1 always
+            param_table->array[page][firstparam + enc] = (int32_t)(encoder_pos * (float)(1 << 27));
         }
     }
 }
@@ -345,20 +364,8 @@ for (int i = 0; i < 8; i++) {
         if (default_int > config->int_max) default_int = config->int_max;
         intValues[i] = default_int;
     } else {
-        // Convert from Axoloti range to encoder position range
-        if (config->mode == MODE_FRAC_BIPOLAR) {
-            // Convert from -64 to +64 range to -1.0 to +1.0 for encoder position
-            float bipolar_value = config->default_value / 64.0f;  // -1.0 to +1.0
-            if (bipolar_value < -1.0f) bipolar_value = -1.0f;
-            if (bipolar_value > 1.0f) bipolar_value = 1.0f;
-            encoderPos[i] = bipolar_value;
-        } else {
-            // Convert from 0-64 range to 0.0-1.0 for encoder position
-            float unipolar_value = config->default_value / 64.0f;
-            if (unipolar_value < 0.0f) unipolar_value = 0.0f;
-            if (unipolar_value > 1.0f) unipolar_value = 1.0f;
-            encoderPos[i] = unipolar_value;
-        }
+        // Convert from Axoloti range to encoder position (0-1 for renderer)
+        encoderPos[i] = displayToEncoderValue(config->default_value, config->mode);
         encoderPos[i] = applyModeConstraints(encoderPos[i], config->mode, i);
     }
 }
@@ -385,12 +392,8 @@ if (inlet_page != lastPage && page >= 0 && page < 8) {
             
             if (old_config->mode == MODE_INT || old_config->mode == MODE_LIST) {
                 value = intValues[i];
-            } else if (old_config->mode == MODE_FRAC_BIPOLAR) {
-                // Convert bipolar (-1.0 to 1.0) to unipolar (0.0 to 1.0) for table storage
-                float unipolar_value = (encoderPos[i] + 1.0f) * 0.5f;
-                value = (int32_t)(unipolar_value * (float)(1 << 27));
             } else {
-                // Unipolar mode - direct conversion
+                // Fractional modes: store encoder position (0-1) directly
                 value = (int32_t)(encoderPos[i] * (float)(1 << 27));
             }
             param_table->array[lastPage][firstparam + i] = value;
@@ -404,17 +407,9 @@ if (inlet_page != lastPage && page >= 0 && page < 8) {
         if (config->mode == MODE_INT || config->mode == MODE_LIST) {
             loadIntValue(i, page);
         } else {
-            // Load fractional value from table
+            // Load fractional value from table (stored as encoder positions 0-1)
             int32_t stored_value = param_table->array[page][firstparam + i];
-            float table_value = (float)stored_value / (float)(1 << 27);
-            
-            if (config->mode == MODE_FRAC_BIPOLAR) {
-                // Convert from unipolar table storage (0.0 to 1.0) back to bipolar (-1.0 to 1.0)
-                encoderPos[i] = (table_value * 2.0f) - 1.0f;
-            } else {
-                // Unipolar mode - direct assignment
-                encoderPos[i] = table_value;
-            }
+            encoderPos[i] = (float)stored_value / (float)(1 << 27);
             encoderPos[i] = applyModeConstraints(encoderPos[i], config->mode, i);
         }
     }
@@ -457,15 +452,8 @@ for (int i = 0; i < 8; i++) {
             
             // Write FRAC value to param table immediately
             rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
-            int32_t value;
-            if (config->mode == MODE_FRAC_BIPOLAR) {
-                // Convert bipolar (-1.0 to 1.0) to unipolar (0.0 to 1.0) for table storage
-                float unipolar_value = (encoderPos[i] + 1.0f) * 0.5f;
-                value = (int32_t)(unipolar_value * (float)(1 << 27));
-            } else {
-                // Unipolar mode - direct conversion
-                value = (int32_t)(encoderPos[i] * (float)(1 << 27));
-            }
+            // Store encoder position (0-1) directly
+            int32_t value = (int32_t)(encoderPos[i] * (float)(1 << 27));
             param_table->array[page][attr_firstparam + i] = value;
         }
         lastTrigTime[i] = timeCounter;
@@ -491,6 +479,15 @@ outlet_o8 = (configs[page][7].mode == MODE_INT || configs[page][7].mode == MODE_
 rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
 int firstparam = attr_firstparam;
 outlet_debugintval = (page >= 0 && page < 8) ? intValues[0] : -1;
-outlet_debugtableval = (page >= 0 && page < 8) ? param_table->array[page][firstparam] : -1;]]></code.krate>
+outlet_debugtableval = (page >= 0 && page < 8) ? param_table->array[page][firstparam] : -1;
+
+// Debug: Check what's happening with bipolar values
+if (page == 0) {
+    const encoder_dial_config_t* config = &configs[0][2];  // PHS parameter
+    float display_val = encoderToDisplayValue(encoderPos[2], config->mode);
+    int32_t param_val = param_table->array[0][firstparam + 2];
+    float param_float = (float)param_val / (float)(1 << 27);
+    // encoderPos[2] should be 0.0, display_val should be -64, param_float should be -1.0
+}]]></code.krate>
    </obj.normal>
 </objdefs> 
