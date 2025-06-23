@@ -123,9 +123,10 @@ const encoder_dial_config_t configs[8][8] = {
 #define MODE_LIST          3  // selector mode
 
 // Display structures for each type - 64 total (8 pages x 8 dials)
-rootc::instancesketchy__render::dial_t dials[64];
-rootc::instancesketchy__render::intdisplay_t intdisplays[64];
-rootc::instancesketchy__render::select_t selects[64];
+// Using SDRAM to save precious SRAM
+rootc::instancesketchy__render::dial_t *dials;
+rootc::instancesketchy__render::intdisplay_t *intdisplays;
+rootc::instancesketchy__render::select_t *selects;
 
 // Fixed layout positions
 const uint8_t DIAL_WIDTH = 24;
@@ -246,7 +247,17 @@ void init_param_table() {
         }
     }
 }]]></code.declaration>
-      <code.init><![CDATA[// Initialize param table with default values
+      <code.init><![CDATA[// Create SDRAM shadow arrays for display structures
+static rootc::instancesketchy__render::dial_t _dials[64] __attribute__ ((section (".sdram")));
+static rootc::instancesketchy__render::intdisplay_t _intdisplays[64] __attribute__ ((section (".sdram")));
+static rootc::instancesketchy__render::select_t _selects[64] __attribute__ ((section (".sdram")));
+
+// Point pointers to SDRAM arrays
+dials = &_dials[0];
+intdisplays = &_intdisplays[0];
+selects = &_selects[0];
+
+// Initialize param table with default values
 init_param_table();
 
 // Initialize all dials for all pages

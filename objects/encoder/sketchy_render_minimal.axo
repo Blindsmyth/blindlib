@@ -1,0 +1,651 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sketchy_render_minimal" uuid="2a3b4c5d-6e7f-8a9b-0c1d-2e3f4a5b6c7d">
+      <sDescription>Minimal renderer for encoder objects. Renders dials, integer displays, and selectors to SSD1306/1106 OLED displays. Optimized for low memory usage.</sDescription>
+      <author>AI Assistant</author>
+      <license>MIT</license>
+      <inlets>
+         <int32.positive name="page" description="set current page"/>
+         <int32.positive name="layout" description="set layout page (always visible)"/>
+         <bool32.rising name="print" description="Will log the state of the object table to axoloti window"/>
+      </inlets>
+      <outlets>
+         <int32.positive name="sw" description="screen width"/>
+         <int32.positive name="sh" description="screen height"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <combo name="type">
+            <MenuEntries>
+               <string>SSD1306</string>
+               <string>SH1106</string>
+            </MenuEntries>
+            <CEntries>
+               <string>1306</string>
+               <string>1106</string>
+            </CEntries>
+         </combo>
+         <combo name="I2CADDR">
+            <MenuEntries>
+               <string>0x3C</string>
+               <string>0x3D</string>
+            </MenuEntries>
+            <CEntries>
+               <string>0x3C</string>
+               <string>0x3D</string>
+            </CEntries>
+         </combo>
+      </attribs>
+      <includes/>
+      <depends>
+         <depend>SD1</depend>
+         <depend>I2CD1</depend>
+         <depend>SPID1</depend>
+      </depends>
+      <code.declaration><![CDATA[// Memory-optimized minimal renderer for encoder objects
+rootc::instancesketchy__objects* object_table;
+rootc::instancesketchy__texts* text_table;
+rootc::instancesketchy__params* param_table;
+rootc::instancesketchy__font* font;
+
+uint16_t page;
+uint16_t layout;
+
+enum SSD1306 {
+	LCDWIDTH            = 128,
+	LCDHEIGHT           = 64,
+	SETCONTRAST         = 0x81,
+	DISPLAYON           = 0xAF,
+	DISPLAYOFF          = 0xAE,
+	DISPLAYALLON_RESUME = 0xA4,
+	NORMALDISPLAY       = 0xA6,
+	DEACTIVATE_SCROLL   = 0x2E,
+	MEMORYMODE          = 0x20,
+	COLUMNADDR          = 0x21,
+	PAGEADDR            = 0x22,
+	SETSTARTLINE_0      = 0x40,
+	SEGREMAP            = 0xA0,
+	SETMULTIPLEX        = 0xA8,
+	COMSCANDEC          = 0xC8,
+	SETDISPLAYOFFSET    = 0xD3,
+	SETCOMPINS          = 0xDA,
+	SETDISPLAYCLOCKDIV  = 0xD5,
+	SETPRECHARGE        = 0xD9,
+	SETVCOMDETECT       = 0xDB,
+	CHARGEPUMP          = 0x8D,
+	EXTERNALVCC         = 0x1,
+	SWITCHCAPVCC        = 0x2,
+};
+
+// Buffers moved to SDRAM to save SRAM
+uint8_t *pixels;
+uint8_t *txbuf;
+uint8_t *rxbuf;
+
+void cmd(uint8_t c) {
+	txbuf[0] = 0;
+	txbuf[1] = c;
+	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 2, rxbuf, 0, 30);
+}
+
+void clear() {
+	for (int page = 0; page < 8; page++) {
+		for (int i = 0; i < LCDWIDTH; i++) {
+			pixels[page * LCDWIDTH + i] = 0;
+		}
+	}
+}
+
+void sendPage(int page_num) {
+	cmd(COLUMNADDR); cmd(0); cmd(127);
+	cmd(PAGEADDR); cmd(page_num); cmd(page_num);
+
+	if (attr_type == 1106) {
+		cmd(0xB0 + page_num);
+		cmd(2 & 0xf);
+		cmd(0x10 | (2 >> 4));
+	}
+
+	txbuf[0] = 0x40;
+	memcpy(txbuf + 1, pixels + (page_num * LCDWIDTH), LCDWIDTH);
+	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 129, rxbuf, 0, 30);
+}
+
+void init() {
+	cmd(DISPLAYOFF);
+	cmd(SETDISPLAYCLOCKDIV); cmd(0x80);
+	cmd(SETMULTIPLEX); cmd(LCDHEIGHT - 1);
+	cmd(SETDISPLAYOFFSET); cmd(attr_type == 1306 ? 0x00 : 0x01);
+	cmd(SETSTARTLINE_0);
+	cmd(CHARGEPUMP); cmd(0x14);
+	cmd(MEMORYMODE); cmd(0x00);
+	cmd(SEGREMAP | 0x1);
+	cmd(COMSCANDEC);
+	cmd(SETCOMPINS); cmd(0x12);
+	cmd(SETCONTRAST); cmd(0xCF);
+	cmd(SETPRECHARGE); cmd(0xF1);
+	cmd(SETVCOMDETECT); cmd(0x40);
+	cmd(DISPLAYALLON_RESUME);
+	cmd(NORMALDISPLAY);
+	cmd(DEACTIVATE_SCROLL);
+	cmd(DISPLAYON);
+}
+
+void setup() {
+	// Allocate buffers in SDRAM to save precious SRAM
+	static uint8_t _pixels[8 * LCDWIDTH] __attribute__ ((section (".sdram")));
+	static uint8_t _txbuf[129] __attribute__ ((section (".sdram")));
+	static uint8_t _rxbuf[8] __attribute__ ((section (".sdram")));
+	
+	pixels = &_pixels[0];
+	txbuf = &_txbuf[0];
+	rxbuf = &_rxbuf[0];
+	
+	init();
+}
+
+msg_t ThreadX2() {
+	setup();
+
+	while (!chThdShouldTerminate()) {
+		clear();
+		render();
+		for (uint8_t i = 0; i < 8; i++) {
+			sendPage(i);
+		}
+		chThdSleepMilliseconds(32);
+	}
+
+	chThdExit((msg_t)0);
+}
+
+static msg_t ThreadX(void *arg) {
+	((attr_parent *)arg)->ThreadX2();
+}
+
+// Reduced thread stack from 2048 to 512 to save RAM
+WORKING_AREA(waThreadX, 512);
+Thread *Thd;
+
+// Essential graphics functions only
+void draw_pixel(int16_t x, int16_t y, uint8_t color) __attribute__ ((noinline)) {
+	if (x < 0 || y < 0 || x >= LCDWIDTH || y >= LCDHEIGHT - 1) {
+		return;
+	}
+
+	uint8_t page = y / 8;
+	uint8_t bit = 1 << (y % 8);
+	uint8_t* pixel_addr = pixels + (page * LCDWIDTH + x);
+
+	if (color == 0) { 
+		*pixel_addr |= bit;
+	} else if (color == 1) { 
+		*pixel_addr &= ~bit;
+	} else if (color == 2) { 
+		*pixel_addr ^= bit;
+	}
+}
+
+void draw_line(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t color) __attribute__ ((noinline)) {
+	int16_t steep = abs(y1 - y0) > abs(x1 - x0);
+	if (steep) {    
+		int16_t temp = x0; x0 = y0; y0 = temp;
+		temp = x1; x1 = y1; y1 = temp;
+	}
+
+	if (x0 > x1) {
+		int16_t temp = x0; x0 = x1; x1 = temp;
+		temp = y0; y0 = y1; y1 = temp;
+	}
+
+	int16_t dx = x1 - x0;
+	int16_t dy = abs(y1 - y0);
+	int16_t err = dx / 2;
+	int16_t ystep = (y0 < y1) ? 1 : -1;
+
+	for (; x0 <= x1; x0++) {
+		if (steep) {
+			draw_pixel(y0, x0, color);
+		} else {
+			draw_pixel(x0, y0, color);
+		}
+		err -= dy;
+		if (err < 0) {
+			y0 += ystep;
+			err += dx;
+		}
+	}
+}
+
+void draw_char(char c, int16_t x, int16_t y, uint8_t color) __attribute__ ((noinline)) {
+	if (c < 32 || c > 127) return;
+
+	int index = (c - 32) * 5;
+	for (int col = 0; col < 5; col++) {
+		uint8_t column_data = font->data[index + col];
+		for (int row = 0; row < 8; row++) {
+			if (column_data & (1 << row)) {
+				draw_pixel(x + col, y + row, color);
+			}
+		}
+	}
+}
+
+void draw_string_simple(const char* str, int16_t x, int16_t y, uint8_t color) __attribute__ ((noinline)) {
+	int16_t current_x = x;
+	for (int i = 0; str[i] != '\0' && current_x < LCDWIDTH - 5; i++) {
+		draw_char(str[i], current_x, y, color);
+		current_x += 6;
+	}
+}
+
+void draw_rect(int16_t x, int16_t y, int16_t w, int16_t h, uint8_t color) __attribute__ ((noinline)) {
+	if (w == 0 || h == 0) return;
+
+	int16_t x_end = x + w - 1;
+	int16_t y_end = y + h - 1;
+
+	draw_line(x, y, x_end, y, color);
+	if (h > 1) draw_line(x, y_end, x_end, y_end, color);
+	if (w > 1) {
+		draw_line(x, y, x, y_end, color);
+		draw_line(x_end, y, x_end, y_end, color);
+	}
+}
+
+void draw_filled_rect(int16_t x, int16_t y, int16_t w, int16_t h, uint8_t color) __attribute__ ((noinline)) {
+	if (w <= 0 || h <= 0) return;
+
+	for (int16_t i = 0; i < w; i++) {
+		draw_line(x + i, y, x + i, y + h - 1, color);
+	}
+}
+
+void render() __attribute__ ((noinline)) {
+	for (uint8_t i = 0; i < parent->instancesketchy__objects_i.LENGTH; i++) {
+		if (parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE] == parent->instancesketchy__objects_i.TYPE_INVISIBLE) {
+			continue;
+		}
+		uint16_t current_object_page = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_PAGE];
+		if (current_object_page != page && current_object_page != layout) {
+			continue;
+		}
+		
+		int16_t x = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_X];
+		int16_t y = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_Y];
+		int16_t w = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_W];
+		int16_t h = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_H];
+		uint8_t color = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_COLOR];
+
+		switch (parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE]) {
+			case parent->instancesketchy__objects_i.TYPE_RECT:
+				draw_rect(x, y, w, h, color);
+				break;
+
+			case parent->instancesketchy__objects_i.TYPE_FILLED_RECT:
+				draw_filled_rect(x, y, w, h, color);
+				break;
+
+			case parent->instancesketchy__objects_i.TYPE_LINE:
+				if (i > 0 && parent->instancesketchy__objects_i.array[i - 1][parent->instancesketchy__objects_i.FIELD_TYPE] == parent->instancesketchy__objects_i.TYPE_LINE) {
+					int16_t prev_x = parent->instancesketchy__objects_i.array[i - 1][parent->instancesketchy__objects_i.FIELD_X];
+					int16_t prev_y = parent->instancesketchy__objects_i.array[i - 1][parent->instancesketchy__objects_i.FIELD_Y];
+					draw_line(prev_x, prev_y, x, y, color);
+				}
+				break;
+
+			case parent->instancesketchy__objects_i.TYPE_TEXT:
+			case parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_X:
+			case parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_Y:
+			case parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_BOTH:
+				{
+					const char* str = parent->instancesketchy__texts_i.array[parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TEXT_ID]];
+					int16_t text_x = x;
+					int16_t text_y = y;
+					
+					// Simple centering
+					if (parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE] == parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_X ||
+					    parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE] == parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_BOTH) {
+						int str_len = strlen(str);
+						text_x = x + (w - str_len * 6) / 2;
+					}
+					if (parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE] == parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_Y ||
+					    parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE] == parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_BOTH) {
+						text_y = y + (h - 8) / 2;
+					}
+					
+					draw_string_simple(str, text_x, text_y, color);
+				}
+				break;
+		}
+	}
+}
+
+bool pprint;
+
+// PHASE 1: Complex display structures commented out to isolate compiler issues
+/*
+// Essential display structures for encoder objects
+typedef struct {
+    uint16_t box_object_id;
+    uint16_t label_object_id;
+    uint16_t label_text_id;
+    int32_t last_value;
+    int32_t page;
+    int32_t param;
+    bool is_bipolar;
+    int32_t x;
+    int32_t y;
+    int32_t width;
+    int32_t height;
+    const char* label;
+    bool show_value;
+    int32_t default_value;
+} dial_t;
+*/
+
+void dial_init(dial_t* dial) __attribute__ ((noinline)) { 
+   rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
+   rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
+   rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+
+   dial->box_object_id = object_table->registerEntry();
+   dial->label_object_id = object_table->registerEntry();
+   dial->label_text_id = text_table->registerEntry();
+
+   object_table->array[dial->box_object_id][object_table->FIELD_TYPE] = 2;
+   object_table->array[dial->box_object_id][object_table->FIELD_X] = dial->x;
+   object_table->array[dial->box_object_id][object_table->FIELD_Y] = dial->y;
+   object_table->array[dial->box_object_id][object_table->FIELD_W] = dial->width;
+   object_table->array[dial->box_object_id][object_table->FIELD_H] = 0;
+   object_table->array[dial->box_object_id][object_table->FIELD_COLOR] = 0;
+   object_table->array[dial->box_object_id][object_table->FIELD_SCALE] = 1;
+   object_table->array[dial->box_object_id][object_table->FIELD_TEXT_ID] = 0;
+   object_table->array[dial->box_object_id][object_table->FIELD_PAGE] = dial->page;
+
+   object_table->array[dial->label_object_id][object_table->FIELD_TYPE] = 9;
+   object_table->array[dial->label_object_id][object_table->FIELD_X] = dial->x;
+   object_table->array[dial->label_object_id][object_table->FIELD_Y] = dial->y;
+   object_table->array[dial->label_object_id][object_table->FIELD_W] = dial->width;
+   object_table->array[dial->label_object_id][object_table->FIELD_H] = dial->height;
+   object_table->array[dial->label_object_id][object_table->FIELD_COLOR] = 2;
+   object_table->array[dial->label_object_id][object_table->FIELD_SCALE] = 1;
+   object_table->array[dial->label_object_id][object_table->FIELD_TEXT_ID] = dial->label_text_id;
+   object_table->array[dial->label_object_id][object_table->FIELD_PAGE] = dial->page;
+
+   strcpy(text_table->array[dial->label_text_id], dial->label);
+   param_table->array[dial->page][dial->param] = dial->default_value;
+}
+
+void dial_update(dial_t* dial) __attribute__ ((noinline)) {
+   rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
+   rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
+   rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+	
+   int32_t value = param_table->array[dial->page][dial->param];
+
+   if (value == dial->last_value) return;
+   dial->last_value = value;
+
+   if (dial->is_bipolar) {
+       value = (value-(1<<26))<<1;
+   }
+
+   float frac_value = ((float)value / 0x00200000);
+   float norm_value = frac_value / 64.0f;
+
+   if (dial->is_bipolar) {
+       int8_t h = (dial->height/2.0f) * norm_value + 0.5f;
+       object_table->array[dial->box_object_id][object_table->FIELD_H] = h;
+       object_table->array[dial->box_object_id][object_table->FIELD_Y] = dial->y+(dial->height-h) - dial->height/2;
+   } else {
+       uint8_t h = dial->height * norm_value + 0.5f;
+       object_table->array[dial->box_object_id][object_table->FIELD_H] = h;
+       object_table->array[dial->box_object_id][object_table->FIELD_Y] = dial->y+(dial->height-h);
+   }
+
+   if (dial->show_value) {
+       int rounded = (frac_value >= 0) ? (int)(frac_value + 0.5) : (int)(frac_value - 0.5);
+       char value_str[8] = "";
+       text_table->itoa(value_str, rounded);
+       strcpy(text_table->array[dial->label_text_id], dial->label);
+       strcat(text_table->array[dial->label_text_id], " ");
+       strcat(text_table->array[dial->label_text_id], value_str);
+   }
+}
+
+// Simple structures for other display types
+typedef struct {
+    uint16_t box_object_id;
+    uint16_t label_object_id;
+    uint16_t label_text_id;
+    int32_t last_value;
+    int32_t page;
+    int32_t param;
+    int32_t x;
+    int32_t y;
+    int32_t width;
+    int32_t height;
+    const char* label;
+    uint8_t num_options;
+    bool is_int;
+} select_t;
+
+typedef struct {
+    uint16_t box_object_id;
+    uint16_t label_object_id;
+    uint16_t label_text_id;
+    int32_t last_value;
+    int32_t page;
+    int32_t param;
+    int32_t x;
+    int32_t y;
+    int32_t width;
+    int32_t height;
+    const char* label;
+} intdisplay_t;
+
+// Simplified token functions for selectors
+char* get_simple_token(const char* str, int index) {
+    static char token_buffer[16];
+    const char* start = str;
+    int current_index = 0;
+    
+    while (current_index < index && *start) {
+        if (*start == ',') current_index++;
+        if (current_index < index) start++;
+    }
+    
+    int i = 0;
+    while (*start && *start != ',' && i < 15) {
+        token_buffer[i++] = *start++;
+    }
+    token_buffer[i] = '\0';
+    
+    return token_buffer;
+}
+
+int count_simple_tokens(const char* str) {
+    int count = 1;
+    for (const char* p = str; *p; p++) {
+        if (*p == ',') count++;
+    }
+    return count;
+}
+
+// Additional functions needed for compatibility with other objects
+int count_tokens(const char* str) {
+    return count_simple_tokens(str);
+}
+
+char* get_token_at_index(const char* str, int index) {
+    return get_simple_token(str, index);
+}
+
+uint16_t getCurrentPage() {
+    return page;
+}
+
+void select_init(select_t* select) __attribute__ ((noinline)) { 
+   rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
+   rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
+
+   select->box_object_id = object_table->registerEntry();
+   select->label_object_id = object_table->registerEntry();
+   select->label_text_id = text_table->registerEntry();
+
+   object_table->array[select->box_object_id][object_table->FIELD_TYPE] = 1;
+   object_table->array[select->box_object_id][object_table->FIELD_X] = select->x;
+   object_table->array[select->box_object_id][object_table->FIELD_Y] = select->y;
+   object_table->array[select->box_object_id][object_table->FIELD_W] = select->width;
+   object_table->array[select->box_object_id][object_table->FIELD_H] = select->height;
+   object_table->array[select->box_object_id][object_table->FIELD_COLOR] = 0;
+   object_table->array[select->box_object_id][object_table->FIELD_SCALE] = 1;
+   object_table->array[select->box_object_id][object_table->FIELD_TEXT_ID] = 0;
+   object_table->array[select->box_object_id][object_table->FIELD_PAGE] = select->page;
+
+   object_table->array[select->label_object_id][object_table->FIELD_TYPE] = 9;
+   object_table->array[select->label_object_id][object_table->FIELD_X] = select->x;
+   object_table->array[select->label_object_id][object_table->FIELD_Y] = select->y;
+   object_table->array[select->label_object_id][object_table->FIELD_W] = select->width;
+   object_table->array[select->label_object_id][object_table->FIELD_H] = select->height;
+   object_table->array[select->label_object_id][object_table->FIELD_COLOR] = 2;
+   object_table->array[select->label_object_id][object_table->FIELD_SCALE] = 1;
+   object_table->array[select->label_object_id][object_table->FIELD_TEXT_ID] = select->label_text_id;
+   object_table->array[select->label_object_id][object_table->FIELD_PAGE] = select->page;
+
+   select->num_options = count_simple_tokens(select->label);
+   strcpy(text_table->array[select->label_text_id], select->label);
+   select->last_value = 0xFFFFFFFF;
+}
+
+void select_update(select_t* select) __attribute__ ((noinline)) {
+   rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
+   rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
+   rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+	
+   int32_t value = param_table->array[select->page][select->param];
+   int option_index = 0;
+
+   if (value == select->last_value) return;
+   select->last_value = value;
+
+   if (select->is_int) {
+      option_index = value;
+   } else {
+      float frac_value = ((float)value / 0x00200000);
+      float option_range = 64.0f / select->num_options;
+      option_index = (int)(frac_value / option_range);
+   }
+	
+   option_index = (option_index >= select->num_options) ? select->num_options-1 : option_index;
+   char* token = get_simple_token(select->label, option_index);
+   strcpy(text_table->array[select->label_text_id], token);
+}
+
+void intdisplay_init(intdisplay_t* disp) __attribute__ ((noinline)) {
+    rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
+    rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
+
+    disp->box_object_id = object_table->registerEntry();
+    disp->label_object_id = object_table->registerEntry();
+    disp->label_text_id = text_table->registerEntry();
+
+    object_table->array[disp->box_object_id][object_table->FIELD_TYPE] = 1;
+    object_table->array[disp->box_object_id][object_table->FIELD_X] = disp->x;
+    object_table->array[disp->box_object_id][object_table->FIELD_Y] = disp->y;
+    object_table->array[disp->box_object_id][object_table->FIELD_W] = disp->width;
+    object_table->array[disp->box_object_id][object_table->FIELD_H] = disp->height;
+    object_table->array[disp->box_object_id][object_table->FIELD_COLOR] = 0;
+    object_table->array[disp->box_object_id][object_table->FIELD_SCALE] = 1;
+    object_table->array[disp->box_object_id][object_table->FIELD_TEXT_ID] = 0;
+    object_table->array[disp->box_object_id][object_table->FIELD_PAGE] = disp->page;
+
+    object_table->array[disp->label_object_id][object_table->FIELD_TYPE] = 9;
+    object_table->array[disp->label_object_id][object_table->FIELD_X] = disp->x;
+    object_table->array[disp->label_object_id][object_table->FIELD_Y] = disp->y;
+    object_table->array[disp->label_object_id][object_table->FIELD_W] = disp->width;
+    object_table->array[disp->label_object_id][object_table->FIELD_H] = disp->height;
+    object_table->array[disp->label_object_id][object_table->FIELD_COLOR] = 2;
+    object_table->array[disp->label_object_id][object_table->FIELD_SCALE] = 1;
+    object_table->array[disp->label_object_id][object_table->FIELD_TEXT_ID] = disp->label_text_id;
+    object_table->array[disp->label_object_id][object_table->FIELD_PAGE] = disp->page;
+
+    strcpy(text_table->array[disp->label_text_id], disp->label);
+    disp->last_value = 0xFFFFFFFF;
+}
+
+void intdisplay_update(intdisplay_t* disp) __attribute__ ((noinline)) {
+    rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
+    rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
+    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+
+    int32_t value = param_table->array[disp->page][disp->param];
+    if (value == disp->last_value) return;
+    disp->last_value = value;
+
+    char value_str[12] = "";
+    text_table->itoa(value_str, value);
+    strcpy(text_table->array[disp->label_text_id], disp->label);
+    strcat(text_table->array[disp->label_text_id], " ");
+    strcat(text_table->array[disp->label_text_id], value_str);
+}]]></code.declaration>
+      <code.init><![CDATA[object_table = &parent->instancesketchy__objects_i;
+text_table = &parent->instancesketchy__texts_i;
+param_table = &parent->instancesketchy__params_i;
+font = &parent->instancesketchy__font_i;
+
+// setup the pins
+palSetPadMode(GPIOB, 8, PAL_MODE_ALTERNATE(4)|PAL_STM32_PUDR_PULLUP|PAL_STM32_OTYPE_OPENDRAIN);// SCL
+palSetPadMode(GPIOB, 9, PAL_MODE_ALTERNATE(4)|PAL_STM32_PUDR_PULLUP|PAL_STM32_OTYPE_OPENDRAIN);// SDA
+static const I2CConfig i2cfg = {
+    OPMODE_I2C,
+    400000,
+    FAST_DUTY_CYCLE_2,
+};
+i2cStart(&I2CD1, &i2cfg);
+Thd = chThdCreateStatic(waThreadX, sizeof(waThreadX), NORMALPRIO, ThreadX, (void *)this);
+
+clear();
+
+pprint = false;
+page = 0;
+layout = 0xFFFF;]]></code.init>
+      <code.dispose><![CDATA[chThdTerminate( Thd );
+chThdWait( Thd );
+i2cStop(&I2CD1);
+palSetPadMode(GPIOB, 8, PAL_MODE_INPUT_ANALOG);
+palSetPadMode(GPIOB, 9, PAL_MODE_INPUT_ANALOG);]]></code.dispose>
+      <code.krate><![CDATA[if (inlet_print && !pprint) {
+  pprint = true;
+  for (uint8_t i = 0; i < parent->instancesketchy__objects_i.LENGTH; i++) {
+    LogTextMessage(
+      "i: %3d, type: %3d, x: %3d, y: %3d, w: %3d, h: %3d, color: %3d, text_id: %3d",
+      i,
+      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE],
+      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_X], 
+      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_Y], 
+      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_W],
+      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_H], 
+      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_COLOR],
+      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TEXT_ID]
+    );
+  }
+  LogTextMessage("");
+}
+
+if (!inlet_print && pprint) {
+  pprint = false;
+}
+
+if (page != inlet_page) {
+	page = inlet_page;
+}
+if (layout != inlet_layout) {
+	layout = inlet_layout;
+}
+
+outlet_sw = LCDWIDTH;
+outlet_sh = LCDHEIGHT;]]></code.krate>
+   </obj.normal>
+</objdefs> 

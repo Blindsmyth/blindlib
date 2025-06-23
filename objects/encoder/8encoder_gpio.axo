@@ -1,522 +1,96 @@
 <objdefs appVersion="1.0.12">
-  <obj.normal id="8encoder_gpio" uuid="auto-generated-gpio-8encoder">
-    <sDescription>8 rotary encoders with acceleration, table storage, 16 user-selectable GPIO digital inputs (trig1/dir1...trig8/dir8), global mode, and 8 outputs. All GPIO wiring is internal. Code-ready shell.</sDescription>
-    <author>Gavin / GPIO Foundation</author>
-    <license>BSD</license>
-    <helpPatch>logic.axh</helpPatch>
-    <inlets>
-      <int32 name="page"/>
-    </inlets>
+  <obj.normal id="8encoder_gpio" uuid="a1b2c3d4-e5f6-7890-abcd-ef1234567890">
+    <sDescription>8 Encoder GPIO inputs hardcoded for specific pins. Reads 16 digital inputs (8 trig + 8 dir) with pulldown resistors.</sDescription>
+    <author>AI Assistant</author>
+    <license>MIT</license>
+    <inlets/>
     <outlets>
-      <frac32 name="o1"/>
-      <frac32 name="o2"/>
-      <frac32 name="o3"/>
-      <frac32 name="o4"/>
-      <frac32 name="o5"/>
-      <frac32 name="o6"/>
-      <frac32 name="o7"/>
-      <frac32 name="o8"/>
-      <int32 name="debugintval"/>
-      <int32 name="debugtableval"/>
-      <int32 name="loaded"/>
+      <bool32 name="trig1" description="Encoder 1 trigger"/>
+      <bool32 name="dir1" description="Encoder 1 direction"/>
+      <bool32 name="trig2" description="Encoder 2 trigger"/>
+      <bool32 name="dir2" description="Encoder 2 direction"/>
+      <bool32 name="trig3" description="Encoder 3 trigger"/>
+      <bool32 name="dir3" description="Encoder 3 direction"/>
+      <bool32 name="trig4" description="Encoder 4 trigger"/>
+      <bool32 name="dir4" description="Encoder 4 direction"/>
+      <bool32 name="trig5" description="Encoder 5 trigger"/>
+      <bool32 name="dir5" description="Encoder 5 direction"/>
+      <bool32 name="trig6" description="Encoder 6 trigger"/>
+      <bool32 name="dir6" description="Encoder 6 direction"/>
+      <bool32 name="trig7" description="Encoder 7 trigger"/>
+      <bool32 name="dir7" description="Encoder 7 direction"/>
+      <bool32 name="trig8" description="Encoder 8 trigger"/>
+      <bool32 name="dir8" description="Encoder 8 direction"/>
     </outlets>
-    <attribs>
-      <spinner name="acceltime" MinValue="1" MaxValue="1000" DefaultValue="100"/>
-      <spinner name="accelmultiplier" MinValue="1" MaxValue="10" DefaultValue="6"/>
-      <combo name="mode" DefaultValue="pulldown">
-        <MenuEntries>
-          <string>hi-z</string>
-          <string>pullup</string>
-          <string>pulldown</string>
-        </MenuEntries>
-        <CEntries>
-          <string>PAL_MODE_INPUT</string>
-          <string>PAL_MODE_INPUT_PULLUP</string>
-          <string>PAL_MODE_INPUT_PULLDOWN</string>
-        </CEntries>
-      </combo>
-      <!-- Per-input pad combos for trig1...trig8, dir1...dir8 -->
-      <combo name="pad_trig1" DefaultValue="PC2">
-        <MenuEntries>
-          <string>PA0</string><string>PA1</string><string>PA2</string><string>PA3</string><string>PA4</string><string>PA5</string><string>PA6</string><string>PA7</string><string>PB0</string><string>PB1</string><string>PB6</string><string>PB7</string><string>PB8</string><string>PB9</string><string>PC0</string><string>PC1</string><string>PC2</string><string>PC3</string><string>PC4</string><string>PC5</string>
-        </MenuEntries>
-        <CEntries>
-          <string>GPIOA,0</string><string>GPIOA,1</string><string>GPIOA,2</string><string>GPIOA,3</string><string>GPIOA,4</string><string>GPIOA,5</string><string>GPIOA,6</string><string>GPIOA,7</string><string>GPIOB,0</string><string>GPIOB,1</string><string>GPIOB,6</string><string>GPIOB,7</string><string>GPIOB,8</string><string>GPIOB,9</string><string>GPIOC,0</string><string>GPIOC,1</string><string>GPIOC,2</string><string>GPIOC,3</string><string>GPIOC,4</string><string>GPIOC,5</string>
-        </CEntries>
-      </combo>
-      <combo name="pad_dir1" DefaultValue="PC3">
-        <MenuEntries>
-          <string>PA0</string><string>PA1</string><string>PA2</string><string>PA3</string><string>PA4</string><string>PA5</string><string>PA6</string><string>PA7</string><string>PB0</string><string>PB1</string><string>PB6</string><string>PB7</string><string>PB8</string><string>PB9</string><string>PC0</string><string>PC1</string><string>PC2</string><string>PC3</string><string>PC4</string><string>PC5</string>
-        </MenuEntries>
-        <CEntries>
-          <string>GPIOA,0</string><string>GPIOA,1</string><string>GPIOA,2</string><string>GPIOA,3</string><string>GPIOA,4</string><string>GPIOA,5</string><string>GPIOA,6</string><string>GPIOA,7</string><string>GPIOB,0</string><string>GPIOB,1</string><string>GPIOB,6</string><string>GPIOB,7</string><string>GPIOB,8</string><string>GPIOB,9</string><string>GPIOC,0</string><string>GPIOC,1</string><string>GPIOC,2</string><string>GPIOC,3</string><string>GPIOC,4</string><string>GPIOC,5</string>
-        </CEntries>
-      </combo>
-      <combo name="pad_trig2" DefaultValue="PA4">
-        <MenuEntries>
-          <string>PA0</string><string>PA1</string><string>PA2</string><string>PA3</string><string>PA4</string><string>PA5</string><string>PA6</string><string>PA7</string><string>PB0</string><string>PB1</string><string>PB6</string><string>PB7</string><string>PB8</string><string>PB9</string><string>PC0</string><string>PC1</string><string>PC2</string><string>PC3</string><string>PC4</string><string>PC5</string>
-        </MenuEntries>
-        <CEntries>
-          <string>GPIOA,0</string><string>GPIOA,1</string><string>GPIOA,2</string><string>GPIOA,3</string><string>GPIOA,4</string><string>GPIOA,5</string><string>GPIOA,6</string><string>GPIOA,7</string><string>GPIOB,0</string><string>GPIOB,1</string><string>GPIOB,6</string><string>GPIOB,7</string><string>GPIOB,8</string><string>GPIOB,9</string><string>GPIOC,0</string><string>GPIOC,1</string><string>GPIOC,2</string><string>GPIOC,3</string><string>GPIOC,4</string><string>GPIOC,5</string>
-        </CEntries>
-      </combo>
-      <combo name="pad_dir2" DefaultValue="PA5">
-        <MenuEntries>
-          <string>PA0</string><string>PA1</string><string>PA2</string><string>PA3</string><string>PA4</string><string>PA5</string><string>PA6</string><string>PA7</string><string>PB0</string><string>PB1</string><string>PB6</string><string>PB7</string><string>PB8</string><string>PB9</string><string>PC0</string><string>PC1</string><string>PC2</string><string>PC3</string><string>PC4</string><string>PC5</string>
-        </MenuEntries>
-        <CEntries>
-          <string>GPIOA,0</string><string>GPIOA,1</string><string>GPIOA,2</string><string>GPIOA,3</string><string>GPIOA,4</string><string>GPIOA,5</string><string>GPIOA,6</string><string>GPIOA,7</string><string>GPIOB,0</string><string>GPIOB,1</string><string>GPIOB,6</string><string>GPIOB,7</string><string>GPIOB,8</string><string>GPIOB,9</string><string>GPIOC,0</string><string>GPIOC,1</string><string>GPIOC,2</string><string>GPIOC,3</string><string>GPIOC,4</string><string>GPIOC,5</string>
-        </CEntries>
-      </combo>
-      <combo name="pad_trig3" DefaultValue="PB7">
-        <MenuEntries>
-          <string>PA0</string><string>PA1</string><string>PA2</string><string>PA3</string><string>PA4</string><string>PA5</string><string>PA6</string><string>PA7</string><string>PB0</string><string>PB1</string><string>PB6</string><string>PB7</string><string>PB8</string><string>PB9</string><string>PC0</string><string>PC1</string><string>PC2</string><string>PC3</string><string>PC4</string><string>PC5</string>
-        </MenuEntries>
-        <CEntries>
-          <string>GPIOA,0</string><string>GPIOA,1</string><string>GPIOA,2</string><string>GPIOA,3</string><string>GPIOA,4</string><string>GPIOA,5</string><string>GPIOA,6</string><string>GPIOA,7</string><string>GPIOB,0</string><string>GPIOB,1</string><string>GPIOB,6</string><string>GPIOB,7</string><string>GPIOB,8</string><string>GPIOB,9</string><string>GPIOC,0</string><string>GPIOC,1</string><string>GPIOC,2</string><string>GPIOC,3</string><string>GPIOC,4</string><string>GPIOC,5</string>
-        </CEntries>
-      </combo>
-      <combo name="pad_dir3" DefaultValue="PB6">
-        <MenuEntries>
-          <string>PA0</string><string>PA1</string><string>PA2</string><string>PA3</string><string>PA4</string><string>PA5</string><string>PA6</string><string>PA7</string><string>PB0</string><string>PB1</string><string>PB6</string><string>PB7</string><string>PB8</string><string>PB9</string><string>PC0</string><string>PC1</string><string>PC2</string><string>PC3</string><string>PC4</string><string>PC5</string>
-        </MenuEntries>
-        <CEntries>
-          <string>GPIOA,0</string><string>GPIOA,1</string><string>GPIOA,2</string><string>GPIOA,3</string><string>GPIOA,4</string><string>GPIOA,5</string><string>GPIOA,6</string><string>GPIOA,7</string><string>GPIOB,0</string><string>GPIOB,1</string><string>GPIOB,6</string><string>GPIOB,7</string><string>GPIOB,8</string><string>GPIOB,9</string><string>GPIOC,0</string><string>GPIOC,1</string><string>GPIOC,2</string><string>GPIOC,3</string><string>GPIOC,4</string><string>GPIOC,5</string>
-        </CEntries>
-      </combo>
-      <combo name="pad_trig4" DefaultValue="PB0">
-        <MenuEntries>
-          <string>PA0</string><string>PA1</string><string>PA2</string><string>PA3</string><string>PA4</string><string>PA5</string><string>PA6</string><string>PA7</string><string>PB0</string><string>PB1</string><string>PB6</string><string>PB7</string><string>PB8</string><string>PB9</string><string>PC0</string><string>PC1</string><string>PC2</string><string>PC3</string><string>PC4</string><string>PC5</string>
-        </MenuEntries>
-        <CEntries>
-          <string>GPIOA,0</string><string>GPIOA,1</string><string>GPIOA,2</string><string>GPIOA,3</string><string>GPIOA,4</string><string>GPIOA,5</string><string>GPIOA,6</string><string>GPIOA,7</string><string>GPIOB,0</string><string>GPIOB,1</string><string>GPIOB,6</string><string>GPIOB,7</string><string>GPIOB,8</string><string>GPIOB,9</string><string>GPIOC,0</string><string>GPIOC,1</string><string>GPIOC,2</string><string>GPIOC,3</string><string>GPIOC,4</string><string>GPIOC,5</string>
-        </CEntries>
-      </combo>
-      <combo name="pad_dir4" DefaultValue="PB1">
-        <MenuEntries>
-          <string>PA0</string><string>PA1</string><string>PA2</string><string>PA3</string><string>PA4</string><string>PA5</string><string>PA6</string><string>PA7</string><string>PB0</string><string>PB1</string><string>PB6</string><string>PB7</string><string>PB8</string><string>PB9</string><string>PC0</string><string>PC1</string><string>PC2</string><string>PC3</string><string>PC4</string><string>PC5</string>
-        </MenuEntries>
-        <CEntries>
-          <string>GPIOA,0</string><string>GPIOA,1</string><string>GPIOA,2</string><string>GPIOA,3</string><string>GPIOA,4</string><string>GPIOA,5</string><string>GPIOA,6</string><string>GPIOA,7</string><string>GPIOB,0</string><string>GPIOB,1</string><string>GPIOB,6</string><string>GPIOB,7</string><string>GPIOB,8</string><string>GPIOB,9</string><string>GPIOC,0</string><string>GPIOC,1</string><string>GPIOC,2</string><string>GPIOC,3</string><string>GPIOC,4</string><string>GPIOC,5</string>
-        </CEntries>
-      </combo>
-      <combo name="pad_trig5" DefaultValue="PC5">
-        <MenuEntries>
-          <string>PA0</string><string>PA1</string><string>PA2</string><string>PA3</string><string>PA4</string><string>PA5</string><string>PA6</string><string>PA7</string><string>PB0</string><string>PB1</string><string>PB6</string><string>PB7</string><string>PB8</string><string>PB9</string><string>PC0</string><string>PC1</string><string>PC2</string><string>PC3</string><string>PC4</string><string>PC5</string>
-        </MenuEntries>
-        <CEntries>
-          <string>GPIOA,0</string><string>GPIOA,1</string><string>GPIOA,2</string><string>GPIOA,3</string><string>GPIOA,4</string><string>GPIOA,5</string><string>GPIOA,6</string><string>GPIOA,7</string><string>GPIOB,0</string><string>GPIOB,1</string><string>GPIOB,6</string><string>GPIOB,7</string><string>GPIOB,8</string><string>GPIOB,9</string><string>GPIOC,0</string><string>GPIOC,1</string><string>GPIOC,2</string><string>GPIOC,3</string><string>GPIOC,4</string><string>GPIOC,5</string>
-        </CEntries>
-      </combo>
-      <combo name="pad_dir5" DefaultValue="PC4">
-        <MenuEntries>
-          <string>PA0</string><string>PA1</string><string>PA2</string><string>PA3</string><string>PA4</string><string>PA5</string><string>PA6</string><string>PA7</string><string>PB0</string><string>PB1</string><string>PB6</string><string>PB7</string><string>PB8</string><string>PB9</string><string>PC0</string><string>PC1</string><string>PC2</string><string>PC3</string><string>PC4</string><string>PC5</string>
-        </MenuEntries>
-        <CEntries>
-          <string>GPIOA,0</string><string>GPIOA,1</string><string>GPIOA,2</string><string>GPIOA,3</string><string>GPIOA,4</string><string>GPIOA,5</string><string>GPIOA,6</string><string>GPIOA,7</string><string>GPIOB,0</string><string>GPIOB,1</string><string>GPIOB,6</string><string>GPIOB,7</string><string>GPIOB,8</string><string>GPIOB,9</string><string>GPIOC,0</string><string>GPIOC,1</string><string>GPIOC,2</string><string>GPIOC,3</string><string>GPIOC,4</string><string>GPIOC,5</string>
-        </CEntries>
-      </combo>
-      <combo name="pad_trig6" DefaultValue="PC0">
-        <MenuEntries>
-          <string>PA0</string><string>PA1</string><string>PA2</string><string>PA3</string><string>PA4</string><string>PA5</string><string>PA6</string><string>PA7</string><string>PB0</string><string>PB1</string><string>PB6</string><string>PB7</string><string>PB8</string><string>PB9</string><string>PC0</string><string>PC1</string><string>PC2</string><string>PC3</string><string>PC4</string><string>PC5</string>
-        </MenuEntries>
-        <CEntries>
-          <string>GPIOA,0</string><string>GPIOA,1</string><string>GPIOA,2</string><string>GPIOA,3</string><string>GPIOA,4</string><string>GPIOA,5</string><string>GPIOA,6</string><string>GPIOA,7</string><string>GPIOB,0</string><string>GPIOB,1</string><string>GPIOB,6</string><string>GPIOB,7</string><string>GPIOB,8</string><string>GPIOB,9</string><string>GPIOC,0</string><string>GPIOC,1</string><string>GPIOC,2</string><string>GPIOC,3</string><string>GPIOC,4</string><string>GPIOC,5</string>
-        </CEntries>
-      </combo>
-      <combo name="pad_dir6" DefaultValue="PC1">
-        <MenuEntries>
-          <string>PA0</string><string>PA1</string><string>PA2</string><string>PA3</string><string>PA4</string><string>PA5</string><string>PA6</string><string>PA7</string><string>PB0</string><string>PB1</string><string>PB6</string><string>PB7</string><string>PB8</string><string>PB9</string><string>PC0</string><string>PC1</string><string>PC2</string><string>PC3</string><string>PC4</string><string>PC5</string>
-        </MenuEntries>
-        <CEntries>
-          <string>GPIOA,0</string><string>GPIOA,1</string><string>GPIOA,2</string><string>GPIOA,3</string><string>GPIOA,4</string><string>GPIOA,5</string><string>GPIOA,6</string><string>GPIOA,7</string><string>GPIOB,0</string><string>GPIOB,1</string><string>GPIOB,6</string><string>GPIOB,7</string><string>GPIOB,8</string><string>GPIOB,9</string><string>GPIOC,0</string><string>GPIOC,1</string><string>GPIOC,2</string><string>GPIOC,3</string><string>GPIOC,4</string><string>GPIOC,5</string>
-        </CEntries>
-      </combo>
-      <combo name="pad_trig7" DefaultValue="PA0">
-        <MenuEntries>
-          <string>PA0</string><string>PA1</string><string>PA2</string><string>PA3</string><string>PA4</string><string>PA5</string><string>PA6</string><string>PA7</string><string>PB0</string><string>PB1</string><string>PB6</string><string>PB7</string><string>PB8</string><string>PB9</string><string>PC0</string><string>PC1</string><string>PC2</string><string>PC3</string><string>PC4</string><string>PC5</string>
-        </MenuEntries>
-        <CEntries>
-          <string>GPIOA,0</string><string>GPIOA,1</string><string>GPIOA,2</string><string>GPIOA,3</string><string>GPIOA,4</string><string>GPIOA,5</string><string>GPIOA,6</string><string>GPIOA,7</string><string>GPIOB,0</string><string>GPIOB,1</string><string>GPIOB,6</string><string>GPIOB,7</string><string>GPIOB,8</string><string>GPIOB,9</string><string>GPIOC,0</string><string>GPIOC,1</string><string>GPIOC,2</string><string>GPIOC,3</string><string>GPIOC,4</string><string>GPIOC,5</string>
-        </CEntries>
-      </combo>
-      <combo name="pad_dir7" DefaultValue="PA1">
-        <MenuEntries>
-          <string>PA0</string><string>PA1</string><string>PA2</string><string>PA3</string><string>PA4</string><string>PA5</string><string>PA6</string><string>PA7</string><string>PB0</string><string>PB1</string><string>PB6</string><string>PB7</string><string>PB8</string><string>PB9</string><string>PC0</string><string>PC1</string><string>PC2</string><string>PC3</string><string>PC4</string><string>PC5</string>
-        </MenuEntries>
-        <CEntries>
-          <string>GPIOA,0</string><string>GPIOA,1</string><string>GPIOA,2</string><string>GPIOA,3</string><string>GPIOA,4</string><string>GPIOA,5</string><string>GPIOA,6</string><string>GPIOA,7</string><string>GPIOB,0</string><string>GPIOB,1</string><string>GPIOB,6</string><string>GPIOB,7</string><string>GPIOB,8</string><string>GPIOB,9</string><string>GPIOC,0</string><string>GPIOC,1</string><string>GPIOC,2</string><string>GPIOC,3</string><string>GPIOC,4</string><string>GPIOC,5</string>
-        </CEntries>
-      </combo>
-      <combo name="pad_trig8" DefaultValue="PA6">
-        <MenuEntries>
-          <string>PA0</string><string>PA1</string><string>PA2</string><string>PA3</string><string>PA4</string><string>PA5</string><string>PA6</string><string>PA7</string><string>PB0</string><string>PB1</string><string>PB6</string><string>PB7</string><string>PB8</string><string>PB9</string><string>PC0</string><string>PC1</string><string>PC2</string><string>PC3</string><string>PC4</string><string>PC5</string>
-        </MenuEntries>
-        <CEntries>
-          <string>GPIOA,0</string><string>GPIOA,1</string><string>GPIOA,2</string><string>GPIOA,3</string><string>GPIOA,4</string><string>GPIOA,5</string><string>GPIOA,6</string><string>GPIOA,7</string><string>GPIOB,0</string><string>GPIOB,1</string><string>GPIOB,6</string><string>GPIOB,7</string><string>GPIOB,8</string><string>GPIOB,9</string><string>GPIOC,0</string><string>GPIOC,1</string><string>GPIOC,2</string><string>GPIOC,3</string><string>GPIOC,4</string><string>GPIOC,5</string>
-        </CEntries>
-      </combo>
-      <combo name="pad_dir8" DefaultValue="PA7">
-        <MenuEntries>
-          <string>PA0</string><string>PA1</string><string>PA2</string><string>PA3</string><string>PA4</string><string>PA5</string><string>PA6</string><string>PA7</string><string>PB0</string><string>PB1</string><string>PB6</string><string>PB7</string><string>PB8</string><string>PB9</string><string>PC0</string><string>PC1</string><string>PC2</string><string>PC3</string><string>PC4</string><string>PC5</string>
-        </MenuEntries>
-        <CEntries>
-          <string>GPIOA,0</string><string>GPIOA,1</string><string>GPIOA,2</string><string>GPIOA,3</string><string>GPIOA,4</string><string>GPIOA,5</string><string>GPIOA,6</string><string>GPIOA,7</string><string>GPIOB,0</string><string>GPIOB,1</string><string>GPIOB,6</string><string>GPIOB,7</string><string>GPIOB,8</string><string>GPIOB,9</string><string>GPIOC,0</string><string>GPIOC,1</string><string>GPIOC,2</string><string>GPIOC,3</string><string>GPIOC,4</string><string>GPIOC,5</string>
-        </CEntries>
-      </combo>
-      <objref name="table"/>
-    </attribs>
-    <!-- 16 GPIO digital input children, named trig1...trig8, dir1...dir8 -->
-    <obj type="gpio/in/digital" name="trig1">
-      <attribs>
-        <combo attributeName="pad" selection="{attr_pad_trig1}"/>
-        <combo attributeName="mode" selection="{attr_mode}"/>
-      </attribs>
-    </obj>
-    <obj type="gpio/in/digital" name="dir1">
-      <attribs>
-        <combo attributeName="pad" selection="{attr_pad_dir1}"/>
-        <combo attributeName="mode" selection="{attr_mode}"/>
-      </attribs>
-    </obj>
-    <obj type="gpio/in/digital" name="trig2">
-      <attribs>
-        <combo attributeName="pad" selection="{attr_pad_trig2}"/>
-        <combo attributeName="mode" selection="{attr_mode}"/>
-      </attribs>
-    </obj>
-    <obj type="gpio/in/digital" name="dir2">
-      <attribs>
-        <combo attributeName="pad" selection="{attr_pad_dir2}"/>
-        <combo attributeName="mode" selection="{attr_mode}"/>
-      </attribs>
-    </obj>
-    <obj type="gpio/in/digital" name="trig3">
-      <attribs>
-        <combo attributeName="pad" selection="{attr_pad_trig3}"/>
-        <combo attributeName="mode" selection="{attr_mode}"/>
-      </attribs>
-    </obj>
-    <obj type="gpio/in/digital" name="dir3">
-      <attribs>
-        <combo attributeName="pad" selection="{attr_pad_dir3}"/>
-        <combo attributeName="mode" selection="{attr_mode}"/>
-      </attribs>
-    </obj>
-    <obj type="gpio/in/digital" name="trig4">
-      <attribs>
-        <combo attributeName="pad" selection="{attr_pad_trig4}"/>
-        <combo attributeName="mode" selection="{attr_mode}"/>
-      </attribs>
-    </obj>
-    <obj type="gpio/in/digital" name="dir4">
-      <attribs>
-        <combo attributeName="pad" selection="{attr_pad_dir4}"/>
-        <combo attributeName="mode" selection="{attr_mode}"/>
-      </attribs>
-    </obj>
-    <obj type="gpio/in/digital" name="trig5">
-      <attribs>
-        <combo attributeName="pad" selection="{attr_pad_trig5}"/>
-        <combo attributeName="mode" selection="{attr_mode}"/>
-      </attribs>
-    </obj>
-    <obj type="gpio/in/digital" name="dir5">
-      <attribs>
-        <combo attributeName="pad" selection="{attr_pad_dir5}"/>
-        <combo attributeName="mode" selection="{attr_mode}"/>
-      </attribs>
-    </obj>
-    <obj type="gpio/in/digital" name="trig6">
-      <attribs>
-        <combo attributeName="pad" selection="{attr_pad_trig6}"/>
-        <combo attributeName="mode" selection="{attr_mode}"/>
-      </attribs>
-    </obj>
-    <obj type="gpio/in/digital" name="dir6">
-      <attribs>
-        <combo attributeName="pad" selection="{attr_pad_dir6}"/>
-        <combo attributeName="mode" selection="{attr_mode}"/>
-      </attribs>
-    </obj>
-    <obj type="gpio/in/digital" name="trig7">
-      <attribs>
-        <combo attributeName="pad" selection="{attr_pad_trig7}"/>
-        <combo attributeName="mode" selection="{attr_mode}"/>
-      </attribs>
-    </obj>
-    <obj type="gpio/in/digital" name="dir7">
-      <attribs>
-        <combo attributeName="pad" selection="{attr_pad_dir7}"/>
-        <combo attributeName="mode" selection="{attr_mode}"/>
-      </attribs>
-    </obj>
-    <obj type="gpio/in/digital" name="trig8">
-      <attribs>
-        <combo attributeName="pad" selection="{attr_pad_trig8}"/>
-        <combo attributeName="mode" selection="{attr_mode}"/>
-      </attribs>
-    </obj>
-    <obj type="gpio/in/digital" name="dir8">
-      <attribs>
-        <combo attributeName="pad" selection="{attr_pad_dir8}"/>
-        <combo attributeName="mode" selection="{attr_mode}"/>
-      </attribs>
-    </obj>
-    <code.declaration><![CDATA[
-// Encoder data
-float encoderPos[8];
-int accel[8];
-uint32_t lastTrigTime[8];
-int lastTrigState[8];
-int lastA = -1;
-uint32_t timeCounter = 0;
+    <displays/>
+    <params/>
+    <attribs/>
+    <includes/>
+    <code.declaration><![CDATA[// Hardcoded GPIO pins for 8 encoders
+// Based on your subpatch configuration]]></code.declaration>
+    <code.init><![CDATA[// Initialize all GPIO pins with pulldown mode
+// Encoder 1: trig=PC2, dir=PC3
+palSetPadMode(GPIOC, 2, PAL_MODE_INPUT_PULLDOWN);
+palSetPadMode(GPIOC, 3, PAL_MODE_INPUT_PULLDOWN);
 
-// Mode constants
-#define MODE_FRAC_PLUS    0  // 0.0 to 1.0, positive only
-#define MODE_INT_PLUS     1  // min to max, positive only  
-#define MODE_INT_BIPOLAR  2  // min to max, bipolar
+// Encoder 2: trig=PA4, dir=PA5  
+palSetPadMode(GPIOA, 4, PAL_MODE_INPUT_PULLDOWN);
+palSetPadMode(GPIOA, 5, PAL_MODE_INPUT_PULLDOWN);
 
-// Mode configuration for encoders (8 encoders x multiple layers)
-// Layer 0: encoders 0-7, Layer 1: encoders 8-15, etc.
-const int8_t encoderModes[64] = {
-    // Layer 0 (encoders 0-7)
-    0, 0, 0, 1, 0, 0, 0, 1,
-    // Layer 1 (encoders 8-15) 
-    0, 1, 1, 0, 2, 0, 1, 0,
-    // Layer 2 (encoders 16-23)
-    1, 1, 0, 0, 1, 2, 0, 1,
-    // Layer 3 (encoders 24-31)
-    0, 0, 0, 1, 1, 1, 2, 2,
-    // Layer 4 (encoders 32-39)
-    0, 0, 0, 0, 0, 0, 0, 0,
-    // Layer 5 (encoders 40-47)
-    0, 0, 0, 0, 0, 0, 0, 0,
-    // Layer 6 (encoders 48-55)
-    0, 0, 0, 0, 0, 0, 0, 0,
-    // Layer 7 (encoders 56-63)
-    0, 0, 0, 0, 0, 0, 0, 0
-};
+// Encoder 3: trig=PB7, dir=PB6
+palSetPadMode(GPIOB, 7, PAL_MODE_INPUT_PULLDOWN);
+palSetPadMode(GPIOB, 6, PAL_MODE_INPUT_PULLDOWN);
 
-// Min values for integer modes (8 encoders x multiple layers)
-// NOTE: Large integer ranges require appropriate table bit depth:
-// 8-bit table: ~100 steps max, 16-bit table: ~30k steps max, 32-bit table: ~2M+ steps max
-const int16_t intMin[64] = {
-    // Layer 0
-    0, 0, 0, 0, 0, 0, 0, 0,
-    // Layer 1
-    0, 0, 0, 0, -32, 0, 1, 0,
-    // Layer 2
-    0, 0, 0, 0, 0, -100, 0, 0,
-    // Layer 3
-    0, 0, 0, 0, 0, 0, -50, -25,
-    // Layer 4
-    0, 0, 0, 0, 0, 0, 0, 0,
-    // Layer 5
-    0, 0, 0, 0, 0, 0, 0, 0,
-    // Layer 6
-    0, 0, 0, 0, 0, 0, 0, 0,
-    // Layer 7
-    0, 0, 0, 0, 0, 0, 0, 0
-};
+// Encoder 4: trig=PB0, dir=PB1
+palSetPadMode(GPIOB, 0, PAL_MODE_INPUT_PULLDOWN);
+palSetPadMode(GPIOB, 1, PAL_MODE_INPUT_PULLDOWN);
 
-// Max values for integer modes (8 encoders x multiple layers)
-const int16_t intMax[64] = {
-    // Layer 0
-    127, 127, 127, 63, 127, 127, 100, 999,
-    // Layer 1
-    127, 64, 32, 127, 31, 127, 10, 127,
-    // Layer 2
-    50, 200, 127, 127, 255, 99, 127, 8,
-    // Layer 3
-    127, 127, 127, 20, 15, 7, 49, 24,
-    // Layer 4
-    127, 127, 127, 127, 127, 127, 127, 127,
-    // Layer 5
-    127, 127, 127, 127, 127, 127, 127, 127,
-    // Layer 6
-    127, 127, 127, 127, 127, 127, 127, 127,
-    // Layer 7
-    127, 127, 127, 127, 127, 127, 127, 127
-};
+// Encoder 5: trig=PC5, dir=PC4
+palSetPadMode(GPIOC, 5, PAL_MODE_INPUT_PULLDOWN);
+palSetPadMode(GPIOC, 4, PAL_MODE_INPUT_PULLDOWN);
 
-// Current integer values (for int modes)
-int intValues[8];
+// Encoder 6: trig=PC0, dir=PC1
+palSetPadMode(GPIOC, 0, PAL_MODE_INPUT_PULLDOWN);
+palSetPadMode(GPIOC, 1, PAL_MODE_INPUT_PULLDOWN);
 
-// Helper functions
-float applyModeConstraints(float value, int mode, int encoderIndex) {
-    switch(mode) {
-        case MODE_FRAC_PLUS:
-            if(value < 0.0f) return 0.0f;
-            if(value > 1.0f) return 1.0f;
-            return value;
-            
-        case MODE_INT_PLUS:
-        case MODE_INT_BIPOLAR:
-            // For integer modes, we work with the intValues array
-            // and convert to/from float for table storage
-            return value; // Pass through, actual clamping done on intValues
-            
-        default:
-            return value;
-    }
-}
+// Encoder 7: trig=PA0, dir=PA1
+palSetPadMode(GPIOA, 0, PAL_MODE_INPUT_PULLDOWN);
+palSetPadMode(GPIOA, 1, PAL_MODE_INPUT_PULLDOWN);
 
-void updateIntValue(int encoderIndex, int direction, int layer) {
-    int arrayIndex = layer * 8 + encoderIndex;
-    int minVal = intMin[arrayIndex];
-    int maxVal = intMax[arrayIndex];
-    
-    // Simple increment/decrement - ignore any table data for now
-    if (direction == 0) {
-        intValues[encoderIndex]--;
-    } else {
-        intValues[encoderIndex]++;
-    }
-    
-    // Clamp to range
-    if (intValues[encoderIndex] < minVal) intValues[encoderIndex] = minVal;
-    if (intValues[encoderIndex] > maxVal) intValues[encoderIndex] = maxVal;
-}
+// Encoder 8: trig=PA6, dir=PA7
+palSetPadMode(GPIOA, 6, PAL_MODE_INPUT_PULLDOWN);
+palSetPadMode(GPIOA, 7, PAL_MODE_INPUT_PULLDOWN);]]></code.init>
+    <code.krate><![CDATA[// Read all GPIO pins and output as bool32 values
+// Encoder 1
+outlet_trig1 = palReadPad(GPIOC, 2) << 27;
+outlet_dir1 = palReadPad(GPIOC, 3) << 27;
 
-void loadIntValue(int encoderIndex, int layer) {
-    int arrayIndex = layer * 8 + encoderIndex;
-    int minVal = intMin[arrayIndex];
-    int maxVal = intMax[arrayIndex];
-    
-    // Load integer directly from table
-    int index = layer * 8 + encoderIndex;
-    if (index < attr_table.LENGTH) {
-        intValues[encoderIndex] = attr_table.array[index];
-    } else {
-        intValues[encoderIndex] = minVal; // Default to minimum if out of bounds
-    }
-    
-    // Clamp to range
-    if (intValues[encoderIndex] < minVal) intValues[encoderIndex] = minVal;
-    if (intValues[encoderIndex] > maxVal) intValues[encoderIndex] = maxVal;
-}
-]]></code.declaration>
-    <code.init><![CDATA[
-for (int i = 0; i < 8; i++) {
-    encoderPos[i] = 0.0f;
-    accel[i] = 1;
-    lastTrigTime[i] = 0;
-    lastTrigState[i] = 0;
-    intValues[i] = 0; // Initialize to 0, will be set properly when layer loads
-}
-lastA = -1;
-timeCounter = 0;
+// Encoder 2  
+outlet_trig2 = palReadPad(GPIOA, 4) << 27;
+outlet_dir2 = palReadPad(GPIOA, 5) << 27;
 
-// Clear entire table first to remove any old fixed-point data
-for (int i = 0; i < attr_table.LENGTH; i++) {
-    attr_table.array[i] = 0;
-}
+// Encoder 3
+outlet_trig3 = palReadPad(GPIOB, 7) << 27;
+outlet_dir3 = palReadPad(GPIOB, 6) << 27;
 
-// Initialize table positions for integer modes to their minimum values
-for (int layer = 0; layer < 8; layer++) {
-    for (int enc = 0; enc < 8; enc++) {
-        int arrayIndex = layer * 8 + enc;
-        int tableIndex = layer * 8 + enc;
-        if (tableIndex < attr_table.LENGTH && (encoderModes[arrayIndex] == MODE_INT_PLUS || encoderModes[arrayIndex] == MODE_INT_BIPOLAR)) {
-            attr_table.array[tableIndex] = intMin[arrayIndex];
-        }
-    }
-}
-]]></code.init>
-    <code.krate><![CDATA[
-timeCounter++;
+// Encoder 4
+outlet_trig4 = palReadPad(GPIOB, 0) << 27;
+outlet_dir4 = palReadPad(GPIOB, 1) << 27;
 
-// Calculate current layer and its base offset once
-int layer = inlet_page;
-int layer_offset = layer * 8; 
+// Encoder 5
+outlet_trig5 = palReadPad(GPIOC, 5) << 27;
+outlet_dir5 = palReadPad(GPIOC, 4) << 27;
 
-// Load from table when 'page' (layer selector) changes
-if (inlet_page != lastA && layer >= 0 && layer < 8) { // Max 8 layers (0-7)
-    for (int i = 0; i < 8; i++) { // 8 encoders
-        int arrayIndex = layer_offset + i;
-        
-        // Bounds check for encoderModes array (max index 63 for 8 layers * 8 encoders)
-        if (arrayIndex >= 64) continue; 
+// Encoder 6
+outlet_trig6 = palReadPad(GPIOC, 0) << 27;
+outlet_dir6 = palReadPad(GPIOC, 1) << 27;
 
-        int currentMode = encoderModes[arrayIndex];
-        
-        if (currentMode == MODE_INT_PLUS || currentMode == MODE_INT_BIPOLAR) {
-            loadIntValue(i, layer); // loadIntValue internally recalculates layer*8, which is fine for its scope
-        } else {
-            // Fractional modes
-            int table_idx = layer_offset + i;
-            if (table_idx < attr_table.LENGTH) {
-                int raw = attr_table.array[table_idx];
-                encoderPos[i] = (float)raw / 1000.0f; 
-                encoderPos[i] = applyModeConstraints(encoderPos[i], currentMode, i);
-            }
-        }
-    }
-    lastA = inlet_page;
-}
+// Encoder 7
+outlet_trig7 = palReadPad(GPIOA, 0) << 27;
+outlet_dir7 = palReadPad(GPIOA, 1) << 27;
 
-// Process encoder inputs
-bool trig[8] = {trig1.out, trig2.out, trig3.out, trig4.out, 
-                trig5.out, trig6.out, trig7.out, trig8.out};
-bool dir[8]  = {dir1.out,  dir2.out,  dir3.out,  dir4.out,  
-                dir5.out,  dir6.out,  dir7.out,  dir8.out};
-
-for (int i = 0; i < 8; i++) {
-    bool edge = (trig[i] == 1) && (lastTrigState[i] == 0);
-    lastTrigState[i] = trig[i];
-
-    if (edge) {
-        int arrayIndex = layer_offset + i;
-        
-        // Bounds check for encoderModes array
-        if (arrayIndex >= 64) continue;
-
-        int currentMode = encoderModes[arrayIndex];
-        
-        if (currentMode == MODE_INT_PLUS || currentMode == MODE_INT_BIPOLAR) {
-            updateIntValue(i, dir[i], layer); // updateIntValue uses layer directly
-            int table_idx = layer_offset + i;
-            if (table_idx < attr_table.LENGTH) {
-                attr_table.array[table_idx] = intValues[i];
-            }
-        } else {
-            // Fractional mode
-            uint32_t diff = timeCounter - lastTrigTime[i];
-            if (diff < attr_acceltime) {
-                accel[i]++;
-                if (accel[i] > attr_accelmultiplier) accel[i] = attr_accelmultiplier;
-            } else {
-                accel[i] = 1;
-            }
-            float inc = 0.0078125f * accel[i]; // 1/128
-            if (dir[i] == 0) {
-                encoderPos[i] -= inc;
-            } else {
-                encoderPos[i] += inc;
-            }
-            if (encoderPos[i] < 0.0f) encoderPos[i] = 0.0f;
-            if (encoderPos[i] > 1.0f) encoderPos[i] = 1.0f;
-            
-            int table_idx = layer_offset + i;
-            if (table_idx < attr_table.LENGTH) {
-                attr_table.array[table_idx] = (int)(encoderPos[i] * 1000.0f); 
-            }
-        }
-        lastTrigTime[i] = timeCounter;
-    }
-}
-
-// Output values - only for fractional modes, integer modes output 0
-// Ensure layer_offset + k is within encoderModes bounds (0-63)
-outlet_o1 = (layer_offset + 0 < 64 && (encoderModes[layer_offset + 0] == MODE_INT_PLUS || encoderModes[layer_offset + 0] == MODE_INT_BIPOLAR)) ? 0 : (int)(encoderPos[0] * (float)(1 << 27));
-outlet_o2 = (layer_offset + 1 < 64 && (encoderModes[layer_offset + 1] == MODE_INT_PLUS || encoderModes[layer_offset + 1] == MODE_INT_BIPOLAR)) ? 0 : (int)(encoderPos[1] * (float)(1 << 27));
-outlet_o3 = (layer_offset + 2 < 64 && (encoderModes[layer_offset + 2] == MODE_INT_PLUS || encoderModes[layer_offset + 2] == MODE_INT_BIPOLAR)) ? 0 : (int)(encoderPos[2] * (float)(1 << 27));
-outlet_o4 = (layer_offset + 3 < 64 && (encoderModes[layer_offset + 3] == MODE_INT_PLUS || encoderModes[layer_offset + 3] == MODE_INT_BIPOLAR)) ? 0 : (int)(encoderPos[3] * (float)(1 << 27));
-outlet_o5 = (layer_offset + 4 < 64 && (encoderModes[layer_offset + 4] == MODE_INT_PLUS || encoderModes[layer_offset + 4] == MODE_INT_BIPOLAR)) ? 0 : (int)(encoderPos[4] * (float)(1 << 27));
-outlet_o6 = (layer_offset + 5 < 64 && (encoderModes[layer_offset + 5] == MODE_INT_PLUS || encoderModes[layer_offset + 5] == MODE_INT_BIPOLAR)) ? 0 : (int)(encoderPos[5] * (float)(1 << 27));
-outlet_o7 = (layer_offset + 6 < 64 && (encoderModes[layer_offset + 6] == MODE_INT_PLUS || encoderModes[layer_offset + 6] == MODE_INT_BIPOLAR)) ? 0 : (int)(encoderPos[6] * (float)(1 << 27));
-outlet_o8 = (layer_offset + 7 < 64 && (encoderModes[layer_offset + 7] == MODE_INT_PLUS || encoderModes[layer_offset + 7] == MODE_INT_BIPOLAR)) ? 0 : (int)(encoderPos[7] * (float)(1 << 27));
-]]></code.krate>
+// Encoder 8
+outlet_trig8 = palReadPad(GPIOA, 6) << 27;
+outlet_dir8 = palReadPad(GPIOA, 7) << 27;]]></code.krate>
   </obj.normal>
 </objdefs>
