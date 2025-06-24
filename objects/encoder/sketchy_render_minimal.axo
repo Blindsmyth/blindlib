@@ -286,9 +286,10 @@ void dial_update(dial_t* dial) {
     int32_t value = param_table->array[dial->page][dial->param];
     
     // Draw incomplete dial outline (leave bottom gap for text)
+    // Adjust proportions to match Elektron style - larger circle, better spacing
     int cx = dial->x + dial->width/2;
-    int cy = dial->y + dial->height/2 - 2;  // Shift entire dial up by 2 pixels
-    int radius = dial->width/2 - 2;  // Back to original size
+    int cy = dial->y + dial->height/2 - 8;  // Move circle up by 2 more pixels (was -6, now -8)
+    int radius = dial->width/2 - 3;  // Make circle 1 more pixel smaller (was -2, now -3)
     
     // Draw arc from 135° to 45° (going clockwise), leaving bottom gap (45° to 135°) for text
     for (int angle_deg = 135; angle_deg != 45; ) {
@@ -312,7 +313,7 @@ void dial_update(dial_t* dial) {
     float angle_deg = 135.0f + (normalized * 270.0f);
     if (angle_deg >= 360.0f) angle_deg -= 360.0f;  // Wrap around
     float angle = angle_deg * 3.14159f / 180.0f;
-    int indicator_radius = dial->width/2 - 2;  // Touch the circle edge
+    int indicator_radius = dial->width/2 + 1;  // Extend indicator by 1 more pixel to properly touch the circle
     
     // Use standard math functions
     float cos_val = cosf(angle);
@@ -320,13 +321,20 @@ void dial_update(dial_t* dial) {
     int end_x = cx + (int)(cos_val * indicator_radius);
     int end_y = cy + (int)(sin_val * indicator_radius);
     
+    // Draw main indicator line
     draw_line(cx, cy, end_x, end_y);
+    
+    // Add a second line offset by 1 pixel to make diagonal lines more consistent
+    // This helps with pixel aliasing at 45° angles
+    if (abs(end_x - cx) == abs(end_y - cy)) {  // Only for diagonal lines (45° angles)
+        draw_line(cx + 1, cy, end_x + 1, end_y);
+    }
     
     // Draw label in the bottom gap area (centered below the dial)
     if (dial->label && strlen(dial->label) > 0) {
         int text_width = strlen(dial->label) * (font ? font->width + 1 : 6);
         int text_x = dial->x + (dial->width - text_width) / 2;
-        int text_y = dial->y + dial->height - (font ? font->height : 8) + 2;  // Shift up by 2 pixels to match dial
+        int text_y = dial->y + dial->height - (font ? font->height : 8);  // Closer to bottom, Elektron-style spacing
         draw_text(text_x, text_y, dial->label);
     }
 }
