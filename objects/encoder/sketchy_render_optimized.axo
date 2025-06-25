@@ -132,43 +132,44 @@ const int8_t circle_coords[44][2] = {
     {-3, -7}, {-2, -8}, {-1, -8}                                                     // Left to top
 };
 
-// Indicator positions - pixel-perfect, extracted from user's grid (L11 = center)
+// Normalized coordinates - all indicators reach circle edge consistently
+// Based on your grid but scaled to ~7 pixels radius for consistent length
 const int8_t indicator_coords[31][2] = {
-    {-6,  6}, // 1
-    {-7,  5}, // 2
-    {-8,  4}, // 3
-    {-8,  3}, // 4
-    {-8,  2}, // 5
-    {-8,  1}, // 6
-    {-8,  0}, // 7
-    {-8, -1}, // 8
-    {-8, -2}, // 9
-    {-8, -3}, //10
-    {-7, -4}, //11
-    {-6, -5}, //12
-    {-5, -6}, //13
-    {-4, -7}, //14
-    {-3, -7}, //15
-    {-2, -8}, //16
-    {-1, -8}, //17
-    { 0, -8}, //18
-    { 1, -8}, //19
-    { 2, -8}, //20
-    { 3, -7}, //21
-    { 4, -7}, //22
-    { 5, -6}, //23
-    { 6, -5}, //24
-    { 7, -4}, //25
-    { 8, -3}, //26
-    { 8, -2}, //27
-    { 8, -1}, //28
-    { 8,  0}, //29
-    { 8,  1}, //30
-    { 8,  2}  //31
+    {-5,  5},  // 0: Position 1 (D14) - bottom-left, length ~7.1
+    {-5,  4},  // 1: Position 2 (C13) - adjusted for consistency
+    {-5,  3},  // 2: Position 3 (C12) - adjusted for consistency
+    {-5,  2},  // 3: Position 4 (B11) - adjusted for consistency
+    {-5,  1},  // 4: Position 5 (B10) - adjusted for consistency
+    {-5,  0},  // 5: Position 6 (B9) - adjusted for consistency
+    {-5, -1},  // 6: Position 7 (B8) - adjusted for consistency
+    {-5, -2},  // 7: Position 8 (B7) - adjusted for consistency
+    {-4, -4},  // 8: Position 9 (C6) - adjusted for consistency
+    {-3, -5},  // 9: Position 10 (C5) - adjusted for consistency
+    {-2, -5},  //10: Position 11 (D4) - adjusted for consistency
+    {-1, -6},  //11: Position 12 (E3) - adjusted for consistency
+    { 0, -7},  //12: Position 13 (F3) - adjusted for consistency
+    { 1, -6},  //13: Position 14 (G2) - adjusted for consistency
+    { 2, -5},  //14: Position 15 (H2) - adjusted for consistency
+    { 3, -5},  //15: Position 16 (I2) - adjusted for consistency
+    { 4, -4},  //16: Position 17 (J2) - adjusted for consistency
+    { 2, -7},  //17: Position 18 (K2) - corrected from grid
+    { 3, -6},  //18: Position 19 (L3) - corrected from grid  
+    { 4, -5},  //19: Position 20 (M3) - corrected from grid
+    { 5, -4},  //20: Position 21 (N4) - corrected from grid
+    { 6, -3},  //21: Position 22 (O4) - corrected from grid
+    { 6, -2},  //22: Position 23 (O5) - corrected from grid
+    { 6, -1},  //23: Position 24 (O6) - corrected from grid
+    { 6,  0},  //24: Position 25 (O7) - corrected from grid
+    { 6,  1},  //25: Position 26 (O8) - corrected from grid
+    { 6,  2},  //26: Position 27 (O9) - corrected from grid
+    { 6,  3},  //27: Position 28 (O10) - corrected from grid
+    { 6,  4},  //28: Position 29 (O11) - corrected from grid
+    { 5,  5},  //29: Position 30 (O12) - corrected from grid
+    { 4,  5},  //30: Position 31 (N14) - corrected from grid
 };
 
 #define CIRCLE_POINTS (sizeof(circle_coords) / sizeof(circle_coords[0]))
-#define INDICATOR_POSITIONS (sizeof(indicator_coords) / sizeof(indicator_coords[0]))
+#define INDICATOR_POSITIONS 31  // Changed from 32 to 31 to match your numbered sequence
 
 // Display buffer - moved to SDRAM to save SRAM
 uint8_t *display_buffer;
@@ -391,10 +392,13 @@ void update(dial_t* dial, bool test = false) __attribute__ ((noinline)) {
     if (normalized < -1.0f) normalized = -1.0f;
     if (normalized > 1.0f) normalized = 1.0f;
     
+    // Map parameter value to your numbered sequence
+    // Position 1 (bottom-left) = minimum parameter value
+    // Position 31 (bottom-right) = maximum parameter value
     // Convert from -1/+1 to 0/1 range for our lookup
     float lookup_pos = (normalized + 1.0f) / 2.0f;
     
-    // Map to indicator position (0 to INDICATOR_POSITIONS-1)
+    // Map directly to your sequence: min param → position 1, max param → position 31
     int indicator_index = (int)(lookup_pos * (INDICATOR_POSITIONS - 1) + 0.5f);
     if (indicator_index < 0) indicator_index = 0;
     if (indicator_index >= INDICATOR_POSITIONS) indicator_index = INDICATOR_POSITIONS - 1;
@@ -510,6 +514,18 @@ int getCurrentPage() {
     return page;
 }
 
+// Draw indicator line from center to exact position using lookup table
+void draw_indicator_line(int cx, int cy, int indicator_index) {
+    if (indicator_index < 0 || indicator_index >= INDICATOR_POSITIONS) return;
+    
+    // Get exact end position from lookup table
+    int end_x = cx + indicator_coords[indicator_index][0];
+    int end_y = cy + indicator_coords[indicator_index][1];
+    
+    // Draw line from center to exact position (NO TRIGONOMETRY!)
+    draw_line(cx, cy, end_x, end_y);
+}
+
 // Karlo Sono's render function with graphics optimizations
 void render() __attribute__ ((noinline)) {
     for (uint8_t i = 0; i < parent->instancesketchy__objects_i.LENGTH; i++) {
@@ -589,12 +605,8 @@ void render() __attribute__ ((noinline)) {
                         set_pixel(circle_x, circle_y, true);
                     }
                     
-                    // Draw indicator line from center to edge using lookup table
-                    if (indicator_index >= 0 && indicator_index < INDICATOR_POSITIONS) {
-                        int end_x = cx + indicator_coords[indicator_index][0];
-                        int end_y = cy + indicator_coords[indicator_index][1];
-                        draw_line(cx, cy, end_x, end_y);
-                    }
+                    // Draw indicator line from center to exact position using lookup table
+                    draw_indicator_line(cx, cy, indicator_index);
                 }
                 break;
         }
