@@ -460,7 +460,7 @@ void render() __attribute__ ((noinline)) {
 					// h = dial width (for bounds checking)
 					
 					int cx = x;
-					int cy = y;
+					int cy = y + 1;  // Move dial elements down by 1 pixel
 					int indicator_index = w;
 					
 					// Draw circle using our lookup table (gap already built in at bottom)
@@ -482,7 +482,7 @@ void render() __attribute__ ((noinline)) {
 					// h = dial width (for bounds checking)
 					
 					int cx = x;
-					int cy = y;
+					int cy = y + 1;  // Move dial elements down by 1 pixel
 					int indicator_index = w;
 					
 					// Draw circle using our lookup table (gap already built in at bottom)
@@ -560,7 +560,9 @@ int count_tokens(const char* str) __attribute__ ((noinline)) {
 typedef struct {
     uint16_t box_object_id;
     uint16_t label_object_id;
+    uint16_t value_object_id;  // Separate object for value display when show_value is true
     uint16_t label_text_id;
+    uint16_t value_text_id;    // Separate text for value
     int32_t last_value;
     int32_t page;
     int32_t param;
@@ -579,13 +581,23 @@ void bar_init(bar_t* bar) __attribute__ ((noinline)) {
    rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
 
+       // Calculate vertical offset for bars: positions 0-3 up 1px, positions 4-7 no offset
+    bool is_second_row = (bar->y >= 32);
+    int y_offset = is_second_row ? 0 : -1;  // No offset for second row, up 1px for first row
+
    bar->box_object_id = object_table->registerEntry();
    bar->label_object_id = object_table->registerEntry();
    bar->label_text_id = text_table->registerEntry();
 
+   // Register value objects only if show_value is true
+   if (bar->show_value) {
+       bar->value_object_id = object_table->registerEntry();
+       bar->value_text_id = text_table->registerEntry();
+   }
+
    object_table->array[bar->box_object_id][object_table->FIELD_TYPE] = 2;
    object_table->array[bar->box_object_id][object_table->FIELD_X] = bar->x;
-   object_table->array[bar->box_object_id][object_table->FIELD_Y] = bar->y;
+   object_table->array[bar->box_object_id][object_table->FIELD_Y] = bar->y + y_offset;
    object_table->array[bar->box_object_id][object_table->FIELD_W] = bar->width;
    object_table->array[bar->box_object_id][object_table->FIELD_H] = 0;
    object_table->array[bar->box_object_id][object_table->FIELD_COLOR] = 0;
@@ -593,17 +605,51 @@ void bar_init(bar_t* bar) __attribute__ ((noinline)) {
    object_table->array[bar->box_object_id][object_table->FIELD_TEXT_ID] = 0;
    object_table->array[bar->box_object_id][object_table->FIELD_PAGE] = bar->page;
 
+   // Value object: positioned higher (near the bar center) when show_value is true
+   if (bar->show_value) {
+       object_table->array[bar->value_object_id][object_table->FIELD_TYPE] = 9;
+       object_table->array[bar->value_object_id][object_table->FIELD_X] = bar->x;
+       object_table->array[bar->value_object_id][object_table->FIELD_Y] = bar->y + y_offset; // Value positioned at same height as int display
+       object_table->array[bar->value_object_id][object_table->FIELD_W] = bar->width;
+       object_table->array[bar->value_object_id][object_table->FIELD_H] = 8;
+       object_table->array[bar->value_object_id][object_table->FIELD_COLOR] = 2;
+       object_table->array[bar->value_object_id][object_table->FIELD_SCALE] = 1;
+       object_table->array[bar->value_object_id][object_table->FIELD_TEXT_ID] = bar->value_text_id;
+       object_table->array[bar->value_object_id][object_table->FIELD_PAGE] = bar->page;
+   }
+
+   // Label object: positioned at bottom like dial labels
    object_table->array[bar->label_object_id][object_table->FIELD_TYPE] = 9;
    object_table->array[bar->label_object_id][object_table->FIELD_X] = bar->x;
-   object_table->array[bar->label_object_id][object_table->FIELD_Y] = bar->y;
+   object_table->array[bar->label_object_id][object_table->FIELD_Y] = bar->y + y_offset + bar->height - 8; // Bar label down by 1 pixel
    object_table->array[bar->label_object_id][object_table->FIELD_W] = bar->width;
-   object_table->array[bar->label_object_id][object_table->FIELD_H] = bar->height;
+   object_table->array[bar->label_object_id][object_table->FIELD_H] = 8; // Text height like dial labels
    object_table->array[bar->label_object_id][object_table->FIELD_COLOR] = 2;
    object_table->array[bar->label_object_id][object_table->FIELD_SCALE] = 1;
    object_table->array[bar->label_object_id][object_table->FIELD_TEXT_ID] = bar->label_text_id;
    object_table->array[bar->label_object_id][object_table->FIELD_PAGE] = bar->page;
 
-   strcpy(text_table->array[bar->label_text_id], bar->label);
+   // Initialize text fields based on show_value setting
+   if (bar->show_value) {
+       // Set up separate value and label text
+       int32_t value = bar->default_value;
+       if (bar->is_bipolar) {
+           value = (value-(1<<26))<<1;
+       }
+       float frac_value = ((float)value / 0x00200000);
+       int rounded = (frac_value >= 0) ? (int)(frac_value + 0.5) : (int)(frac_value - 0.5);
+       char value_str[8] = "";
+       text_table->itoa(value_str, rounded);
+       
+       // Value goes in value text field (positioned higher)
+       strcpy(text_table->array[bar->value_text_id], value_str);
+       
+       // Label goes in label text field (positioned at bottom)
+       strcpy(text_table->array[bar->label_text_id], bar->label);
+   } else {
+       // Only show label when show_value is false
+       strcpy(text_table->array[bar->label_text_id], bar->label);
+   }
    param_table->array[bar->page][bar->param] = bar->default_value;
 }
 
@@ -626,23 +672,32 @@ void bar_update(bar_t* bar) __attribute__ ((noinline)) {
    float frac_value = ((float)value / 0x00200000);
    float norm_value = frac_value / 64.0f;
 
+   // Apply same positioning offset as in bar_init
+   bool is_second_row = (bar->y >= 32);
+   int y_offset = is_second_row ? 0 : -1;  // No offset for second row, up 1px for first row
+
    if (bar->is_bipolar) {
        int8_t h = (bar->height/2.0f) * norm_value + 0.5f;
        object_table->array[bar->box_object_id][object_table->FIELD_H] = h;
-       object_table->array[bar->box_object_id][object_table->FIELD_Y] = bar->y+(bar->height-h) - bar->height/2;
+       object_table->array[bar->box_object_id][object_table->FIELD_Y] = (bar->y + y_offset) + (bar->height-h) - bar->height/2;
    } else {
        uint8_t h = bar->height * norm_value + 0.5f;
        object_table->array[bar->box_object_id][object_table->FIELD_H] = h;
-       object_table->array[bar->box_object_id][object_table->FIELD_Y] = bar->y+(bar->height-h);
+       object_table->array[bar->box_object_id][object_table->FIELD_Y] = (bar->y + y_offset) + (bar->height-h);
    }
 
    if (bar->show_value) {
+       // Update value text (positioned higher)
        int rounded = (frac_value >= 0) ? (int)(frac_value + 0.5) : (int)(frac_value - 0.5);
        char value_str[8] = "";
        text_table->itoa(value_str, rounded);
-       strcpy(text_table->array[bar->label_text_id], bar->label);
-       strcat(text_table->array[bar->label_text_id], " ");
-       strcat(text_table->array[bar->label_text_id], value_str);
+       strcpy(text_table->array[bar->value_text_id], value_str);
+       
+       // Label text doesn't need updating (it's static)
+       // strcpy(text_table->array[bar->label_text_id], bar->label); // Already set in init
+   } else {
+       // Label text doesn't need updating when show_value is false (static label)
+       // strcpy(text_table->array[bar->label_text_id], bar->label); // Already set in init  
    }
 }
 
@@ -667,9 +722,9 @@ void select_init(select_t* select) __attribute__ ((noinline)) {
    rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
 
-   // Calculate vertical offset for alignment: positions 0-3 up 2px, positions 4-7 up 1px
+   // Calculate vertical offset for alignment: positions 0-3 up 1px, positions 4-7 no offset
    bool is_second_row = (select->y >= 32);
-   int y_offset = is_second_row ? -1 : -2;  // Move up 1px for second row, 2px for first row
+   int y_offset = is_second_row ? 0 : -1;  // No offset for second row, up 1px for first row
 
    select->box_object_id = object_table->registerEntry();
    select->label_object_id = object_table->registerEntry();
@@ -747,9 +802,9 @@ void intdisplay_init(intdisplay_t* disp) __attribute__ ((noinline)) {
     rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
     rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
 
-    // Calculate vertical offset for alignment: positions 0-3 up 2px, positions 4-7 up 1px
+    // Calculate vertical offset for alignment: positions 0-3 up 1px, positions 4-7 no offset
     bool is_second_row = (disp->y >= 32);
-    int y_offset = is_second_row ? -1 : -2;  // Move up 1px for second row, 2px for first row
+    int y_offset = is_second_row ? 0 : -1;  // No offset for second row, up 1px for first row
 
     disp->box_object_id = object_table->registerEntry();
     disp->value_object_id = object_table->registerEntry();
@@ -782,7 +837,7 @@ void intdisplay_init(intdisplay_t* disp) __attribute__ ((noinline)) {
     // Label object: Text below moved down 2px more (Elektron style)
     object_table->array[disp->label_object_id][object_table->FIELD_TYPE] = 9;
     object_table->array[disp->label_object_id][object_table->FIELD_X] = disp->x;
-    object_table->array[disp->label_object_id][object_table->FIELD_Y] = disp->y + y_offset + disp->height - 7; // Moved down 2px (was -9)
+    object_table->array[disp->label_object_id][object_table->FIELD_Y] = disp->y + y_offset + disp->height - 8; // Int label up by 1 pixel
     object_table->array[disp->label_object_id][object_table->FIELD_W] = disp->width;
     object_table->array[disp->label_object_id][object_table->FIELD_H] = 8; // Text height
     object_table->array[disp->label_object_id][object_table->FIELD_COLOR] = 2;
@@ -922,7 +977,7 @@ void dial_init(dial_t* dial) __attribute__ ((noinline)) {
 
     // Detect if this is a second row dial (dials 4-7 typically have Y >= 32)
     bool is_second_row = (dial->y >= 32);
-    int y_offset = is_second_row ? 1 : 0;  // Move second row down by 1 pixel
+    int y_offset = is_second_row ? 2 : 1;  // Move second row down by 2 pixel, first row down by 1 pixel
 
     // Setup box object for storing dial data
     object_table->array[dial->box_object_id][object_table->FIELD_TYPE] = 2;  // Will be overridden in update
@@ -938,7 +993,7 @@ void dial_init(dial_t* dial) __attribute__ ((noinline)) {
     // Setup label object - positioned for text below knob
     object_table->array[dial->label_object_id][object_table->FIELD_TYPE] = 9;
     object_table->array[dial->label_object_id][object_table->FIELD_X] = dial->x;
-    object_table->array[dial->label_object_id][object_table->FIELD_Y] = dial->y + y_offset + dial->height - 9;
+    object_table->array[dial->label_object_id][object_table->FIELD_Y] = dial->y + y_offset + dial->height - 10; // Dial label up by 1 pixel (closer to circle)
     object_table->array[dial->label_object_id][object_table->FIELD_W] = dial->width;
     object_table->array[dial->label_object_id][object_table->FIELD_H] = 8;
     object_table->array[dial->label_object_id][object_table->FIELD_COLOR] = 2;

@@ -14,7 +14,7 @@
       <includes/>
       <code.declaration><![CDATA[// Dial configuration structure
 typedef struct {
-    uint8_t mode;           // 0=frac unipolar, 1=frac bipolar, 2=int, 3=list
+    uint8_t mode;           // 0=frac unipolar, 1=frac bipolar, 2=int, 3=list, 4=bar unipolar, 5=bar bipolar
     bool show_value;        // Show/hide value (for fractional modes)
     const char* label;      // Label text
     const char* options;    // List options (for mode 3)
@@ -121,12 +121,15 @@ const encoder_dial_config_t configs[8][8] = {
 #define MODE_FRAC_BIPOLAR  1  // -1.0 to 1.0, bipolar
 #define MODE_INT           2  // min to max, integer
 #define MODE_LIST          3  // selector mode
+#define MODE_BAR_UNIPOLAR  4  // 0.0 to 1.0, vertical bar
+#define MODE_BAR_BIPOLAR   5  // -1.0 to 1.0, vertical bar
 
 // Display structures for each type - 64 total (8 pages x 8 dials)
 // Using SDRAM to save precious SRAM
 rootc::instancesketchy__render::dial_t *dials;
 rootc::instancesketchy__render::intdisplay_t *intdisplays;
 rootc::instancesketchy__render::select_t *selects;
+rootc::instancesketchy__render::bar_t *bars;
 
 // Fixed layout positions
 const uint8_t DIAL_WIDTH = 24;
@@ -139,9 +142,11 @@ const uint8_t COL_X[4] = {26, 52, 78, 104};
 float displayToEncoderValue(float displayValue, int mode) {
     switch(mode) {
         case MODE_FRAC_UNIPOLAR:
+        case MODE_BAR_UNIPOLAR:
             // 0-64 display maps to 0-1 encoder
             return displayValue / 64.0f;
         case MODE_FRAC_BIPOLAR:
+        case MODE_BAR_BIPOLAR:
             // -64 to +64 display maps to 0-1 encoder (-64 = 0.0, 0 = 0.5, +64 = 1.0)
             return (displayValue + 64.0f) / 128.0f;
         case MODE_INT:
@@ -176,6 +181,25 @@ void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* co
             if (encoder_pos > 1.0f) encoder_pos = 1.0f;
             dials[array_index].default_value = (int32_t)(encoder_pos * (float)(1 << 27));
             parent->instancesketchy__render_i.dial_init(&dials[array_index]);
+            break;
+            
+        case MODE_BAR_UNIPOLAR:
+        case MODE_BAR_BIPOLAR:
+            bars[array_index].page = page;
+            bars[array_index].param = dial_index;
+            bars[array_index].is_bipolar = (config->mode == MODE_BAR_BIPOLAR);
+            bars[array_index].x = COL_X[dial_index % 4];
+            bars[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+            bars[array_index].width = DIAL_WIDTH;
+            bars[array_index].height = DIAL_HEIGHT;
+            bars[array_index].label = config->label;
+            bars[array_index].show_value = config->show_value;
+            // Convert config default to encoder position (0-1), then to display format for renderer
+            encoder_pos = displayToEncoderValue(config->default_value, config->mode);
+            if (encoder_pos < 0.0f) encoder_pos = 0.0f;
+            if (encoder_pos > 1.0f) encoder_pos = 1.0f;
+            bars[array_index].default_value = (int32_t)(encoder_pos * (float)(1 << 27));
+            parent->instancesketchy__render_i.bar_init(&bars[array_index]);
             break;
             
         case MODE_INT:
@@ -213,6 +237,11 @@ void update_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* 
             parent->instancesketchy__render_i.dial_update(&dials[array_index]);
             break;
             
+        case MODE_BAR_UNIPOLAR:
+        case MODE_BAR_BIPOLAR:
+            parent->instancesketchy__render_i.bar_update(&bars[array_index]);
+            break;
+            
         case MODE_INT:
             parent->instancesketchy__render_i.intdisplay_update(&intdisplays[array_index]);
             break;
@@ -238,7 +267,7 @@ void init_param_table() {
                 if (default_int > config->int_max) default_int = config->int_max;
                 param_table->array[page][enc] = default_int;
             } else {
-                // Initialize fractional modes: store encoder position (0-1) directly
+                // Initialize fractional modes (knobs and bars): store encoder position (0-1) directly
                 float encoder_pos = displayToEncoderValue(config->default_value, config->mode);
                 if (encoder_pos < 0.0f) encoder_pos = 0.0f;
                 if (encoder_pos > 1.0f) encoder_pos = 1.0f;
@@ -251,11 +280,13 @@ void init_param_table() {
 static rootc::instancesketchy__render::dial_t _dials[64] __attribute__ ((section (".sdram")));
 static rootc::instancesketchy__render::intdisplay_t _intdisplays[64] __attribute__ ((section (".sdram")));
 static rootc::instancesketchy__render::select_t _selects[64] __attribute__ ((section (".sdram")));
+static rootc::instancesketchy__render::bar_t _bars[64] __attribute__ ((section (".sdram")));
 
 // Point pointers to SDRAM arrays
 dials = &_dials[0];
 intdisplays = &_intdisplays[0];
 selects = &_selects[0];
+bars = &_bars[0];
 
 // Initialize param table with default values
 init_param_table();

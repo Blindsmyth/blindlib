@@ -42,7 +42,6 @@
          <spinner name="accelmultiplier" MinValue="1" MaxValue="10" DefaultValue="6"/>
          <spinner name="firstparam" MinValue="0" MaxValue="118" DefaultValue="0"/>
       </attribs>
-      <includes/>
       <code.declaration><![CDATA[// Encoder data
 float encoderPos[8];
 int accel[8];
@@ -73,8 +72,8 @@ typedef struct {
 const encoder_dial_config_t configs[8][8] = {
     // PAGE 0 - Oscillator controls
     {
-        {1, true,  "FIN", "", 0.0f, 0, 127},                              
-        {1, true,  "WAV", "", 32.0f, 0, 127},                              
+        {5, true,  "FIN", "", 0.0f, 0, 127},                              
+        {4, true,  "WAV", "", 32.0f, 0, 127},                              
         {1, true,  "PHS", "", -64.0f, 0, 127},                              
         {3, false, "", "Sin,Tri,Saw,Sqr,Nse", 2.0f, 0, 4},               
         {0, false, "DET", "", 0.0f, 0, 127},                              
@@ -332,4 +331,4 @@ int firstparam = attr_firstparam;
 outlet_debugintval = (page >= 0 && page < 8) ? param_table->array[page][firstparam] : 0;
 outlet_debugtableval = (page >= 0 && page < 8) ? param_table->array[page][firstparam] : 0;]]></code.krate>
    </obj.normal>
-</objdefs> 
+</objdefs>
