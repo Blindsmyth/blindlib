@@ -667,13 +667,17 @@ void select_init(select_t* select) __attribute__ ((noinline)) {
    rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
 
+   // Calculate vertical offset for alignment: positions 0-3 up 2px, positions 4-7 up 1px
+   bool is_second_row = (select->y >= 32);
+   int y_offset = is_second_row ? -1 : -2;  // Move up 1px for second row, 2px for first row
+
    select->box_object_id = object_table->registerEntry();
    select->label_object_id = object_table->registerEntry();
    select->label_text_id = text_table->registerEntry();
 
    object_table->array[select->box_object_id][object_table->FIELD_TYPE] = 1;
    object_table->array[select->box_object_id][object_table->FIELD_X] = select->x;
-   object_table->array[select->box_object_id][object_table->FIELD_Y] = select->y;
+   object_table->array[select->box_object_id][object_table->FIELD_Y] = select->y + y_offset;
    object_table->array[select->box_object_id][object_table->FIELD_W] = select->width;
    object_table->array[select->box_object_id][object_table->FIELD_H] = select->height;
    object_table->array[select->box_object_id][object_table->FIELD_COLOR] = 0;
@@ -683,7 +687,7 @@ void select_init(select_t* select) __attribute__ ((noinline)) {
 
    object_table->array[select->label_object_id][object_table->FIELD_TYPE] = 9;
    object_table->array[select->label_object_id][object_table->FIELD_X] = select->x;
-   object_table->array[select->label_object_id][object_table->FIELD_Y] = select->y;
+   object_table->array[select->label_object_id][object_table->FIELD_Y] = select->y + y_offset;
    object_table->array[select->label_object_id][object_table->FIELD_W] = select->width;
    object_table->array[select->label_object_id][object_table->FIELD_H] = select->height;
    object_table->array[select->label_object_id][object_table->FIELD_COLOR] = 2;
@@ -741,13 +745,17 @@ void intdisplay_init(intdisplay_t* disp) __attribute__ ((noinline)) {
     rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
     rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
 
+    // Calculate vertical offset for alignment: positions 0-3 up 2px, positions 4-7 up 1px
+    bool is_second_row = (disp->y >= 32);
+    int y_offset = is_second_row ? -1 : -2;  // Move up 1px for second row, 2px for first row
+
     disp->box_object_id = object_table->registerEntry();
     disp->label_object_id = object_table->registerEntry();
     disp->label_text_id = text_table->registerEntry();
 
     object_table->array[disp->box_object_id][object_table->FIELD_TYPE] = 1;
     object_table->array[disp->box_object_id][object_table->FIELD_X] = disp->x;
-    object_table->array[disp->box_object_id][object_table->FIELD_Y] = disp->y;
+    object_table->array[disp->box_object_id][object_table->FIELD_Y] = disp->y + y_offset;
     object_table->array[disp->box_object_id][object_table->FIELD_W] = disp->width;
     object_table->array[disp->box_object_id][object_table->FIELD_H] = disp->height;
     object_table->array[disp->box_object_id][object_table->FIELD_COLOR] = 0;
@@ -757,7 +765,7 @@ void intdisplay_init(intdisplay_t* disp) __attribute__ ((noinline)) {
 
     object_table->array[disp->label_object_id][object_table->FIELD_TYPE] = 9;
     object_table->array[disp->label_object_id][object_table->FIELD_X] = disp->x;
-    object_table->array[disp->label_object_id][object_table->FIELD_Y] = disp->y;
+    object_table->array[disp->label_object_id][object_table->FIELD_Y] = disp->y + y_offset;
     object_table->array[disp->label_object_id][object_table->FIELD_W] = disp->width;
     object_table->array[disp->label_object_id][object_table->FIELD_H] = disp->height;
     object_table->array[disp->label_object_id][object_table->FIELD_COLOR] = 2;
