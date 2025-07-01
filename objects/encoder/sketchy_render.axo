@@ -728,7 +728,9 @@ void select_update(select_t* select) __attribute__ ((noinline)) {
 
 typedef struct {
     uint16_t box_object_id;
+    uint16_t value_object_id;  // Text object for the numeric value inside box
     uint16_t label_object_id;
+    uint16_t value_text_id;    // Text content for numeric value
     uint16_t label_text_id;
     int32_t last_value;
     int32_t page;
@@ -750,29 +752,45 @@ void intdisplay_init(intdisplay_t* disp) __attribute__ ((noinline)) {
     int y_offset = is_second_row ? -1 : -2;  // Move up 1px for second row, 2px for first row
 
     disp->box_object_id = object_table->registerEntry();
+    disp->value_object_id = object_table->registerEntry();
     disp->label_object_id = object_table->registerEntry();
+    disp->value_text_id = text_table->registerEntry();
     disp->label_text_id = text_table->registerEntry();
 
+    // Box object: Rectangle around the numeric value only (Elektron style) - extended down 2px
     object_table->array[disp->box_object_id][object_table->FIELD_TYPE] = 1;
     object_table->array[disp->box_object_id][object_table->FIELD_X] = disp->x;
     object_table->array[disp->box_object_id][object_table->FIELD_Y] = disp->y + y_offset;
     object_table->array[disp->box_object_id][object_table->FIELD_W] = disp->width;
-    object_table->array[disp->box_object_id][object_table->FIELD_H] = disp->height;
+    object_table->array[disp->box_object_id][object_table->FIELD_H] = disp->height - 8; // Extended down by 2px (was -10)
     object_table->array[disp->box_object_id][object_table->FIELD_COLOR] = 0;
     object_table->array[disp->box_object_id][object_table->FIELD_SCALE] = 1;
     object_table->array[disp->box_object_id][object_table->FIELD_TEXT_ID] = 0;
     object_table->array[disp->box_object_id][object_table->FIELD_PAGE] = disp->page;
 
+    // Value object: Numeric value text inside the rectangle (centered)
+    object_table->array[disp->value_object_id][object_table->FIELD_TYPE] = 9; // Centered text
+    object_table->array[disp->value_object_id][object_table->FIELD_X] = disp->x;
+    object_table->array[disp->value_object_id][object_table->FIELD_Y] = disp->y + y_offset;
+    object_table->array[disp->value_object_id][object_table->FIELD_W] = disp->width;
+    object_table->array[disp->value_object_id][object_table->FIELD_H] = disp->height - 8; // Same height as rectangle
+    object_table->array[disp->value_object_id][object_table->FIELD_COLOR] = 2;
+    object_table->array[disp->value_object_id][object_table->FIELD_SCALE] = 1;
+    object_table->array[disp->value_object_id][object_table->FIELD_TEXT_ID] = disp->value_text_id;
+    object_table->array[disp->value_object_id][object_table->FIELD_PAGE] = disp->page;
+
+    // Label object: Text below moved down 2px more (Elektron style)
     object_table->array[disp->label_object_id][object_table->FIELD_TYPE] = 9;
     object_table->array[disp->label_object_id][object_table->FIELD_X] = disp->x;
-    object_table->array[disp->label_object_id][object_table->FIELD_Y] = disp->y + y_offset;
+    object_table->array[disp->label_object_id][object_table->FIELD_Y] = disp->y + y_offset + disp->height - 7; // Moved down 2px (was -9)
     object_table->array[disp->label_object_id][object_table->FIELD_W] = disp->width;
-    object_table->array[disp->label_object_id][object_table->FIELD_H] = disp->height;
+    object_table->array[disp->label_object_id][object_table->FIELD_H] = 8; // Text height
     object_table->array[disp->label_object_id][object_table->FIELD_COLOR] = 2;
     object_table->array[disp->label_object_id][object_table->FIELD_SCALE] = 1;
     object_table->array[disp->label_object_id][object_table->FIELD_TEXT_ID] = disp->label_text_id;
     object_table->array[disp->label_object_id][object_table->FIELD_PAGE] = disp->page;
 
+    // Set initial label text (just the label, not the value)
     strcpy(text_table->array[disp->label_text_id], disp->label);
     disp->last_value = 0xFFFFFFFF;
 }
@@ -788,11 +806,12 @@ void intdisplay_update(intdisplay_t* disp) __attribute__ ((noinline)) {
     }
     disp->last_value = value;
 
+    // Put numeric value in the value text field (inside rectangle) 
     char value_str[12] = "";
     text_table->itoa(value_str, value);
-    strcpy(text_table->array[disp->label_text_id], disp->label);
-    strcat(text_table->array[disp->label_text_id], " ");
-    strcat(text_table->array[disp->label_text_id], value_str);
+    strcpy(text_table->array[disp->value_text_id], value_str);
+    
+    // Keep the label text separate (already set in init, no need to update unless it changes)
 }
 
 // ======================== VIRTUAL KNOB FUNCTIONALITY ========================
