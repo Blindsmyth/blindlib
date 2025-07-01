@@ -51,7 +51,7 @@ uint16_t page;
 uint16_t layout;
 
 // ================ VIRTUAL KNOB CONSTANTS ================
-#define CIRCLE_POINTS 44
+#define CIRCLE_POINTS 38
 #define INDICATOR_POSITIONS 31
 
 enum SSD1306 {
@@ -609,7 +609,7 @@ void bar_init(bar_t* bar) __attribute__ ((noinline)) {
    if (bar->show_value) {
        object_table->array[bar->value_object_id][object_table->FIELD_TYPE] = 9;
        object_table->array[bar->value_object_id][object_table->FIELD_X] = bar->x;
-       object_table->array[bar->value_object_id][object_table->FIELD_Y] = bar->y + y_offset; // Value positioned at same height as int display
+       object_table->array[bar->value_object_id][object_table->FIELD_Y] = bar->y + y_offset + 2; // Show value down by 1 pixel
        object_table->array[bar->value_object_id][object_table->FIELD_W] = bar->width;
        object_table->array[bar->value_object_id][object_table->FIELD_H] = 8;
        object_table->array[bar->value_object_id][object_table->FIELD_COLOR] = 2;
@@ -621,7 +621,7 @@ void bar_init(bar_t* bar) __attribute__ ((noinline)) {
    // Label object: positioned at bottom like dial labels
    object_table->array[bar->label_object_id][object_table->FIELD_TYPE] = 9;
    object_table->array[bar->label_object_id][object_table->FIELD_X] = bar->x;
-   object_table->array[bar->label_object_id][object_table->FIELD_Y] = bar->y + y_offset + bar->height - 8; // Bar label down by 1 pixel
+   object_table->array[bar->label_object_id][object_table->FIELD_Y] = bar->y + y_offset + bar->height - 9; // Bar label up by 1 pixel
    object_table->array[bar->label_object_id][object_table->FIELD_W] = bar->width;
    object_table->array[bar->label_object_id][object_table->FIELD_H] = 8; // Text height like dial labels
    object_table->array[bar->label_object_id][object_table->FIELD_COLOR] = 2;
@@ -817,7 +817,7 @@ void intdisplay_init(intdisplay_t* disp) __attribute__ ((noinline)) {
     object_table->array[disp->box_object_id][object_table->FIELD_X] = disp->x;
     object_table->array[disp->box_object_id][object_table->FIELD_Y] = disp->y + y_offset;
     object_table->array[disp->box_object_id][object_table->FIELD_W] = disp->width;
-    object_table->array[disp->box_object_id][object_table->FIELD_H] = disp->height - 8; // Extended down by 2px (was -10)
+    object_table->array[disp->box_object_id][object_table->FIELD_H] = disp->height - 10; // Rectangle bottom border up 1 pixel
     object_table->array[disp->box_object_id][object_table->FIELD_COLOR] = 0;
     object_table->array[disp->box_object_id][object_table->FIELD_SCALE] = 1;
     object_table->array[disp->box_object_id][object_table->FIELD_TEXT_ID] = 0;
@@ -826,9 +826,9 @@ void intdisplay_init(intdisplay_t* disp) __attribute__ ((noinline)) {
     // Value object: Numeric value text inside the rectangle (centered)
     object_table->array[disp->value_object_id][object_table->FIELD_TYPE] = 9; // Centered text
     object_table->array[disp->value_object_id][object_table->FIELD_X] = disp->x;
-    object_table->array[disp->value_object_id][object_table->FIELD_Y] = disp->y + y_offset;
+    object_table->array[disp->value_object_id][object_table->FIELD_Y] = disp->y + y_offset - 1; // Int value down by 1 pixel
     object_table->array[disp->value_object_id][object_table->FIELD_W] = disp->width;
-    object_table->array[disp->value_object_id][object_table->FIELD_H] = disp->height - 8; // Same height as rectangle
+    object_table->array[disp->value_object_id][object_table->FIELD_H] = disp->height - 10; // Same height as rectangle
     object_table->array[disp->value_object_id][object_table->FIELD_COLOR] = 2;
     object_table->array[disp->value_object_id][object_table->FIELD_SCALE] = 1;
     object_table->array[disp->value_object_id][object_table->FIELD_TEXT_ID] = disp->value_text_id;
@@ -837,7 +837,7 @@ void intdisplay_init(intdisplay_t* disp) __attribute__ ((noinline)) {
     // Label object: Text below moved down 2px more (Elektron style)
     object_table->array[disp->label_object_id][object_table->FIELD_TYPE] = 9;
     object_table->array[disp->label_object_id][object_table->FIELD_X] = disp->x;
-    object_table->array[disp->label_object_id][object_table->FIELD_Y] = disp->y + y_offset + disp->height - 8; // Int label up by 1 pixel
+    object_table->array[disp->label_object_id][object_table->FIELD_Y] = disp->y + y_offset + disp->height - 9; // Int label up by 1 pixel
     object_table->array[disp->label_object_id][object_table->FIELD_W] = disp->width;
     object_table->array[disp->label_object_id][object_table->FIELD_H] = 8; // Text height
     object_table->array[disp->label_object_id][object_table->FIELD_COLOR] = 2;
@@ -871,14 +871,14 @@ void intdisplay_update(intdisplay_t* disp) __attribute__ ((noinline)) {
 
 // ======================== VIRTUAL KNOB FUNCTIONALITY ========================
 
-// Complete circle coordinates - gap at BOTTOM for labels
-const int8_t circle_coords[44][2] = {
+// Complete circle coordinates - gap at BOTTOM for labels, two lowest pixel rows removed
+const int8_t circle_coords[38][2] = {
     // Starting from top (270°) going clockwise, skipping bottom gap
     { 0, -8}, { 1, -8}, { 2, -8}, { 3, -7}, { 4, -7}, { 5, -6}, { 6, -5}, { 7, -4}, // Top to right
     { 7, -3}, { 8, -2}, { 8, -1}, { 8,  0}, { 8,  1}, { 8,  2}, { 7,  3}, { 7,  4}, // Right side
-    { 6,  5}, { 5,  6}, { 4,  7}, { 3,  7},                                          // Right to bottom (stop before gap)
-    // BOTTOM GAP HERE for labels - skip: { 2,  8}, { 1,  8}, { 0,  8}, {-1,  8}, {-2,  8}
-    {-3,  7}, {-4,  7}, {-5,  6}, {-6,  5}, {-7,  4}, {-7,  3}, {-8,  2}, {-8,  1}, // Bottom to left (after gap)
+    { 6,  5},                                                                        // Right to bottom (removed Y=+6 and Y=+7 pixels)
+    // BOTTOM GAP HERE for labels - skip: { 5,  6}, { 4,  7}, { 3,  7}, { 2,  8}, { 1,  8}, { 0,  8}, {-1,  8}, {-2,  8}, {-3,  7}, {-4,  7}, {-5,  6}
+    {-6,  5}, {-7,  4}, {-7,  3}, {-8,  2}, {-8,  1}, // Bottom to left (removed Y=+6 and Y=+7 pixels)
     {-8,  0}, {-8, -1}, {-8, -2}, {-7, -3}, {-7, -4}, {-6, -5}, {-5, -6}, {-4, -7}, // Left side
     {-3, -7}, {-2, -8}, {-1, -8}                                                     // Left to top
 };
@@ -934,14 +934,14 @@ void draw_indicator_line(int cx, int cy, int indicator_index) __attribute__ ((no
 
 // Draw bipolar indicators (- and + at circle edges)
 void draw_bipolar_indicators(int cx, int cy) __attribute__ ((noinline)) {
-    // Draw "-" on the left side
-    int minus_x = cx - 9;
-    int minus_y = cy + 6;
+    // Draw "-" on the left side - moved one up and two to the left
+    int minus_x = cx - 10; // Two to the left (was -8)
+    int minus_y = cy + 5;  // One up (was +6)
     draw_line(minus_x - 1, minus_y, minus_x + 1, minus_y, 0, 1);  // Horizontal line for "-"
     
-    // Draw "+" on the right side
-    int plus_x = cx + 9;
-    int plus_y = cy + 6;
+    // Draw "+" on the right side - moved one up and one to the right
+    int plus_x = cx + 10;  // One to the right (was +9)
+    int plus_y = cy + 5;   // One up (was +6)
     draw_line(plus_x - 1, plus_y, plus_x + 1, plus_y, 0, 1);     // Horizontal line
     draw_line(plus_x, plus_y - 1, plus_x, plus_y + 1, 0, 1);     // Vertical line for "+"
 }
@@ -993,7 +993,7 @@ void dial_init(dial_t* dial) __attribute__ ((noinline)) {
     // Setup label object - positioned for text below knob
     object_table->array[dial->label_object_id][object_table->FIELD_TYPE] = 9;
     object_table->array[dial->label_object_id][object_table->FIELD_X] = dial->x;
-    object_table->array[dial->label_object_id][object_table->FIELD_Y] = dial->y + y_offset + dial->height - 10; // Dial label up by 1 pixel (closer to circle)
+    object_table->array[dial->label_object_id][object_table->FIELD_Y] = dial->y + y_offset + dial->height - 11; // Dial label up by 1 pixel
     object_table->array[dial->label_object_id][object_table->FIELD_W] = dial->width;
     object_table->array[dial->label_object_id][object_table->FIELD_H] = 8;
     object_table->array[dial->label_object_id][object_table->FIELD_COLOR] = 2;
