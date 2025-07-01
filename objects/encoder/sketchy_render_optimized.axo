@@ -132,7 +132,7 @@ const int8_t circle_coords[44][2] = {
     {-3, -7}, {-2, -8}, {-1, -8}                                                     // Left to top
 };
 
-// Exact coordinates from your correct list with center at I9
+// Updated coordinates from your new list with center at I9
 const int8_t indicator_coords[31][2] = {
     {-5,  5},  // 0: Position 1 (D14) = D14 - I9 = (-5, +5)
     {-6,  4},  // 1: Position 2 (C13) = C13 - I9 = (-6, +4)
@@ -312,10 +312,14 @@ void init(dial_t* dial) __attribute__ ((noinline)) {
     dial->label_object_id = object_table->registerEntry();
     dial->label_text_id = text_table->registerEntry();
 
+    // Detect if this is a second row dial (dials 4-7 typically have Y >= 32)
+    bool is_second_row = (dial->y >= 32);
+    int y_offset = is_second_row ? 1 : 0;  // Move second row down by 1 pixel
+
     // Setup box object
     object_table->array[dial->box_object_id][object_table->FIELD_TYPE] = 2;
     object_table->array[dial->box_object_id][object_table->FIELD_X] = dial->x;
-    object_table->array[dial->box_object_id][object_table->FIELD_Y] = dial->y;
+    object_table->array[dial->box_object_id][object_table->FIELD_Y] = dial->y + y_offset;
     object_table->array[dial->box_object_id][object_table->FIELD_W] = dial->width;
     object_table->array[dial->box_object_id][object_table->FIELD_H] = 0;
     object_table->array[dial->box_object_id][object_table->FIELD_COLOR] = 0;
@@ -326,7 +330,7 @@ void init(dial_t* dial) __attribute__ ((noinline)) {
     // Setup label object - positioned like second text line within the same knob row
     object_table->array[dial->label_object_id][object_table->FIELD_TYPE] = 9;
     object_table->array[dial->label_object_id][object_table->FIELD_X] = dial->x;
-    object_table->array[dial->label_object_id][object_table->FIELD_Y] = dial->y + dial->height - 10; // Like second text line in same row
+    object_table->array[dial->label_object_id][object_table->FIELD_Y] = dial->y + y_offset + dial->height - 9; // Like second text line in same row (moved 1px down)
     object_table->array[dial->label_object_id][object_table->FIELD_W] = dial->width;
     object_table->array[dial->label_object_id][object_table->FIELD_H] = 8; // Text height
     object_table->array[dial->label_object_id][object_table->FIELD_COLOR] = 2;
@@ -362,40 +366,45 @@ void update(dial_t* dial, bool test = false) __attribute__ ((noinline)) {
 
     dial->last_value = value;
 
-    // Process bipolar mode
-    if (dial->is_bipolar) {
-        value = (value-(1<<26))<<1;
-    }
-
-    // Convert value to -64.0 to 64.0 range float
-    float frac_value = ((float)value / 0x00200000);
-
-    if (test) {
-        LogTextMessage("frac value: %d", (int)frac_value);
-    }
-
-    // Convert value to -1.0 to 1.0 range float (normalize)
-    float norm_value = frac_value / 64.0f;
-
-    // *** NEW: Add optimized virtual knob rendering directly to object table! ***
-    
-    // Instead of just updating height (Karlo's original), we'll add LINE objects for our knob
-    // This way we get optimized rendering but still use the table architecture
-    
-    // Calculate dial center
+    // Calculate dial center (accounting for second row offset)
+    bool is_second_row = (dial->y >= 32);
+    int y_offset = is_second_row ? 1 : 0;  // Move second row down by 1 pixel
     int cx = dial->x + dial->width/2;
-    int cy = dial->y + dial->height/2 - 6;
+    int cy = dial->y + y_offset + dial->height/2 - 6;
     
-    // Convert normalized value to indicator position using lookup tables
-    float normalized = norm_value;
-    if (normalized < -1.0f) normalized = -1.0f;
-    if (normalized > 1.0f) normalized = 1.0f;
+    // Process value differently for bipolar vs unipolar
+    float lookup_pos;
     
-    // Map parameter value to your numbered sequence
-    // Position 1 (bottom-left) = minimum parameter value
-    // Position 31 (bottom-right) = maximum parameter value
-    // Convert from -1/+1 to 0/1 range for our lookup
-    float lookup_pos = (normalized + 1.0f) / 2.0f;
+    if (dial->is_bipolar) {
+        // Bipolar: transform value and map to -1/+1 range, then convert to 0/1 for lookup
+        value = (value-(1<<26))<<1;
+        float frac_value = ((float)value / 0x00200000);
+        float norm_value = frac_value / 64.0f;
+        
+        // Clamp to -1.0 to 1.0 range
+        if (norm_value < -1.0f) norm_value = -1.0f;
+        if (norm_value > 1.0f) norm_value = 1.0f;
+        
+        // Convert from -1/+1 to 0/1 range for lookup
+        lookup_pos = (norm_value + 1.0f) / 2.0f;
+        
+        if (test) {
+            LogTextMessage("bipolar frac value: %d, norm: %d", (int)frac_value, (int)(norm_value * 100));
+        }
+    } else {
+        // Unipolar: map 0 to max_value directly to 0/1 range for full circle coverage
+        // Axoloti parameters typically range from 0 to (1<<27) = 134217728
+        float max_value = (1<<27);  // 134217728
+        lookup_pos = (float)value / max_value;
+        
+        // Clamp to 0.0 to 1.0 range
+        if (lookup_pos < 0.0f) lookup_pos = 0.0f;
+        if (lookup_pos > 1.0f) lookup_pos = 1.0f;
+        
+        if (test) {
+            LogTextMessage("unipolar value: %d, lookup_pos: %d", value, (int)(lookup_pos * 100));
+        }
+    }
     
     // Map directly to your sequence: min param → position 1, max param → position 31
     int indicator_index = (int)(lookup_pos * (INDICATOR_POSITIONS - 1) + 0.5f);
@@ -412,7 +421,13 @@ void update(dial_t* dial, bool test = false) __attribute__ ((noinline)) {
     // Store the knob data in the object table so it gets rendered every frame
     
     // Use a custom type that we'll handle in the render() function
-    object_table->array[dial->box_object_id][object_table->FIELD_TYPE] = 99; // Custom virtual knob type
+    // Type 99 = regular knob, Type 100 = bipolar knob with +/- indicators
+    int knob_type = dial->is_bipolar ? 100 : 99;
+    object_table->array[dial->box_object_id][object_table->FIELD_TYPE] = knob_type;
+    
+    if (test) {
+        LogTextMessage("Dial bipolar: %s, knob_type: %d", dial->is_bipolar ? "true" : "false", knob_type);
+    }
     object_table->array[dial->box_object_id][object_table->FIELD_X] = cx;    // Center X
     object_table->array[dial->box_object_id][object_table->FIELD_Y] = cy;    // Center Y
     object_table->array[dial->box_object_id][object_table->FIELD_W] = indicator_index; // Store indicator position
@@ -525,6 +540,23 @@ void draw_indicator_line(int cx, int cy, int indicator_index) {
     draw_line(cx, cy, end_x, end_y);
 }
 
+// Draw bipolar indicators (- and + at circle edges)
+void draw_bipolar_indicators(int cx, int cy) {
+    // Position them 6 pixels down from center
+    // "-" moves one pixel to the right, "+" moves one pixel to the left
+    
+    // Draw "-" on the left side (moved 2 pixels left)
+    int minus_x = cx - 9;  // 2 pixels further left
+    int minus_y = cy + 6;  // 6 pixels down
+    draw_line(minus_x - 1, minus_y, minus_x + 1, minus_y);  // Horizontal line for "-"
+    
+    // Draw "+" on the right side (moved 2 pixels right)
+    int plus_x = cx + 9;   // 2 pixels further right
+    int plus_y = cy + 6;   // 6 pixels down
+    draw_line(plus_x - 1, plus_y, plus_x + 1, plus_y);     // Horizontal line
+    draw_line(plus_x, plus_y - 1, plus_x, plus_y + 1);     // Vertical line for "+"
+}
+
 // Karlo Sono's render function with graphics optimizations
 void render() __attribute__ ((noinline)) {
     for (uint8_t i = 0; i < parent->instancesketchy__objects_i.LENGTH; i++) {
@@ -603,6 +635,31 @@ void render() __attribute__ ((noinline)) {
                         int circle_y = cy + circle_coords[ci][1];
                         set_pixel(circle_x, circle_y, true);
                     }
+                    
+                    // Draw indicator line from center to exact position using lookup table
+                    draw_indicator_line(cx, cy, indicator_index);
+                }
+                break;
+                
+            case 100: // CUSTOM BIPOLAR VIRTUAL KNOB TYPE
+                {
+                    // x, y = center coordinates
+                    // w = indicator_index 
+                    // h = dial width (for bounds checking)
+                    
+                    int cx = x;
+                    int cy = y;
+                    int indicator_index = w;
+                    
+                    // Draw circle using our lookup table (gap already built in at bottom)
+                    for (int ci = 0; ci < CIRCLE_POINTS; ci++) {
+                        int circle_x = cx + circle_coords[ci][0];
+                        int circle_y = cy + circle_coords[ci][1];
+                        set_pixel(circle_x, circle_y, true);
+                    }
+                    
+                    // Draw bipolar indicators (- and + at edges)
+                    draw_bipolar_indicators(cx, cy);
                     
                     // Draw indicator line from center to exact position using lookup table
                     draw_indicator_line(cx, cy, indicator_index);
