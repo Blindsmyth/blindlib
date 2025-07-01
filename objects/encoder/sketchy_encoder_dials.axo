@@ -208,10 +208,23 @@ void setupDisplay(int encoderIndex, int page) {
     // Initialize the dial
     parent->instancesketchy__render_i.dial_init(&dials[encoderIndex]);
     parent->instancesketchy__render_i.dial_update(&dials[encoderIndex]);
+}]]></code.declaration>
+      <code.init><![CDATA[// Initialize encoder positions and timers
+for (int i = 0; i < 8; i++) {
+    encoderPos[i] = 0.0f;
+    accel[i] = 1;
+    lastTrigTime[i] = 0;
+    lastTrigState[i] = 0;
+    intValues[i] = 0;
 }
 
-<code.krate><![CDATA[
-timeCounter++;
+// Initialize all dials for page 0
+for (int i = 0; i < 8; i++) {
+    setupDisplay(i, 0);
+}
+
+timeCounter = 0;]]></code.init>
+      <code.krate><![CDATA[timeCounter++;
 
 // Handle page changes
 if (inlet_a != lastA && inlet_a >= 0 && inlet_a < 8) {
@@ -284,7 +297,6 @@ for (int i = 0; i < 8; i++) {
     } else {
         outlet_o[i] = encoderPos[i] * (1 << 27);
     }
-}
-]]></code.krate>
-
-// ... rest of the code ...
+}]]></code.krate>
+   </obj.normal>
+</objdefs>

@@ -438,19 +438,160 @@ void update(dial_t* dial, bool test = false) __attribute__ ((noinline)) {
 }
 
 void init(intdisplay_t* display) __attribute__ ((noinline)) {
-    // Register with object table (simplified for now)
+    // Get table pointers
+    rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
+    rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
+    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+
+    // Detect if this is a second row display (Y >= 32)
+    bool is_second_row = (display->y >= 32);
+    int y_offset = is_second_row ? 1 : 0;  // Move second row down by 1 pixel
+
+    // Register and get ids
+    display->box_object_id = object_table->registerEntry();
+    display->label_object_id = object_table->registerEntry();
+    display->label_text_id = text_table->registerEntry();
+
+    // Setup box object (invisible for int display)
+    object_table->array[display->box_object_id][object_table->FIELD_TYPE] = object_table->TYPE_INVISIBLE;
+    object_table->array[display->box_object_id][object_table->FIELD_X] = display->x;
+    object_table->array[display->box_object_id][object_table->FIELD_Y] = display->y + y_offset;
+    object_table->array[display->box_object_id][object_table->FIELD_W] = display->width;
+    object_table->array[display->box_object_id][object_table->FIELD_H] = display->height;
+    object_table->array[display->box_object_id][object_table->FIELD_COLOR] = 0;
+    object_table->array[display->box_object_id][object_table->FIELD_SCALE] = 1;
+    object_table->array[display->box_object_id][object_table->FIELD_TEXT_ID] = 0;
+    object_table->array[display->box_object_id][object_table->FIELD_PAGE] = display->page;
+
+    // Setup label object for displaying the integer value
+    object_table->array[display->label_object_id][object_table->FIELD_TYPE] = object_table->TYPE_TEXT_CENTER_BOTH; // Text centered
+    object_table->array[display->label_object_id][object_table->FIELD_X] = display->x;
+    object_table->array[display->label_object_id][object_table->FIELD_Y] = display->y + y_offset;
+    object_table->array[display->label_object_id][object_table->FIELD_W] = display->width;
+    object_table->array[display->label_object_id][object_table->FIELD_H] = display->height;
+    object_table->array[display->label_object_id][object_table->FIELD_COLOR] = 2;
+    object_table->array[display->label_object_id][object_table->FIELD_SCALE] = 1;
+    object_table->array[display->label_object_id][object_table->FIELD_TEXT_ID] = display->label_text_id;
+    object_table->array[display->label_object_id][object_table->FIELD_PAGE] = display->page;
+
+    // Setup initial label text
+    strcpy(text_table->array[display->label_text_id], display->label);
+    
+    // Initialize change detection
+    display->last_value = -999999;  // Force first update
 }
 
 void update(intdisplay_t* display) __attribute__ ((noinline)) {
-    // Simplified integer display update (uses table system)
+    // Get table pointers
+    rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
+    rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
+    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+
+    int32_t value = param_table->array[display->page][display->param];
+
+    // Abort if value is the same (change detection for performance)
+    if (value == display->last_value) {
+        return;
+    }
+
+    display->last_value = value;
+
+    // Convert value to integer for display - exactly like original renderer
+    float frac_value = ((float)value / 0x00200000);
+    int rounded = (frac_value >= 0) ? (int)(frac_value + 0.5) : (int)(frac_value - 0.5);
+
+    // Use the text table's itoa function like the original
+    char value_str[8] = "";
+    text_table->itoa(value_str, rounded);
+    
+    // Show label + value like original when show_value is true
+    strcpy(text_table->array[display->label_text_id], display->label);
+    strcat(text_table->array[display->label_text_id], " ");
+    strcat(text_table->array[display->label_text_id], value_str);
 }
 
 void init(select_t* select) __attribute__ ((noinline)) {
-    // Register with object table (simplified for now)  
+    // Get table pointers
+    rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
+    rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
+    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+
+    // Detect if this is a second row select (Y >= 32)
+    bool is_second_row = (select->y >= 32);
+    int y_offset = is_second_row ? 1 : 0;  // Move second row down by 1 pixel
+
+    // Register and get ids
+    select->box_object_id = object_table->registerEntry();
+    select->label_object_id = object_table->registerEntry();
+    select->label_text_id = text_table->registerEntry();
+
+    // Setup box object (invisible for select)
+    object_table->array[select->box_object_id][object_table->FIELD_TYPE] = object_table->TYPE_INVISIBLE;
+    object_table->array[select->box_object_id][object_table->FIELD_X] = select->x;
+    object_table->array[select->box_object_id][object_table->FIELD_Y] = select->y + y_offset;
+    object_table->array[select->box_object_id][object_table->FIELD_W] = select->width;
+    object_table->array[select->box_object_id][object_table->FIELD_H] = select->height;
+    object_table->array[select->box_object_id][object_table->FIELD_COLOR] = 0;
+    object_table->array[select->box_object_id][object_table->FIELD_SCALE] = 1;
+    object_table->array[select->box_object_id][object_table->FIELD_TEXT_ID] = 0;
+    object_table->array[select->box_object_id][object_table->FIELD_PAGE] = select->page;
+
+    // Setup label object for displaying the selected item
+    object_table->array[select->label_object_id][object_table->FIELD_TYPE] = object_table->TYPE_TEXT_CENTER_BOTH; // Text centered
+    object_table->array[select->label_object_id][object_table->FIELD_X] = select->x;
+    object_table->array[select->label_object_id][object_table->FIELD_Y] = select->y + y_offset;
+    object_table->array[select->label_object_id][object_table->FIELD_W] = select->width;
+    object_table->array[select->label_object_id][object_table->FIELD_H] = select->height;
+    object_table->array[select->label_object_id][object_table->FIELD_COLOR] = 2;
+    object_table->array[select->label_object_id][object_table->FIELD_SCALE] = 1;
+    object_table->array[select->label_object_id][object_table->FIELD_TEXT_ID] = select->label_text_id;
+    object_table->array[select->label_object_id][object_table->FIELD_PAGE] = select->page;
+
+    // Setup initial label text
+    strcpy(text_table->array[select->label_text_id], select->label);
+    
+    // Initialize change detection
+    select->last_value = -999999;  // Force first update
 }
 
 void update(select_t* select) __attribute__ ((noinline)) {
-    // Simplified select update (uses table system)
+    // Get table pointers
+    rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
+    rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
+    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+
+    int32_t value = param_table->array[select->page][select->param];
+
+    // Abort if value is the same (change detection for performance)
+    if (value == select->last_value) {
+        return;
+    }
+
+    select->last_value = value;
+
+    // Convert parameter value to selection index - simplified like original
+    float frac_value = ((float)value / 0x00200000);
+    float norm_value = frac_value / 64.0f;
+    
+    // Map to selection index (assuming reasonable number of items)
+    int num_items = count_tokens(select->label, ',');
+    if (num_items <= 1) num_items = 8; // Default
+    
+    int selection_index = (int)((norm_value + 1.0f) / 2.0f * num_items + 0.5f);
+    if (selection_index < 0) selection_index = 0;
+    if (selection_index >= num_items) selection_index = num_items - 1;
+    
+    // Simply show the selected token or index
+    if (strchr(select->label, ',')) {
+        // Get token from comma-separated list
+        const char* selected_token = get_token_at_index(select->label, selection_index);
+        strcpy(text_table->array[select->label_text_id], selected_token);
+    } else {
+        // Show index as integer using itoa like original
+        char index_str[8] = "";
+        text_table->itoa(index_str, selection_index);
+        strcpy(text_table->array[select->label_text_id], index_str);
+    }
 }
 
 // Function name aliases that sketchy_dials expects
