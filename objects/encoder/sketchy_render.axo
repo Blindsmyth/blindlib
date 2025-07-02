@@ -703,7 +703,9 @@ void bar_update(bar_t* bar) __attribute__ ((noinline)) {
 
 typedef struct {
     uint16_t box_object_id;
+    uint16_t value_object_id;  // Text object for the selected value inside box
     uint16_t label_object_id;
+    uint16_t value_text_id;    // Text content for selected value
     uint16_t label_text_id;
     int32_t last_value;
     int32_t page;
@@ -712,7 +714,8 @@ typedef struct {
     int32_t y;
     int32_t width;
     int32_t height;
-    const char* label;
+    const char* param_label;   // Parameter name (e.g., "WAV", "FLT")
+    const char* options;       // Options list (e.g., "Sin,Tri,Saw,Sqr,Nse")
     uint8_t num_options;
     bool is_int;
 } select_t;
@@ -727,31 +730,55 @@ void select_init(select_t* select) __attribute__ ((noinline)) {
    int y_offset = is_second_row ? 0 : -1;  // No offset for second row, up 1px for first row
 
    select->box_object_id = object_table->registerEntry();
+   select->value_object_id = object_table->registerEntry();
    select->label_object_id = object_table->registerEntry();
+   select->value_text_id = text_table->registerEntry();
    select->label_text_id = text_table->registerEntry();
 
+   // Box object: Rectangle around the selected value (like int control)
    object_table->array[select->box_object_id][object_table->FIELD_TYPE] = 1;
    object_table->array[select->box_object_id][object_table->FIELD_X] = select->x;
    object_table->array[select->box_object_id][object_table->FIELD_Y] = select->y + y_offset;
    object_table->array[select->box_object_id][object_table->FIELD_W] = select->width;
-   object_table->array[select->box_object_id][object_table->FIELD_H] = select->height;
+   object_table->array[select->box_object_id][object_table->FIELD_H] = select->height - 10; // Same as int control
    object_table->array[select->box_object_id][object_table->FIELD_COLOR] = 0;
    object_table->array[select->box_object_id][object_table->FIELD_SCALE] = 1;
    object_table->array[select->box_object_id][object_table->FIELD_TEXT_ID] = 0;
    object_table->array[select->box_object_id][object_table->FIELD_PAGE] = select->page;
 
+   // Value object: Selected value text inside the rectangle (centered)
+   object_table->array[select->value_object_id][object_table->FIELD_TYPE] = 9; // Centered text
+   object_table->array[select->value_object_id][object_table->FIELD_X] = select->x;
+   object_table->array[select->value_object_id][object_table->FIELD_Y] = select->y + y_offset - 1; // Same as int value positioning
+   object_table->array[select->value_object_id][object_table->FIELD_W] = select->width;
+   object_table->array[select->value_object_id][object_table->FIELD_H] = select->height - 10; // Same height as rectangle
+   object_table->array[select->value_object_id][object_table->FIELD_COLOR] = 2;
+   object_table->array[select->value_object_id][object_table->FIELD_SCALE] = 1;
+   object_table->array[select->value_object_id][object_table->FIELD_TEXT_ID] = select->value_text_id;
+   object_table->array[select->value_object_id][object_table->FIELD_PAGE] = select->page;
+
+   // Label object: Parameter name below at same height as dial labels
    object_table->array[select->label_object_id][object_table->FIELD_TYPE] = 9;
    object_table->array[select->label_object_id][object_table->FIELD_X] = select->x;
-   object_table->array[select->label_object_id][object_table->FIELD_Y] = select->y + y_offset;
+   object_table->array[select->label_object_id][object_table->FIELD_Y] = select->y + y_offset + select->height - 9; // Same as int label positioning
    object_table->array[select->label_object_id][object_table->FIELD_W] = select->width;
-   object_table->array[select->label_object_id][object_table->FIELD_H] = select->height;
+   object_table->array[select->label_object_id][object_table->FIELD_H] = 8; // Text height
    object_table->array[select->label_object_id][object_table->FIELD_COLOR] = 2;
    object_table->array[select->label_object_id][object_table->FIELD_SCALE] = 1;
    object_table->array[select->label_object_id][object_table->FIELD_TEXT_ID] = select->label_text_id;
    object_table->array[select->label_object_id][object_table->FIELD_PAGE] = select->page;
 
-   select->num_options = count_tokens(select->label);
-   strcpy(text_table->array[select->label_text_id], select->label);
+   select->num_options = count_tokens(select->options);
+   
+   // Set parameter name in label text (at bottom) - just like other controls
+   strcpy(text_table->array[select->label_text_id], select->param_label);
+   
+   // Set initial selected value in value text (in rectangle)
+   char* initial_token = get_token_at_index(select->options, 0);
+   if (initial_token) {
+       strcpy(text_table->array[select->value_text_id], initial_token);
+   }
+   
    select->last_value = 0xFFFFFFFF;
 }
 
@@ -777,8 +804,14 @@ void select_update(select_t* select) __attribute__ ((noinline)) {
    }
 	
    option_index = (option_index >= select->num_options) ? select->num_options-1 : option_index;
-   char* token = get_token_at_index(select->label, option_index);
-   strcpy(text_table->array[select->label_text_id], token);
+   char* token = get_token_at_index(select->options, option_index);
+   
+   // Put selected value in the value text (inside rectangle)
+   if (token) {
+       strcpy(text_table->array[select->value_text_id], token);
+   }
+   
+   // Label text remains static (parameter name at bottom)
 }
 
 typedef struct {

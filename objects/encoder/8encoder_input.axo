@@ -1,6 +1,6 @@
 <objdefs appVersion="1.0.12">
    <obj.normal id="8encoder_input" uuid="7d3e8f1a-2b9c-4d5e-8f6a-1c2d3e4f5a6b">
-      <sDescription>8 rotary encoders with acceleration and table storage. Mode-aware encoder processing that works with sketchy_dials configuration.</sDescription>
+      <sDescription>8 rotary encoders with acceleration. Reads configuration from sketchy_dials and writes directly to param table.</sDescription>
       <author>AI Assistant</author>
       <license>BSD</license>
       <helpPatch>logic.axh</helpPatch>
@@ -24,14 +24,6 @@
          <int32 name="page"/>
       </inlets>
       <outlets>
-         <frac32 name="o1"/>
-         <frac32 name="o2"/>
-         <frac32 name="o3"/>
-         <frac32 name="o4"/>
-         <frac32 name="o5"/>
-         <frac32 name="o6"/>
-         <frac32 name="o7"/>
-         <frac32 name="o8"/>
          <int32 name="debugintval"/>
          <int32 name="debugtableval"/>
       </outlets>
@@ -40,188 +32,86 @@
       <attribs>
          <spinner name="acceltime" MinValue="1" MaxValue="1000" DefaultValue="100"/>
          <spinner name="accelmultiplier" MinValue="1" MaxValue="10" DefaultValue="6"/>
-         <spinner name="firstparam" MinValue="0" MaxValue="118" DefaultValue="0"/>
       </attribs>
-      <code.declaration><![CDATA[// Encoder data
+      <code.declaration><![CDATA[// Encoder data and page management
 float encoderPos[8];
 int accel[8];
 uint32_t lastTrigTime[8];
 int lastTrigState[8];
-int lastPage = -1;
 uint32_t timeCounter = 0;
+int lastPage = -1;
 
-// Mode constants (must match sketchy_dials)
-#define MODE_FRAC_UNIPOLAR 0  
-#define MODE_FRAC_BIPOLAR  1  
-#define MODE_INT           2  
-#define MODE_LIST          3  
+// Mode constants - must match sketchy_dials
+#define MODE_FRAC_UNIPOLAR 0
+#define MODE_FRAC_BIPOLAR  1
+#define MODE_INT           2
+#define MODE_LIST          3
+#define MODE_BAR_UNIPOLAR  4
+#define MODE_BAR_BIPOLAR   5
 
-// Configuration structure (must match sketchy_dials)
-typedef struct {
-    uint8_t mode;           
-    bool show_value;        
-    const char* label;      
-    const char* options;    
-    float default_value;    
-    int16_t int_min;        
-    int16_t int_max;        
-} encoder_dial_config_t;
-
-// Reference to the same configuration used in sketchy_dials
-// This needs to be exactly the same data
-const encoder_dial_config_t configs[8][8] = {
-    // PAGE 0 - Oscillator controls
-    {
-        {5, true,  "FIN", "", 0.0f, 0, 127},                              
-        {4, true,  "WAV", "", 32.0f, 0, 127},                              
-        {1, true,  "PHS", "", -64.0f, 0, 127},                              
-        {3, false, "", "Sin,Tri,Saw,Sqr,Nse", 2.0f, 0, 4},               
-        {0, false, "DET", "", 0.0f, 0, 127},                              
-        {0, false, "SUB", "", 0.0f, 0, 127},                              
-        {0, false, "MIX", "", 32.0f, 0, 127},                             
-        {2, false, "OCT", "", 0.0f, -4, 4}                                
-    },
-    // PAGE 1 - Filter controls
-    {
-        {0, true,  "CUT", "", 32.0f, 0, 127},                             
-        {1, true,  "RES", "", 0.0f, 0, 127},                              
-        {1, false, "ENV", "", 0.0f, -64, 64},                             
-        {3, false, "", "LP,HP,BP,BR", 0.0f, 0, 3},                        
-        {0, false, "KBD", "", 16.0f, 0, 127},                             
-        {0, false, "VEL", "", 0.0f, 0, 127},                              
-        {0, false, "LFO", "", 0.0f, 0, 127},                              
-        {2, false, "DRV", "", 8.0f, 0, 100}                               
-    },
-    // PAGE 2 - Envelope controls
-    {
-        {0, false, "ATK", "", 8.0f, 0, 127},                              
-        {0, false, "DEC", "", 16.0f, 0, 127},                             
-        {0, false, "SUS", "", 48.0f, 0, 127},                             
-        {0, false, "REL", "", 24.0f, 0, 127},                             
-        {1, false, "VEL", "", 0.0f, -100, 100},                           
-        {1, false, "CRV", "", 0.0f, -50, 50},                             
-        {0, false, "TIM", "", 32.0f, 0, 127},                             
-        {3, false, "", "Lin,Exp,Log", 1.0f, 0, 2}                         
-    },
-    // PAGE 3 - LFO controls
-    {
-        {0, true,  "RAT", "", 16.0f, 0, 127},                             
-        {1, false, "DEP", "", 0.0f, -127, 127},                           
-        {1, false, "PHS", "", 0.0f, -127, 127},                           
-        {3, false, "", "Sin,Tri,Saw,Sqr,S&H", 1.0f, 0, 4},               
-        {0, false, "SYN", "", 0.0f, 0, 127},                              
-        {0, false, "DEL", "", 0.0f, 0, 127},                              
-        {0, false, "FAD", "", 0.0f, 0, 127},                              
-        {2, false, "DIV", "", 8.0f, 1, 32}                                
-    },
-    // PAGE 4 - Effects controls
-    {
-        {0, false, "REV", "", 16.0f, 0, 127},                             
-        {0, false, "DEL", "", 0.0f, 0, 127},                              
-        {0, false, "CHO", "", 0.0f, 0, 127},                              
-        {0, false, "DIS", "", 0.0f, 0, 127},                              
-        {1, false, "TIM", "", 0.0f, -64, 64},                             
-        {1, false, "FBK", "", 0.0f, -100, 100},                           
-        {0, false, "MIX", "", 32.0f, 0, 127},                             
-        {3, false, "", "Off,Hall,Room,Plate", 2.0f, 0, 3}                 
-    },
-    // PAGE 5 - Sequencer controls
-    {
-        {2, true,  "STP", "", 8.0f, 1, 64},                               
-        {0, true,  "SPD", "", 32.0f, 0, 127},                             
-        {1, false, "SWG", "", 0.0f, -50, 50},                             
-        {3, false, "", "Fwd,Rev,P-P,Rnd", 0.0f, 0, 3},                   
-        {0, false, "GAT", "", 48.0f, 0, 127},                             
-        {1, false, "ACC", "", 0.0f, -127, 127},                           
-        {0, false, "SLD", "", 0.0f, 0, 127},                              
-        {2, false, "RST", "", 0.0f, 0, 1}                                 
-    },
-    // PAGE 6 - Modulation controls
-    {
-        {1, false, "M1A", "", 0.0f, -127, 127},                           
-        {1, false, "M2A", "", 0.0f, -127, 127},                           
-        {1, false, "M3A", "", 0.0f, -127, 127},                           
-        {3, false, "", "LFO,ENV,VEL,RND", 0.0f, 0, 3},                   
-        {3, false, "", "Cut,Res,Amp,Pan", 0.0f, 0, 3},                   
-        {3, false, "", "Pit,Phs,PWM,FM", 0.0f, 0, 3},                    
-        {0, false, "ATN", "", 64.0f, 0, 127},                             
-        {2, false, "LAG", "", 0.0f, 0, 100}                               
-    },
-    // PAGE 7 - Global controls
-    {
-        {0, true,  "VOL", "", 48.0f, 0, 127},                             
-        {1, false, "PAN", "", 0.0f, -64, 64},                             
-        {0, false, "TUN", "", 32.0f, 0, 127},                             
-        {2, true,  "TRS", "", 0.0f, -24, 24},                             
-        {0, false, "VEL", "", 48.0f, 0, 127},                             
-        {0, false, "POR", "", 0.0f, 0, 127},                              
-        {2, false, "CHN", "", 1.0f, 1, 16},                               
-        {3, false, "", "Poly,Mono,Leg", 0.0f, 0, 2}                       
-    }
-};
-
-// Helper functions
-float applyModeConstraints(float value, int mode) {
+// Helper function for basic constraints
+float applyConstraints(float value) {
     if(value < 0.0f) return 0.0f;
     if(value > 1.0f) return 1.0f;
     return value;
 }
 
-// Convert from display value to encoder position (0-1) for fractional modes
+// Convert from display value to encoder position (0-1)
 float displayToEncoderValue(float displayValue, int mode) {
     switch(mode) {
         case MODE_FRAC_UNIPOLAR:
+        case MODE_BAR_UNIPOLAR:
             return displayValue / 64.0f;
         case MODE_FRAC_BIPOLAR:
+        case MODE_BAR_BIPOLAR:
             return (displayValue + 64.0f) / 128.0f;
+        case MODE_INT:
+        case MODE_LIST:
+            return 0.0f;  // Not used for these modes
         default:
-            return 0.0f;
+            return displayValue;
     }
 }
 
-// Load values from param table based on mode
+// Load values from param table for page change
 void loadPageValues(int page) {
     if (page < 0 || page >= 8) return;
     
     rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
-    int firstparam = attr_firstparam;
     
     for (int i = 0; i < 8; i++) {
-        const encoder_dial_config_t* config = &configs[page][i];
+        // Access configuration via parent shared table
+        auto& config = parent->instancesketchy__dials_i.configs[page][i];
         
-        if (config->mode == MODE_INT || config->mode == MODE_LIST) {
+        if (config.mode == MODE_INT || config.mode == MODE_LIST) {
             // For INT/LIST modes, param table stores actual integer values
-            // No conversion needed - just validate range
-            int value = param_table->array[page][firstparam + i];
-            if (value < config->int_min) value = config->int_min;
-            if (value > config->int_max) value = config->int_max;
-            param_table->array[page][firstparam + i] = value;
+            // No need to load into encoderPos - values stay in param table
         } else {
-            // For fractional modes, param table stores 0-1 encoder positions
-            int32_t stored_value = param_table->array[page][firstparam + i];
+            // For fractional modes, load encoder position from param table
+            int32_t stored_value = param_table->array[page][i];
             encoderPos[i] = (float)stored_value / (float)(1 << 27);
-            encoderPos[i] = applyModeConstraints(encoderPos[i], config->mode);
+            encoderPos[i] = applyConstraints(encoderPos[i]);
         }
     }
 }
 
-// Save values to param table based on mode
+// Save values to param table for page change
 void savePageValues(int page) {
     if (page < 0 || page >= 8) return;
     
     rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
-    int firstparam = attr_firstparam;
     
     for (int i = 0; i < 8; i++) {
-        const encoder_dial_config_t* config = &configs[page][i];
+        // Access configuration via parent shared table
+        auto& config = parent->instancesketchy__dials_i.configs[page][i];
         
-        if (config->mode == MODE_INT || config->mode == MODE_LIST) {
-            // INT/LIST modes: param table already has correct integer values
-            // Nothing to do here - values are updated directly in encoder processing
+        if (config.mode == MODE_INT || config.mode == MODE_LIST) {
+            // INT/LIST modes: values already stored directly in param table
+            // Nothing to do here
         } else {
-            // Fractional modes: store 0-1 encoder positions
+            // Fractional modes: store encoder positions
             int32_t value = (int32_t)(encoderPos[i] * (float)(1 << 27));
-            param_table->array[page][firstparam + i] = value;
+            param_table->array[page][i] = value;
         }
     }
 }]]></code.declaration>
@@ -232,13 +122,13 @@ for (int i = 0; i < 8; i++) {
     lastTrigTime[i] = 0;
     lastTrigState[i] = 0;
 }
-lastPage = -1;
-timeCounter = 0;]]></code.init>
+timeCounter = 0;
+lastPage = -1;]]></code.init>
       <code.krate><![CDATA[timeCounter++;
 int page = inlet_page;
 
 // Handle page changes
-if (inlet_page != lastPage && page >= 0 && page < 8) {
+if (page != lastPage && page >= 0 && page < 8) {
     // Save current page values before switching
     if (lastPage >= 0 && lastPage < 8) {
         savePageValues(lastPage);
@@ -246,43 +136,27 @@ if (inlet_page != lastPage && page >= 0 && page < 8) {
     
     // Load new page values
     loadPageValues(page);
-    lastPage = inlet_page;
+    lastPage = page;
 }
 
-// Process encoder inputs
-bool trig[8] = {inlet_trig1, inlet_trig2, inlet_trig3, inlet_trig4, 
-                inlet_trig5, inlet_trig6, inlet_trig7, inlet_trig8};
-bool dir[8]  = {inlet_dir1,  inlet_dir2,  inlet_dir3,  inlet_dir4,  
-                inlet_dir5,  inlet_dir6,  inlet_dir7,  inlet_dir8};
+// Process encoder inputs with mode-specific logic
+if (page >= 0 && page < 8) {
+    bool trig[8] = {inlet_trig1, inlet_trig2, inlet_trig3, inlet_trig4, 
+                    inlet_trig5, inlet_trig6, inlet_trig7, inlet_trig8};
+    bool dir[8]  = {inlet_dir1,  inlet_dir2,  inlet_dir3,  inlet_dir4,  
+                    inlet_dir5,  inlet_dir6,  inlet_dir7,  inlet_dir8};
 
-for (int i = 0; i < 8; i++) {
-    bool edge = (trig[i] == 1) && (lastTrigState[i] == 0);
-    lastTrigState[i] = trig[i];
+    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
 
-    if (edge && page >= 0 && page < 8) {
-        const encoder_dial_config_t* config = &configs[page][i];
-        rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
-        int firstparam = attr_firstparam;
-        
-        if (config->mode == MODE_INT || config->mode == MODE_LIST) {
-            // Integer/List mode: increment/decrement actual integer values
-            int current_value = param_table->array[page][firstparam + i];
-            
-            if (dir[i] == 0) {
-                current_value--;
-            } else {
-                current_value++;
-            }
-            
-            // Clamp to range
-            if (current_value < config->int_min) current_value = config->int_min;
-            if (current_value > config->int_max) current_value = config->int_max;
-            
-            // Store back to param table
-            param_table->array[page][firstparam + i] = current_value;
-            
-        } else {
-            // Fractional mode: use acceleration and 0-1 encoder positions
+    for (int i = 0; i < 8; i++) {
+        bool edge = (trig[i] == 1) && (lastTrigState[i] == 0);
+        lastTrigState[i] = trig[i];
+
+        if (edge) {
+            // Access configuration via parent shared table
+            auto& config = parent->instancesketchy__dials_i.configs[page][i];
+
+            // Acceleration logic
             uint32_t diff = timeCounter - lastTrigTime[i];
             if (diff < attr_acceltime) {
                 accel[i]++;
@@ -291,44 +165,47 @@ for (int i = 0; i < 8; i++) {
                 accel[i] = 1;
             }
             
-            float inc = 0.0078125f * accel[i]; // 1/128 * acceleration
-            if (dir[i] == 0) {
-                encoderPos[i] -= inc;
+            if (config.mode == MODE_INT || config.mode == MODE_LIST) {
+                // Integer/List mode: increment/decrement actual integer values
+                int current_value = param_table->array[page][i];
+                
+                if (dir[i] == 0) {
+                    current_value -= accel[i];
+                } else {
+                    current_value += accel[i];
+                }
+                
+                // Clamp to range
+                if (current_value < config.int_min) current_value = config.int_min;
+                if (current_value > config.int_max) current_value = config.int_max;
+                
+                // Store directly in param table
+                param_table->array[page][i] = current_value;
+                
             } else {
-                encoderPos[i] += inc;
+                // Fractional mode: use encoder positions
+                float inc = 0.0078125f * accel[i]; // 1/128 * acceleration
+                if (dir[i] == 0) {
+                    encoderPos[i] -= inc;
+                } else {
+                    encoderPos[i] += inc;
+                }
+                
+                encoderPos[i] = applyConstraints(encoderPos[i]);
+                
+                // Store encoder position in param table
+                int32_t value = (int32_t)(encoderPos[i] * (float)(1 << 27));
+                param_table->array[page][i] = value;
             }
             
-            encoderPos[i] = applyModeConstraints(encoderPos[i], config->mode);
-            
-            // Store encoder position (0-1) to param table
-            int32_t value = (int32_t)(encoderPos[i] * (float)(1 << 27));
-            param_table->array[page][firstparam + i] = value;
+            lastTrigTime[i] = timeCounter;
         }
-        
-        lastTrigTime[i] = timeCounter;
     }
-}
-
-// Output fractional values (only for fractional modes)
-// INT/LIST modes output 0 since they're handled via param table
-if (page >= 0 && page < 8) {
-    outlet_o1 = (configs[page][0].mode >= MODE_INT) ? 0 : (int32_t)(encoderPos[0] * (float)(1 << 27));
-    outlet_o2 = (configs[page][1].mode >= MODE_INT) ? 0 : (int32_t)(encoderPos[1] * (float)(1 << 27));
-    outlet_o3 = (configs[page][2].mode >= MODE_INT) ? 0 : (int32_t)(encoderPos[2] * (float)(1 << 27));
-    outlet_o4 = (configs[page][3].mode >= MODE_INT) ? 0 : (int32_t)(encoderPos[3] * (float)(1 << 27));
-    outlet_o5 = (configs[page][4].mode >= MODE_INT) ? 0 : (int32_t)(encoderPos[4] * (float)(1 << 27));
-    outlet_o6 = (configs[page][5].mode >= MODE_INT) ? 0 : (int32_t)(encoderPos[5] * (float)(1 << 27));
-    outlet_o7 = (configs[page][6].mode >= MODE_INT) ? 0 : (int32_t)(encoderPos[6] * (float)(1 << 27));
-    outlet_o8 = (configs[page][7].mode >= MODE_INT) ? 0 : (int32_t)(encoderPos[7] * (float)(1 << 27));
-} else {
-    outlet_o1 = outlet_o2 = outlet_o3 = outlet_o4 = 0;
-    outlet_o5 = outlet_o6 = outlet_o7 = outlet_o8 = 0;
 }
 
 // Debug outputs
 rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
-int firstparam = attr_firstparam;
-outlet_debugintval = (page >= 0 && page < 8) ? param_table->array[page][firstparam] : 0;
-outlet_debugtableval = (page >= 0 && page < 8) ? param_table->array[page][firstparam] : 0;]]></code.krate>
+outlet_debugintval = (page >= 0 && page < 8) ? param_table->array[page][0] : 0;
+outlet_debugtableval = (page >= 0 && page < 8) ? param_table->array[page][0] : 0;]]></code.krate>
    </obj.normal>
 </objdefs>
