@@ -499,6 +499,10 @@ void render() __attribute__ ((noinline)) {
 					draw_indicator_line(cx, cy, indicator_index);
 				}
 				break;
+				
+			case 101: // OPEN CORNER RECTANGLE
+				draw_open_corner_rect(x, y, w, h, color, scale);
+				break;
 		}
 	}
 	parent->instancesketchy__objects_i.dirty = false;
@@ -735,8 +739,8 @@ void select_init(select_t* select) __attribute__ ((noinline)) {
    select->value_text_id = text_table->registerEntry();
    select->label_text_id = text_table->registerEntry();
 
-   // Box object: Rectangle around the selected value (like int control)
-   object_table->array[select->box_object_id][object_table->FIELD_TYPE] = 1;
+   // Box object: Open corner rectangle around the selected value (like int control)
+   object_table->array[select->box_object_id][object_table->FIELD_TYPE] = 101;
    object_table->array[select->box_object_id][object_table->FIELD_X] = select->x;
    object_table->array[select->box_object_id][object_table->FIELD_Y] = select->y + y_offset;
    object_table->array[select->box_object_id][object_table->FIELD_W] = select->width;
@@ -845,8 +849,8 @@ void intdisplay_init(intdisplay_t* disp) __attribute__ ((noinline)) {
     disp->value_text_id = text_table->registerEntry();
     disp->label_text_id = text_table->registerEntry();
 
-    // Box object: Rectangle around the numeric value only (Elektron style) - extended down 2px
-    object_table->array[disp->box_object_id][object_table->FIELD_TYPE] = 1;
+    // Box object: Open corner rectangle around the numeric value only (Elektron style) - extended down 2px
+    object_table->array[disp->box_object_id][object_table->FIELD_TYPE] = 101;
     object_table->array[disp->box_object_id][object_table->FIELD_X] = disp->x;
     object_table->array[disp->box_object_id][object_table->FIELD_Y] = disp->y + y_offset;
     object_table->array[disp->box_object_id][object_table->FIELD_W] = disp->width;
@@ -977,6 +981,34 @@ void draw_bipolar_indicators(int cx, int cy) __attribute__ ((noinline)) {
     int plus_y = cy + 5;   // One up (was +6)
     draw_line(plus_x - 1, plus_y, plus_x + 1, plus_y, 0, 1);     // Horizontal line
     draw_line(plus_x, plus_y - 1, plus_x, plus_y + 1, 0, 1);     // Vertical line for "+"
+}
+
+// Open corner rectangle coordinates for 24x14 int/list displays - saves SRAM vs function calls
+const int8_t open_corner_rect_coords[68][2] = {
+    // Top line (y=0): x from 1 to 22 (24-2 pixels)
+    {1,0}, {2,0}, {3,0}, {4,0}, {5,0}, {6,0}, {7,0}, {8,0}, {9,0}, {10,0}, {11,0}, {12,0}, {13,0}, {14,0}, {15,0}, {16,0}, {17,0}, {18,0}, {19,0}, {20,0}, {21,0}, {22,0},
+    // Bottom line (y=13): x from 1 to 22 (24-2 pixels)  
+    {1,13}, {2,13}, {3,13}, {4,13}, {5,13}, {6,13}, {7,13}, {8,13}, {9,13}, {10,13}, {11,13}, {12,13}, {13,13}, {14,13}, {15,13}, {16,13}, {17,13}, {18,13}, {19,13}, {20,13}, {21,13}, {22,13},
+    // Left line (x=0): y from 1 to 12 (14-2 pixels)
+    {0,1}, {0,2}, {0,3}, {0,4}, {0,5}, {0,6}, {0,7}, {0,8}, {0,9}, {0,10}, {0,11}, {0,12},
+    // Right line (x=23): y from 1 to 12 (14-2 pixels)
+    {23,1}, {23,2}, {23,3}, {23,4}, {23,5}, {23,6}, {23,7}, {23,8}, {23,9}, {23,10}, {23,11}, {23,12}
+};
+
+// Draw open corner rectangle using SDRAM lookup table (saves SRAM vs function calls)
+void draw_open_corner_rect(int x, int y, int w, int h, int color, int scale) __attribute__ ((noinline)) {
+    // Use lookup table for standard 24x14 rectangles, fallback for others
+    if (w == 24 && h == 14) {
+        for (int i = 0; i < 68; i++) {
+            draw_pixel(x + open_corner_rect_coords[i][0], y + open_corner_rect_coords[i][1], color);
+        }
+    } else {
+        // Fallback for non-standard sizes (rare case)
+        draw_line(x + 1, y, x + w - 2, y, color, scale);
+        draw_line(x + 1, y + h - 1, x + w - 2, y + h - 1, color, scale);
+        draw_line(x, y + 1, x, y + h - 2, color, scale);
+        draw_line(x + w - 1, y + 1, x + w - 1, y + h - 2, color, scale);
+    }
 }
 
 // NEW DIAL FUNCTIONALITY: Virtual knobs with round indicators

@@ -11,7 +11,6 @@
       <displays/>
       <params/>
       <attribs/>
-      <includes/>
       <code.declaration><![CDATA[// Dial configuration structure
 typedef struct {
     uint8_t mode;           // 0=frac unipolar, 1=frac bipolar, 2=int, 3=list, 4=bar unipolar, 5=bar bipolar
@@ -31,12 +30,12 @@ encoder_dial_config_t configs[8][8] = {
     {
         {1, true,  "FIN", "", 0.0f, 0, 127},                              // Fine tune (center)
         {1, true,  "WAV", "", 32.0f, 0, 127},                              // Waveform (center)
-        {1, true,  "PHS", "", -64.0f, 0, 127},                              // Phase (center)
-        {3, false, "SEL", "Sin,Tri,Saw,Sqr,Nse", 2.0f, 0, 4},               // Wave selector (Saw)
+        {3, false, "SEL", "Sin,Tri,Saw,Sqr,Nse", 2.0f, 0, 4},                              // Phase (center)
+        {5, true,  "DOT", "", 32.0f, 0, 127},               // Wave selector (Saw)
         {0, false, "DET", "", 0.0f, 0, 127},                              // Detune (off)
         {0, false, "SUB", "", 0.0f, 0, 127},                              // Sub osc (off)
-        {0, false, "MIX", "", 32.0f, 0, 127},                             // Mix (25% default)
-        {2, false, "OCT", "", 0.0f, -4, 4}                                // Octave (center)
+        {2, false, "OCT", "", 0.0f, -4, 4},                             // Mix (25% default)
+        {4, false, "DOWN", "", 0.0f, 0, 127}                                // Octave (center)
     },
     // PAGE 1 - Filter controls
     {
@@ -309,4 +308,4 @@ if (page >= 0 && page < 8) {
     }
 }]]></code.krate>
    </obj.normal>
-</objdefs> 
+</objdefs>
