@@ -48,12 +48,50 @@ int lastPage = -1;
 #define MODE_LIST          3
 #define MODE_BAR_UNIPOLAR  4
 #define MODE_BAR_BIPOLAR   5
+#define MODE_DUPLICATE     6
 
 // Helper function for basic constraints
 float applyConstraints(float value) {
     if(value < 0.0f) return 0.0f;
     if(value > 1.0f) return 1.0f;
     return value;
+}
+
+// Parse duplicate reference "page,dial" into page and dial indices
+void parse_duplicate_reference(const char* options, uint8_t* ref_page, uint8_t* ref_dial) {
+    *ref_page = 0;
+    *ref_dial = 0;
+    
+    // Simple parsing: expect "page,dial" format
+    if (options && strlen(options) >= 3) {
+        *ref_page = options[0] - '0';  // Convert first char to number
+        if (options[1] == ',' && options[2] >= '0' && options[2] <= '7') {
+            *ref_dial = options[2] - '0';  // Convert third char to number
+        }
+    }
+}
+
+// Resolve duplicate reference to get actual page/dial to write to
+void resolve_duplicate(int page, int dial, int* target_page, int* target_dial) {
+    auto& config = parent->instancesketchy__dials_i.configs[page][dial];
+    
+    if (config.mode == MODE_DUPLICATE) {
+        uint8_t ref_page, ref_dial;
+        parse_duplicate_reference(config.options, &ref_page, &ref_dial);
+        
+        if (ref_page < 8 && ref_dial < 8) {
+            *target_page = ref_page;
+            *target_dial = ref_dial;
+        } else {
+            // Invalid reference, fall back to current
+            *target_page = page;
+            *target_dial = dial;
+        }
+    } else {
+        // Not a duplicate, use current
+        *target_page = page;
+        *target_dial = dial;
+    }
 }
 
 // Convert from display value to encoder position (0-1)
@@ -83,12 +121,19 @@ void loadPageValues(int page) {
         // Access configuration via parent shared table
         auto& config = parent->instancesketchy__dials_i.configs[page][i];
         
-        if (config.mode == MODE_INT || config.mode == MODE_LIST) {
+        // Resolve duplicate reference to get actual parameter to load from
+        int target_page, target_dial;
+        resolve_duplicate(page, i, &target_page, &target_dial);
+        
+        // Get the actual config for the target parameter (in case of duplicate)
+        auto& target_config = parent->instancesketchy__dials_i.configs[target_page][target_dial];
+        
+        if (target_config.mode == MODE_INT || target_config.mode == MODE_LIST) {
             // For INT/LIST modes, param table stores actual integer values
             // No need to load into encoderPos - values stay in param table
         } else {
-            // For fractional modes, load encoder position from param table
-            int32_t stored_value = param_table->array[page][i];
+            // For fractional modes, load encoder position from param table (from target location)
+            int32_t stored_value = param_table->array[target_page][target_dial];
             encoderPos[i] = (float)stored_value / (float)(1 << 27);
             encoderPos[i] = applyConstraints(encoderPos[i]);
         }
@@ -156,6 +201,13 @@ if (page >= 0 && page < 8) {
             // Access configuration via parent shared table
             auto& config = parent->instancesketchy__dials_i.configs[page][i];
 
+            // Resolve duplicate reference to get actual parameter to modify
+            int target_page, target_dial;
+            resolve_duplicate(page, i, &target_page, &target_dial);
+            
+            // Get the actual config for the target parameter (in case of duplicate)
+            auto& target_config = parent->instancesketchy__dials_i.configs[target_page][target_dial];
+
             // Acceleration logic
             uint32_t diff = timeCounter - lastTrigTime[i];
             if (diff < attr_acceltime) {
@@ -165,9 +217,9 @@ if (page >= 0 && page < 8) {
                 accel[i] = 1;
             }
             
-            if (config.mode == MODE_INT || config.mode == MODE_LIST) {
+            if (target_config.mode == MODE_INT || target_config.mode == MODE_LIST) {
                 // Integer/List mode: increment/decrement actual integer values
-                int current_value = param_table->array[page][i];
+                int current_value = param_table->array[target_page][target_dial];
                 
                 if (dir[i] == 0) {
                     current_value -= accel[i];
@@ -176,11 +228,11 @@ if (page >= 0 && page < 8) {
                 }
                 
                 // Clamp to range
-                if (current_value < config.int_min) current_value = config.int_min;
-                if (current_value > config.int_max) current_value = config.int_max;
+                if (current_value < target_config.int_min) current_value = target_config.int_min;
+                if (current_value > target_config.int_max) current_value = target_config.int_max;
                 
-                // Store directly in param table
-                param_table->array[page][i] = current_value;
+                // Store directly in param table (at target location)
+                param_table->array[target_page][target_dial] = current_value;
                 
             } else {
                 // Fractional mode: use encoder positions
@@ -193,9 +245,9 @@ if (page >= 0 && page < 8) {
                 
                 encoderPos[i] = applyConstraints(encoderPos[i]);
                 
-                // Store encoder position in param table
+                // Store encoder position in param table (at target location)
                 int32_t value = (int32_t)(encoderPos[i] * (float)(1 << 27));
-                param_table->array[page][i] = value;
+                param_table->array[target_page][target_dial] = value;
             }
             
             lastTrigTime[i] = timeCounter;

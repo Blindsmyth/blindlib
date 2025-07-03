@@ -13,10 +13,10 @@
       <attribs/>
       <code.declaration><![CDATA[// Dial configuration structure
 typedef struct {
-    uint8_t mode;           // 0=frac unipolar, 1=frac bipolar, 2=int, 3=list, 4=bar unipolar, 5=bar bipolar
+    uint8_t mode;           // 0=frac unipolar, 1=frac bipolar, 2=int, 3=list, 4=bar unipolar, 5=bar bipolar, 6=duplicate
     bool show_value;        // Show/hide value (for fractional modes)
     const char* label;      // Label text
-    const char* options;    // List options (for mode 3)
+    const char* options;    // List options (for mode 3) OR duplicate reference "page,dial" (for mode 6)
     float default_value;    // Default value
     int16_t int_min;        // Minimum value (for int/list modes)
     int16_t int_max;        // Maximum value (for int/list modes)
@@ -34,6 +34,7 @@ encoder_dial_config_t (*configs)[8];  // Pointer to 2D array in SDRAM
 #define MODE_LIST          3  // selector mode
 #define MODE_BAR_UNIPOLAR  4  // 0.0 to 1.0, vertical bar
 #define MODE_BAR_BIPOLAR   5  // -1.0 to 1.0, vertical bar
+#define MODE_DUPLICATE     6  // duplicate another parameter
 
 // Display structures for each type - 64 total (8 pages x 8 dials)
 // Using SDRAM to save precious SRAM
@@ -152,6 +153,20 @@ float displayToEncoderValue(float displayValue, int mode) {
     }
 }
 
+// Parse duplicate reference "page,dial" into page and dial indices
+void parse_duplicate_reference(const char* options, uint8_t* ref_page, uint8_t* ref_dial) {
+    *ref_page = 0;
+    *ref_dial = 0;
+    
+    // Simple parsing: expect "page,dial" format
+    if (options && strlen(options) >= 3) {
+        *ref_page = options[0] - '0';  // Convert first char to number
+        if (options[1] == ',' && options[2] >= '0' && options[2] <= '7') {
+            *ref_dial = options[2] - '0';  // Convert third char to number
+        }
+    }
+}
+
 // Initialize a single dial based on its configuration
 void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* config) {
     uint8_t array_index = page * 8 + dial_index;
@@ -219,6 +234,46 @@ void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* co
             selects[array_index].options = config->options;    // Options list
             parent->instancesketchy__render_i.select_init(&selects[array_index]);
             break;
+            
+        case MODE_DUPLICATE:
+            // Parse the duplicate reference from options field: "page,dial"
+            uint8_t ref_page, ref_dial;
+            parse_duplicate_reference(config->options, &ref_page, &ref_dial);
+            
+            // Get the referenced configuration and initialize with it
+            if (ref_page < 8 && ref_dial < 8) {
+                const encoder_dial_config_t* ref_config = &configs[ref_page][ref_dial];
+                
+                // Avoid infinite recursion - don't duplicate another duplicate
+                if (ref_config->mode != MODE_DUPLICATE) {
+                    // Initialize this dial with the referenced config's mode
+                    encoder_dial_config_t temp_config = *ref_config;
+                    init_dial(page, dial_index, &temp_config);
+                    
+                    // Override the param and page to point to the same parameter as the original
+                    switch (temp_config.mode) {
+                        case MODE_FRAC_UNIPOLAR:
+                        case MODE_FRAC_BIPOLAR:
+                            dials[array_index].param = ref_dial;  // Point to original param
+                            dials[array_index].page = ref_page;   // Point to original page
+                            break;
+                        case MODE_BAR_UNIPOLAR:
+                        case MODE_BAR_BIPOLAR:
+                            bars[array_index].param = ref_dial;   // Point to original param
+                            bars[array_index].page = ref_page;    // Point to original page
+                            break;
+                        case MODE_INT:
+                            intdisplays[array_index].param = ref_dial;  // Point to original param
+                            intdisplays[array_index].page = ref_page;   // Point to original page
+                            break;
+                        case MODE_LIST:
+                            selects[array_index].param = ref_dial;     // Point to original param
+                            selects[array_index].page = ref_page;      // Point to original page
+                            break;
+                    }
+                }
+            }
+            break;
     }
 }
 
@@ -243,6 +298,37 @@ void update_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* 
             
         case MODE_LIST:
             parent->instancesketchy__render_i.select_update(&selects[array_index]);
+            break;
+            
+        case MODE_DUPLICATE:
+            // Parse the duplicate reference and update with the referenced config
+            uint8_t ref_page, ref_dial;
+            parse_duplicate_reference(config->options, &ref_page, &ref_dial);
+            
+            if (ref_page < 8 && ref_dial < 8) {
+                const encoder_dial_config_t* ref_config = &configs[ref_page][ref_dial];
+                
+                // Avoid infinite recursion - don't duplicate another duplicate
+                if (ref_config->mode != MODE_DUPLICATE) {
+                    // Update this dial with the referenced config's mode
+                    switch (ref_config->mode) {
+                        case MODE_FRAC_UNIPOLAR:
+                        case MODE_FRAC_BIPOLAR:
+                            parent->instancesketchy__render_i.dial_update(&dials[array_index]);
+                            break;
+                        case MODE_BAR_UNIPOLAR:
+                        case MODE_BAR_BIPOLAR:
+                            parent->instancesketchy__render_i.bar_update(&bars[array_index]);
+                            break;
+                        case MODE_INT:
+                            parent->instancesketchy__render_i.intdisplay_update(&intdisplays[array_index]);
+                            break;
+                        case MODE_LIST:
+                            parent->instancesketchy__render_i.select_update(&selects[array_index]);
+                            break;
+                    }
+                }
+            }
             break;
     }
 }

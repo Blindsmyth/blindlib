@@ -26,11 +26,17 @@ bool trigon;
 int8_t remap_note(int8_t midi_note) {
     // Remap according to table:
     // 60-67 -> 0-7
-    // 37-40 -> 8-11
+    // 37,39,41,43 -> 8,9,10,11
     if (midi_note >= 60 && midi_note <= 67) {
         return midi_note - 60;  // 60->0, 61->1, ..., 67->7
-    } else if (midi_note >= 37 && midi_note <= 40) {
-        return midi_note - 37 + 8;  // 37->8, 38->9, 39->10, 40->11
+    } else if (midi_note == 37) {
+        return 8;
+    } else if (midi_note == 39) {
+        return 9;
+    } else if (midi_note == 41) {
+        return 10;
+    } else if (midi_note == 43) {
+        return 11;
     }
     // For any other notes, return as-is (or you could return -1 to ignore)
     return midi_note;

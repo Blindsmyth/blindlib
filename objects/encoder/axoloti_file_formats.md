@@ -3,20 +3,23 @@
 ## CRITICAL: File Structure Differences
 
 ### .axo files (Object Definitions)
-- Start with `<object>` root element
+- Start with `<objdefs appVersion="1.0.12">` root element
+- Contains `<obj.normal id="name" uuid="unique-uuid">` element
 - NO `<patch>` or `<patchobj>` wrapper
 - Used for creating reusable objects
 - Example structure:
 ```xml
-<object id="patch/object" uuid="unique-uuid">
-   <sDescription>...</sDescription>
-   <author>...</author>
-   <inlets/>
-   <outlets/>
-   <code.declaration><![CDATA[...]]></code.declaration>
-   <code.init><![CDATA[...]]></code.init>
-   <code.krate><![CDATA[...]]></code.krate>
-</object>
+<objdefs appVersion="1.0.12">
+   <obj.normal id="object_name" uuid="unique-uuid">
+      <sDescription>...</sDescription>
+      <author>...</author>
+      <inlets/>
+      <outlets/>
+      <code.declaration><![CDATA[...]]></code.declaration>
+      <code.init><![CDATA[...]]></code.init>
+      <code.krate><![CDATA[...]]></code.krate>
+   </obj.normal>
+</objdefs>
 ```
 
 ### .axp files (Patch Files) 
@@ -34,10 +37,11 @@
 </patch>
 ```
 
-### Common Mistake
+### Common Mistakes
 ❌ Creating .axo files with `<patch><patchobj>` structure (causes XML parsing errors)
-✅ .axo files must ONLY contain the `<object>` element
+❌ Using `<object>` root element (missing required wrapper)
+✅ .axo files must use `<objdefs><obj.normal>` structure
 
 ### Memory Aid
-- .a**x**o = o**bject** = `<object>` root
-- .a**x**p = **patch** = `<patch>` root 
+- .a**x**o = o**bject** definition = `<objdefs><obj.normal>` structure
+- .a**x**p = **patch** = `<patch><patchobj>` structure 
