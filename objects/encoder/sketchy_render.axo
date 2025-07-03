@@ -76,12 +76,9 @@ enum SSD1306 {
 	SETPRECHARGE        = 0xD9,
 	SETVCOMDETECT       = 0xDB,
 	CHARGEPUMP          = 0x8D,
-	EXTERNALVCC         = 0x1,
-	SWITCHCAPVCC        = 0x2,
 };
 
 uint8_t pixels[8][LCDWIDTH];
-uint8_t cpt = 0;
 uint8_t *txbuf;
 uint8_t *rxbuf;
 
@@ -89,10 +86,6 @@ void cmd(uint8_t c) {
 	txbuf[0] = 0;
 	txbuf[1] = c;
 	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 2, rxbuf, 0, 30);
-}
-
-int wrap_index(int i, int i_max) {
-	return ((i % i_max) + i_max) % i_max;
 }
 
 void clear() {
@@ -167,9 +160,7 @@ static msg_t ThreadX(void *arg) {
 WORKING_AREA(waThreadX, 2048);
 Thread *Thd;
 
-uint16_t fps_limit_counter;
 bool pprint;
-bool prender;
 
 void draw_pixel(int16_t x, int16_t y, uint8_t color) __attribute__ ((noinline)) {
 	uint8_t page, bit;
@@ -595,7 +586,7 @@ void bar_init(bar_t* bar) __attribute__ ((noinline)) {
        bar->value_text_id = text_table->registerEntry();
    }
 
-   object_table->array[bar->box_object_id][object_table->FIELD_TYPE] = 2;
+   object_table->array[bar->box_object_id][object_table->FIELD_TYPE] = 4;
    object_table->array[bar->box_object_id][object_table->FIELD_X] = bar->x;
    object_table->array[bar->box_object_id][object_table->FIELD_Y] = bar->y + y_offset;
    object_table->array[bar->box_object_id][object_table->FIELD_W] = bar->width;
@@ -904,54 +895,27 @@ void intdisplay_update(intdisplay_t* disp) __attribute__ ((noinline)) {
 
 // ======================== VIRTUAL KNOB FUNCTIONALITY ========================
 
-// Complete circle coordinates - gap at BOTTOM for labels, two lowest pixel rows removed
+// Original coordinate lookup tables (back in SRAM for testing)
 const int8_t circle_coords[38][2] = {
-    // Starting from top (270°) going clockwise, skipping bottom gap
-    { 0, -8}, { 1, -8}, { 2, -8}, { 3, -7}, { 4, -7}, { 5, -6}, { 6, -5}, { 7, -4}, // Top to right
-    { 7, -3}, { 8, -2}, { 8, -1}, { 8,  0}, { 8,  1}, { 8,  2}, { 7,  3}, { 7,  4}, // Right side
-    { 6,  5},                                                                        // Right to bottom (removed Y=+6 and Y=+7 pixels)
-    // BOTTOM GAP HERE for labels - skip: { 5,  6}, { 4,  7}, { 3,  7}, { 2,  8}, { 1,  8}, { 0,  8}, {-1,  8}, {-2,  8}, {-3,  7}, {-4,  7}, {-5,  6}
-    {-6,  5}, {-7,  4}, {-7,  3}, {-8,  2}, {-8,  1}, // Bottom to left (removed Y=+6 and Y=+7 pixels)
-    {-8,  0}, {-8, -1}, {-8, -2}, {-7, -3}, {-7, -4}, {-6, -5}, {-5, -6}, {-4, -7}, // Left side
-    {-3, -7}, {-2, -8}, {-1, -8}                                                     // Left to top
+    // Circle coordinates - 38 points with gap at bottom for labels
+    { 0, -8}, { 1, -8}, { 2, -8}, { 3, -7}, { 4, -7}, { 5, -6}, { 6, -5}, { 7, -4},
+    { 7, -3}, { 8, -2}, { 8, -1}, { 8,  0}, { 8,  1}, { 8,  2}, { 7,  3}, { 7,  4},
+    { 6,  5}, // Right to bottom (removed Y=+6 and Y=+7 pixels)
+    // BOTTOM GAP HERE for labels
+    {-6,  5}, {-7,  4}, {-7,  3}, {-8,  2}, {-8,  1},
+    {-8,  0}, {-8, -1}, {-8, -2}, {-7, -3}, {-7, -4}, {-6, -5}, {-5, -6}, {-4, -7},
+    {-3, -7}, {-2, -8}, {-1, -8}, // Left to top
+    // FILL remaining positions to complete the circle
+    { 0, -8}, { 1, -8}, { 2, -8}, { 3, -7}, { 4, -7}
 };
 
-// Updated coordinates from your new list with center at I9
 const int8_t indicator_coords[31][2] = {
-    {-5,  5},  // 0: Position 1 (D14) = D14 - I9 = (-5, +5)
-    {-6,  4},  // 1: Position 2 (C13) = C13 - I9 = (-6, +4)
-    {-6,  3},  // 2: Position 3 (C12) = C12 - I9 = (-6, +3)
-    {-7,  2},  // 3: Position 4 (B11) = B11 - I9 = (-7, +2)
-    {-7,  1},  // 4: Position 5 (B10) = B10 - I9 = (-7, +1)
-    {-7,  0},  // 5: Position 6 (B9)  = B9  - I9 = (-7,  0)
-    {-7, -1},  // 6: Position 7 (B8)  = B8  - I9 = (-7, -1)
-    {-7, -2},  // 7: Position 8 (B7)  = B7  - I9 = (-7, -2)
-    {-6, -3},  // 8: Position 9 (C6)  = C6  - I9 = (-6, -3)
-    {-6, -4},  // 9: Position 10 (C5) = C5  - I9 = (-6, -4)
-    {-5, -5},  //10: Position 11 (D4) = D4  - I9 = (-5, -5)
-    {-4, -6},  //11: Position 12 (E3) = E3  - I9 = (-4, -6)
-    {-3, -6},  //12: Position 13 (F3) = F3  - I9 = (-3, -6)
-    {-2, -7},  //13: Position 14 (G2) = G2  - I9 = (-2, -7)
-    {-1, -7},  //14: Position 15 (H2) = H2  - I9 = (-1, -7)
-    { 0, -7},  //15: Position 16 (I2) = I2  - I9 = ( 0, -7)
-    { 1, -7},  //16: Position 17 (J2) = J2  - I9 = (+1, -7)
-    { 2, -7},  //17: Position 18 (K2) = K2  - I9 = (+2, -7)
-    { 3, -6},  //18: Position 19 (L3) = L3  - I9 = (+3, -6)
-    { 4, -6},  //19: Position 20 (M3) = M3  - I9 = (+4, -6)
-    { 5, -5},  //20: Position 21 (N4) = N4  - I9 = (+5, -5)
-    { 6, -4},  //21: Position 22 (O5) = O5  - I9 = (+6, -4)
-    { 6, -3},  //22: Position 23 (O6) = O6  - I9 = (+6, -3)
-    { 7, -2},  //23: Position 24 (P7) = P7  - I9 = (+7, -2)
-    { 7, -1},  //24: Position 25 (P8) = P8  - I9 = (+7, -1)
-    { 7,  0},  //25: Position 26 (P9) = P9  - I9 = (+7,  0)
-    { 7,  1},  //26: Position 27 (P10)= P10 - I9 = (+7, +1)
-    { 7,  2},  //27: Position 28 (P11)= P11 - I9 = (+7, +2)
-    { 6,  3},  //28: Position 29 (O12)= O12 - I9 = (+6, +3)
-    { 6,  4},  //29: Position 30 (O13)= O13 - I9 = (+6, +4)
-    { 5,  5},  //30: Position 31 (N14)= N14 - I9 = (+5, +5)
+    // Indicator coordinates - updated coordinates with center at I9
+    {-5,  5}, {-6,  4}, {-6,  3}, {-7,  2}, {-7,  1}, {-7,  0}, {-7, -1}, {-7, -2},
+    {-6, -3}, {-6, -4}, {-5, -5}, {-4, -6}, {-3, -6}, {-2, -7}, {-1, -7}, { 0, -7},
+    { 1, -7}, { 2, -7}, { 3, -6}, { 4, -6}, { 5, -5}, { 6, -4}, { 6, -3}, { 7, -2},
+    { 7, -1}, { 7,  0}, { 7,  1}, { 7,  2}, { 6,  3}, { 6,  4}, { 5,  5}
 };
-
-
 
 // Draw indicator line from center to exact position using lookup table
 void draw_indicator_line(int cx, int cy, int indicator_index) __attribute__ ((noinline)) {
@@ -978,8 +942,6 @@ void draw_bipolar_indicators(int cx, int cy) __attribute__ ((noinline)) {
     draw_line(plus_x - 1, plus_y, plus_x + 1, plus_y, 0, 1);     // Horizontal line
     draw_line(plus_x, plus_y - 1, plus_x, plus_y + 1, 0, 1);     // Vertical line for "+"
 }
-
-
 
 // NEW DIAL FUNCTIONALITY: Virtual knobs with round indicators
 typedef struct {
@@ -1133,25 +1095,25 @@ i2cStop(&I2CD1);
 palSetPadMode(GPIOB, 8, PAL_MODE_INPUT_ANALOG);
 palSetPadMode(GPIOB, 9, PAL_MODE_INPUT_ANALOG);]]></code.dispose>
       <code.krate><![CDATA[if (inlet_print && !pprint) {
-  pprint = true;
-  for (uint8_t i = 0; i < parent->instancesketchy__objects_i.LENGTH; i++) {
-    LogTextMessage(
-      "i: %3d, type: %3d, x: %3d, y: %3d, w: %3d, h: %3d, color: %3d, text_id: %3d",
-      i,
-      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE],
-      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_X], 
-      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_Y], 
-      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_W],
-      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_H], 
-      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_COLOR],
-      parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TEXT_ID]
-    );
-  }
-  LogTextMessage("");
+	pprint = true;
+	for (uint8_t i = 0; i < parent->instancesketchy__objects_i.LENGTH; i++) {
+		LogTextMessage(
+			"i: %3d, type: %3d, x: %3d, y: %3d, w: %3d, h: %3d, color: %3d, text_id: %3d",
+			i,
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE],
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_X], 
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_Y], 
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_W],
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_H], 
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_COLOR],
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TEXT_ID]
+		);
+	}
+	LogTextMessage("");
 }
 
 if (!inlet_print && pprint) {
-  pprint = false;
+	pprint = false;
 }
 
 if (page != inlet_page) {

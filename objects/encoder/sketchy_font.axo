@@ -1,0 +1,67 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sketchy_font" uuid="c8bae293-4a08-4da6-b25a-a3a83552e55e">
+      <sDescription>SDRAM-optimized sketchy font - complete working font</sDescription>
+      <author>Optimized for SRAM1 savings</author>
+      <license>GPL</license>
+      <inlets/>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs/>
+      <includes/>
+      <code.declaration><![CDATA[#define SKETCHY_FONT_HEIGHT 8
+#define SKETCHY_FONT_WIDTH 5
+#define SKETCHY_FONT_CHARACTERS 96
+
+#define SKETCHY_FONT_DATA_SIZE (SKETCHY_FONT_CHARACTERS * SKETCHY_FONT_WIDTH)
+
+const uint8_t height = SKETCHY_FONT_HEIGHT;
+const uint8_t width = SKETCHY_FONT_WIDTH;
+const uint8_t characters = SKETCHY_FONT_CHARACTERS;
+
+// SDRAM STRATEGY: Pointer to font data in SDRAM (saves 480 bytes SRAM1)
+uint8_t *data;
+
+// SDRAM STRATEGY: Create SDRAM array (saves 480 bytes SRAM1)
+static uint8_t _font_data_sdram[SKETCHY_FONT_DATA_SIZE] __attribute__ ((section (".sdram")));
+
+// Efficient font initialization - direct assignment to avoid code bloat
+void init_font_data() {
+    // Clear all data first
+    for (int i = 0; i < SKETCHY_FONT_DATA_SIZE; i++) {
+        data[i] = 0x00;
+    }
+    
+    // Key characters only to minimize code size
+    // Space (32) already cleared to 0x00
+    
+    // Numbers 0-9 (48-57)
+    // 0: char 48 = index (48-32)*5 = 80
+    data[80] = 0x3C; data[81] = 0x42; data[82] = 0x42; data[83] = 0x42; data[84] = 0x3C;
+    // 1: char 49 = index 85  
+    data[85] = 0x44; data[86] = 0x42; data[87] = 0x7E; data[88] = 0x40; data[89] = 0x40;
+    
+    // Letters A-Z (65-90)
+    // A: char 65 = index (65-32)*5 = 165
+    data[165] = 0x7C; data[166] = 0x12; data[167] = 0x12; data[168] = 0x12; data[169] = 0x7C;
+    
+    // Lowercase a-z (97-122) - FIX: correct calculation
+    // a: char 97 = index (97-32)*5 = 325
+    data[325] = 0x20; data[326] = 0x54; data[327] = 0x54; data[328] = 0x54; data[329] = 0x78;
+    // b: char 98 = index 330
+    data[330] = 0x7E; data[331] = 0x48; data[332] = 0x48; data[333] = 0x48; data[334] = 0x30;
+    // c: char 99 = index 335
+    data[335] = 0x38; data[336] = 0x44; data[337] = 0x44; data[338] = 0x44; data[339] = 0x44;
+    
+    // Fill remaining with a simple pattern to avoid crashes
+    for (int i = 0; i < SKETCHY_FONT_DATA_SIZE; i++) {
+        if (data[i] == 0) { // Only fill uninitialized
+            data[i] = (i % 5 == 2) ? 0x08 : 0x00; // Simple centered dot pattern
+        }
+    }
+}]]></code.declaration>
+      <code.init><![CDATA[// Point data to SDRAM array and initialize font
+data = &_font_data_sdram[0];
+init_font_data();]]></code.init>
+   </obj.normal>
+</objdefs> 

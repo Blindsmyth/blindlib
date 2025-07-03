@@ -1,0 +1,246 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="8encoder_integrated" uuid="7d3e8f1a-2b9c-4d5e-8f6a-1c2d3e4f5a6c">
+      <sDescription>8 rotary encoders with integrated GPIO and acceleration. Reads configuration from sketchy_dials and writes directly to param table. GPIO pins are hardcoded for optimal performance.</sDescription>
+      <author>AI Assistant</author>
+      <license>BSD</license>
+      <helpPatch>logic.axh</helpPatch>
+      <inlets>
+         <int32 name="page"/>
+      </inlets>
+      <outlets>
+         <int32 name="debugintval"/>
+         <int32 name="debugtableval"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="acceltime" MinValue="1" MaxValue="1000" DefaultValue="100"/>
+         <spinner name="accelmultiplier" MinValue="1" MaxValue="10" DefaultValue="6"/>
+      </attribs>
+      <code.declaration><![CDATA[// Encoder data and page management
+float encoderPos[8];
+int accel[8];
+uint32_t lastTrigTime[8];
+int lastTrigState[8];
+int lastDirState[8];
+uint32_t timeCounter = 0;
+int lastPage = -1;
+
+// Mode constants - must match sketchy_dials
+#define MODE_FRAC_UNIPOLAR 0
+#define MODE_FRAC_BIPOLAR  1
+#define MODE_INT           2
+#define MODE_LIST          3
+#define MODE_BAR_UNIPOLAR  4
+#define MODE_BAR_BIPOLAR   5
+
+// GPIO pin definitions for 8 encoders
+// Encoder 1: Trig=PC2, Dir=PC3
+// Encoder 2: Trig=PA4, Dir=PA5  
+// Encoder 3: Trig=PB7, Dir=PB6
+// Encoder 4: Trig=PB0, Dir=PB1
+// Encoder 5: Trig=PC5, Dir=PC4
+// Encoder 6: Trig=PC0, Dir=PC1
+// Encoder 7: Trig=PA0, Dir=PA1
+// Encoder 8: Trig=PA6, Dir=PA7
+
+// Helper function for basic constraints
+float applyConstraints(float value) {
+    if(value < 0.0f) return 0.0f;
+    if(value > 1.0f) return 1.0f;
+    return value;
+}
+
+// Convert from display value to encoder position (0-1)
+float displayToEncoderValue(float displayValue, int mode) {
+    switch(mode) {
+        case MODE_FRAC_UNIPOLAR:
+        case MODE_BAR_UNIPOLAR:
+            return displayValue / 64.0f;
+        case MODE_FRAC_BIPOLAR:
+        case MODE_BAR_BIPOLAR:
+            return (displayValue + 64.0f) / 128.0f;
+        case MODE_INT:
+        case MODE_LIST:
+            return 0.0f;  // Not used for these modes
+        default:
+            return displayValue;
+    }
+}
+
+// Load values from param table for page change
+void loadPageValues(int page) {
+    if (page < 0 || page >= 8) return;
+    
+    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+    
+    for (int i = 0; i < 8; i++) {
+        // Access configuration via parent shared table
+        auto& config = parent->instancesketchy__dials_i.configs[page][i];
+        
+        if (config.mode == MODE_INT || config.mode == MODE_LIST) {
+            // For INT/LIST modes, param table stores actual integer values
+            // No need to load into encoderPos - values stay in param table
+        } else {
+            // For fractional modes, load encoder position from param table
+            int32_t stored_value = param_table->array[page][i];
+            encoderPos[i] = (float)stored_value / (float)(1 << 27);
+            encoderPos[i] = applyConstraints(encoderPos[i]);
+        }
+    }
+}
+
+// Save values to param table for page change
+void savePageValues(int page) {
+    if (page < 0 || page >= 8) return;
+    
+    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+    
+    for (int i = 0; i < 8; i++) {
+        // Access configuration via parent shared table
+        auto& config = parent->instancesketchy__dials_i.configs[page][i];
+        
+        if (config.mode == MODE_INT || config.mode == MODE_LIST) {
+            // INT/LIST modes: values already stored directly in param table
+            // Nothing to do here
+        } else {
+            // Fractional modes: store encoder positions
+            int32_t value = (int32_t)(encoderPos[i] * (float)(1 << 27));
+            param_table->array[page][i] = value;
+        }
+    }
+}
+
+// Direct GPIO reading function
+void readEncoderGPIO(bool trig[8], bool dir[8]) {
+    // Read all pins directly for maximum efficiency
+    trig[0] = palReadPad(GPIOC, 2);   // PC2
+    dir[0]  = palReadPad(GPIOC, 3);   // PC3
+    trig[1] = palReadPad(GPIOA, 4);   // PA4
+    dir[1]  = palReadPad(GPIOA, 5);   // PA5
+    trig[2] = palReadPad(GPIOB, 7);   // PB7
+    dir[2]  = palReadPad(GPIOB, 6);   // PB6
+    trig[3] = palReadPad(GPIOB, 0);   // PB0
+    dir[3]  = palReadPad(GPIOB, 1);   // PB1
+    trig[4] = palReadPad(GPIOC, 5);   // PC5
+    dir[4]  = palReadPad(GPIOC, 4);   // PC4
+    trig[5] = palReadPad(GPIOC, 0);   // PC0
+    dir[5]  = palReadPad(GPIOC, 1);   // PC1
+    trig[6] = palReadPad(GPIOA, 0);   // PA0
+    dir[6]  = palReadPad(GPIOA, 1);   // PA1
+    trig[7] = palReadPad(GPIOA, 6);   // PA6
+    dir[7]  = palReadPad(GPIOA, 7);   // PA7
+}]]></code.declaration>
+      <code.init><![CDATA[// Initialize GPIO pins with pulldown mode
+palSetPadMode(GPIOC, 2, PAL_MODE_INPUT_PULLDOWN);  // PC2 - Encoder 1 Trig
+palSetPadMode(GPIOC, 3, PAL_MODE_INPUT_PULLDOWN);  // PC3 - Encoder 1 Dir
+palSetPadMode(GPIOA, 4, PAL_MODE_INPUT_PULLDOWN);  // PA4 - Encoder 2 Trig
+palSetPadMode(GPIOA, 5, PAL_MODE_INPUT_PULLDOWN);  // PA5 - Encoder 2 Dir
+palSetPadMode(GPIOB, 7, PAL_MODE_INPUT_PULLDOWN);  // PB7 - Encoder 3 Trig
+palSetPadMode(GPIOB, 6, PAL_MODE_INPUT_PULLDOWN);  // PB6 - Encoder 3 Dir
+palSetPadMode(GPIOB, 0, PAL_MODE_INPUT_PULLDOWN);  // PB0 - Encoder 4 Trig
+palSetPadMode(GPIOB, 1, PAL_MODE_INPUT_PULLDOWN);  // PB1 - Encoder 4 Dir
+palSetPadMode(GPIOC, 5, PAL_MODE_INPUT_PULLDOWN);  // PC5 - Encoder 5 Trig
+palSetPadMode(GPIOC, 4, PAL_MODE_INPUT_PULLDOWN);  // PC4 - Encoder 5 Dir
+palSetPadMode(GPIOC, 0, PAL_MODE_INPUT_PULLDOWN);  // PC0 - Encoder 6 Trig
+palSetPadMode(GPIOC, 1, PAL_MODE_INPUT_PULLDOWN);  // PC1 - Encoder 6 Dir
+palSetPadMode(GPIOA, 0, PAL_MODE_INPUT_PULLDOWN);  // PA0 - Encoder 7 Trig
+palSetPadMode(GPIOA, 1, PAL_MODE_INPUT_PULLDOWN);  // PA1 - Encoder 7 Dir
+palSetPadMode(GPIOA, 6, PAL_MODE_INPUT_PULLDOWN);  // PA6 - Encoder 8 Trig
+palSetPadMode(GPIOA, 7, PAL_MODE_INPUT_PULLDOWN);  // PA7 - Encoder 8 Dir
+
+// Initialize encoder values
+for (int i = 0; i < 8; i++) {
+    encoderPos[i] = 0.0f;
+    accel[i] = 1;
+    lastTrigTime[i] = 0;
+    lastTrigState[i] = 0;
+    lastDirState[i] = 0;
+}
+timeCounter = 0;
+lastPage = -1;]]></code.init>
+      <code.krate><![CDATA[timeCounter++;
+int page = inlet_page;
+
+// Handle page changes
+if (page != lastPage && page >= 0 && page < 8) {
+    // Save current page values before switching
+    if (lastPage >= 0 && lastPage < 8) {
+        savePageValues(lastPage);
+    }
+    
+    // Load new page values
+    loadPageValues(page);
+    lastPage = page;
+}
+
+// Process encoder inputs with mode-specific logic
+if (page >= 0 && page < 8) {
+    bool trig[8], dir[8];
+    
+    // Read all GPIO pins directly
+    readEncoderGPIO(trig, dir);
+
+    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+
+    for (int i = 0; i < 8; i++) {
+        bool edge = (trig[i] == 1) && (lastTrigState[i] == 0);
+        lastTrigState[i] = trig[i];
+
+        if (edge) {
+            // Access configuration via parent shared table
+            auto& config = parent->instancesketchy__dials_i.configs[page][i];
+
+            // Acceleration logic
+            uint32_t diff = timeCounter - lastTrigTime[i];
+            if (diff < attr_acceltime) {
+                accel[i]++;
+                if (accel[i] > attr_accelmultiplier) accel[i] = attr_accelmultiplier;
+            } else {
+                accel[i] = 1;
+            }
+            
+            if (config.mode == MODE_INT || config.mode == MODE_LIST) {
+                // Integer/List mode: increment/decrement actual integer values
+                int current_value = param_table->array[page][i];
+                
+                if (dir[i] == 0) {
+                    current_value -= accel[i];
+                } else {
+                    current_value += accel[i];
+                }
+                
+                // Clamp to range
+                if (current_value < config.int_min) current_value = config.int_min;
+                if (current_value > config.int_max) current_value = config.int_max;
+                
+                // Store directly in param table
+                param_table->array[page][i] = current_value;
+                
+            } else {
+                // Fractional mode: use encoder positions
+                float inc = 0.0078125f * accel[i]; // 1/128 * acceleration
+                if (dir[i] == 0) {
+                    encoderPos[i] -= inc;
+                } else {
+                    encoderPos[i] += inc;
+                }
+                
+                encoderPos[i] = applyConstraints(encoderPos[i]);
+                
+                // Store encoder position in param table
+                int32_t value = (int32_t)(encoderPos[i] * (float)(1 << 27));
+                param_table->array[page][i] = value;
+            }
+            
+            lastTrigTime[i] = timeCounter;
+        }
+    }
+}
+
+// Debug outputs
+rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+outlet_debugintval = (page >= 0 && page < 8) ? param_table->array[page][0] : 0;
+outlet_debugtableval = (page >= 0 && page < 8) ? param_table->array[page][0] : 0;]]></code.krate>
+   </obj.normal>
+</objdefs> 

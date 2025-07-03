@@ -1,0 +1,97 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="pager_inverted" uuid="fd96a716-58e0-4d97-893b-53ac4f17a523">
+      <sDescription>Page display with inverted colors - minimal change from original</sDescription>
+      <author>AI Assistant</author>
+      <license>GPL</license>
+      <inlets/>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="page" description="page on which to render" MinValue="-127" MaxValue="127" DefaultValue="0"/>
+         <spinner name="firstpage" description="first page that corresponds to first pagename in the list" MinValue="-127" MaxValue="127" DefaultValue="0"/>
+         <table name="list" description="comma separated list of page names"/>
+      </attribs>
+      <includes/>
+      <code.declaration><![CDATA[rootc::instancesketchy__objects* object_table;
+rootc::instancesketchy__texts* text_table;
+rootc::instancesketchy__params* param_table;
+rootc::instancesketchy__render* renderer;
+
+uint16_t label_object_id;
+uint16_t label2_object_id;
+
+uint16_t label_text_id;
+uint16_t label2_text_id;
+
+uint16_t page = 0xFFFF;
+uint16_t num_pagenames = 1;]]></code.declaration>
+      <code.init><![CDATA[object_table = &parent->instancesketchy__objects_i;
+text_table = &parent->instancesketchy__texts_i;
+param_table = &parent->instancesketchy__params_i;
+renderer = &parent->instancesketchy__render_i;
+
+// Register and get ids - NO divider line
+label_object_id = object_table->registerEntry();
+label2_object_id = object_table->registerEntry();
+
+label_text_id = text_table->registerEntry();
+label2_text_id = text_table->registerEntry();
+
+// Setup label object - ONLY CHANGE: color from 2 to 1 (white text)
+object_table->array[label_object_id][object_table->FIELD_TYPE] = 6;
+object_table->array[label_object_id][object_table->FIELD_X] =  2;
+object_table->array[label_object_id][object_table->FIELD_Y] = 2;
+object_table->array[label_object_id][object_table->FIELD_W] = 100;
+object_table->array[label_object_id][object_table->FIELD_H] = 25;
+object_table->array[label_object_id][object_table->FIELD_COLOR] = 1; // Changed from 2 to 1
+object_table->array[label_object_id][object_table->FIELD_SCALE] = 1;
+object_table->array[label_object_id][object_table->FIELD_TEXT_ID] = label_text_id;
+object_table->array[label_object_id][object_table->FIELD_PAGE] = -1; // Show on all pages
+
+// Setup label2 object - ONLY CHANGE: color from 2 to 1 (white text)
+object_table->array[label2_object_id][object_table->FIELD_TYPE] = 6;
+object_table->array[label2_object_id][object_table->FIELD_X] = 60;
+object_table->array[label2_object_id][object_table->FIELD_Y] = 2;
+object_table->array[label2_object_id][object_table->FIELD_W] = 100;
+object_table->array[label2_object_id][object_table->FIELD_H] = 25;
+object_table->array[label2_object_id][object_table->FIELD_COLOR] = 1; // Changed from 2 to 1
+object_table->array[label2_object_id][object_table->FIELD_SCALE] = 1;
+object_table->array[label2_object_id][object_table->FIELD_TEXT_ID] = label2_text_id;
+object_table->array[label2_object_id][object_table->FIELD_PAGE] = -1; // Show on all pages
+
+// Setup label text
+strcpy(text_table->array[label_text_id], "attr_label");
+
+num_pagenames = renderer->count_tokens("attr_list");]]></code.init>
+      <code.krate><![CDATA[if (page != renderer->getCurrentPage()) {
+	
+	page = renderer->getCurrentPage();
+	int desired_index = page - attr_firstpage;
+	
+	char str[] = "attr_list";
+	const char* pagename = renderer->get_token_at_index(str, desired_index);
+	
+	// copy page name to label
+	strcpy(text_table->array[label_text_id], pagename);
+	
+	// set pager string [7/8]
+	char pager_str[16] = "";
+	char page_str[4] = "";
+	char num_pagenames_str[4] = "";
+
+	text_table->itoa(page_str, page+1);
+	text_table->itoa(num_pagenames_str, num_pagenames);
+	
+	strcat(pager_str, "[");
+	strcat(pager_str, page_str);
+	strcat(pager_str, "/");
+	strcat(pager_str, num_pagenames_str);
+	strcat(pager_str, "]");
+	strcpy(text_table->array[label2_text_id], pager_str);
+	
+	uint16_t pager_str_w = strlen(pager_str) * 6;
+	object_table->array[label2_object_id][object_table->FIELD_X] = 128 - pager_str_w;
+}]]></code.krate>
+   </obj.normal>
+</objdefs> 
