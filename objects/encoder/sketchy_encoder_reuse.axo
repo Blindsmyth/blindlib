@@ -1,0 +1,221 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sketchy_encoder_reuse" uuid="7d3c8f9e-2a4b-4c5d-8e9f-1a2b3c4d5e6f">
+      <sDescription>Memory-optimized encoder input that works with object reuse system. Combines functionality of encoder input and modes.</sDescription>
+      <author>AI Assistant</author>
+      <license>MIT</license>
+      <inlets>
+         <int32 name="page" description="current page number"/>
+      </inlets>
+      <outlets>
+         <int32 name="debugintval" description="debug integer value"/>
+         <int32 name="debugtableval" description="debug table value"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="acceltime" MinValue="1" MaxValue="1000" DefaultValue="100"/>
+         <spinner name="accelmultiplier" MinValue="1" MaxValue="10" DefaultValue="6"/>
+      </attribs>
+      <includes/>
+      <depends>
+         <depend>sketchy_params</depend>
+      </depends>
+      <code.declaration><![CDATA[// Encoder data and page management
+float encoderPos[8];
+int accel[8];
+uint32_t lastTrigTime[8];
+int lastTrigState[8];
+int lastDirState[8];
+uint32_t timeCounter = 0;
+int lastPage = -1;
+
+// Mode constants - must match sketchy_dials
+#define MODE_FRAC_UNIPOLAR 0
+#define MODE_FRAC_BIPOLAR  1
+#define MODE_INT           2
+#define MODE_LIST          3
+#define MODE_BAR_UNIPOLAR  4
+#define MODE_BAR_BIPOLAR   5
+// MODE_DUPLICATE already defined elsewhere, using 6
+
+// GPIO pin definitions for 8 encoders (same as 8encoder_integrated)
+// Encoder 1: Trig=PC2, Dir=PC3
+// Encoder 2: Trig=PA4, Dir=PA5  
+// Encoder 3: Trig=PB7, Dir=PB6
+// Encoder 4: Trig=PB0, Dir=PB1
+// Encoder 5: Trig=PC5, Dir=PC4
+// Encoder 6: Trig=PC0, Dir=PC1
+// Encoder 7: Trig=PA0, Dir=PA1
+// Encoder 8: Trig=PA6, Dir=PA7
+
+// Pin arrays - defined as static variables instead of const arrays
+uint16_t encoder_a_pins[8];
+uint16_t encoder_b_pins[8];
+
+// Helper function for basic constraints
+float applyConstraints(float value) {
+    if(value < 0.0f) return 0.0f;
+    if(value > 1.0f) return 1.0f;
+    return value;
+}
+
+// Direct GPIO reading function
+void readEncoderGPIO(bool trig[8], bool dir[8]) {
+    // Read all pins using the pin arrays
+    trig[0] = palReadPad(GPIOC, encoder_a_pins[0]);
+    dir[0]  = palReadPad(GPIOC, encoder_b_pins[0]);
+    trig[1] = palReadPad(GPIOA, encoder_a_pins[1]);
+    dir[1]  = palReadPad(GPIOA, encoder_b_pins[1]);
+    trig[2] = palReadPad(GPIOB, encoder_a_pins[2]);
+    dir[2]  = palReadPad(GPIOB, encoder_b_pins[2]);
+    trig[3] = palReadPad(GPIOB, encoder_a_pins[3]);
+    dir[3]  = palReadPad(GPIOB, encoder_b_pins[3]);
+    trig[4] = palReadPad(GPIOC, encoder_a_pins[4]);
+    dir[4]  = palReadPad(GPIOC, encoder_b_pins[4]);
+    trig[5] = palReadPad(GPIOC, encoder_a_pins[5]);
+    dir[5]  = palReadPad(GPIOC, encoder_b_pins[5]);
+    trig[6] = palReadPad(GPIOA, encoder_a_pins[6]);
+    dir[6]  = palReadPad(GPIOA, encoder_b_pins[6]);
+    trig[7] = palReadPad(GPIOA, encoder_a_pins[7]);
+    dir[7]  = palReadPad(GPIOA, encoder_b_pins[7]);
+}
+
+void processEncoders(int current_page) __attribute__ ((noinline)) {
+    bool trig[8], dir[8];
+    readEncoderGPIO(trig, dir);
+    
+    timeCounter++;
+    
+    for (int i = 0; i < 8; i++) {
+        // Check for trigger edge
+        if (trig[i] && !lastTrigState[i]) {
+            // Rising edge detected
+            int direction = dir[i] ? 1 : -1;
+            
+            // Apply acceleration
+            uint32_t timeDiff = timeCounter - lastTrigTime[i];
+            if (timeDiff < attr_acceltime) {
+                accel[i] = accel[i] * attr_accelmultiplier;
+                if (accel[i] > 100) accel[i] = 100;
+            } else {
+                accel[i] = 1;
+            }
+            
+            lastTrigTime[i] = timeCounter;
+            
+            // Update encoder position with acceleration
+            float step = (float)accel[i] / 1000.0f;
+            encoderPos[i] += direction * step;
+            encoderPos[i] = applyConstraints(encoderPos[i]);
+            
+            // Update parameter table
+            int32_t value = (int32_t)(encoderPos[i] * (float)(1 << 27));
+            parent->instancesketchy__params_i.array[current_page][i] = value;
+        }
+        
+        lastTrigState[i] = trig[i];
+        lastDirState[i] = dir[i];
+    }
+}
+
+void loadPageValues(int page) {
+    if (page < 0 || page >= 8) return;
+    
+    for (int i = 0; i < 8; i++) {
+        // Load encoder position from param table
+        int32_t stored_value = parent->instancesketchy__params_i.array[page][i];
+        encoderPos[i] = (float)stored_value / (float)(1 << 27);
+        encoderPos[i] = applyConstraints(encoderPos[i]);
+    }
+}
+
+void savePageValues(int page) {
+    if (page < 0 || page >= 8) return;
+    
+    for (int i = 0; i < 8; i++) {
+        // Save encoder positions to param table
+        int32_t value = (int32_t)(encoderPos[i] * (float)(1 << 27));
+        parent->instancesketchy__params_i.array[page][i] = value;
+    }
+}]]></code.declaration>
+      <code.init><![CDATA[// Initialize pin arrays
+encoder_a_pins[0] = 2;  // PC2
+encoder_b_pins[0] = 3;  // PC3
+encoder_a_pins[1] = 4;  // PA4
+encoder_b_pins[1] = 5;  // PA5
+encoder_a_pins[2] = 7;  // PB7
+encoder_b_pins[2] = 6;  // PB6
+encoder_a_pins[3] = 0;  // PB0
+encoder_b_pins[3] = 1;  // PB1
+encoder_a_pins[4] = 5;  // PC5
+encoder_b_pins[4] = 4;  // PC4
+encoder_a_pins[5] = 0;  // PC0
+encoder_b_pins[5] = 1;  // PC1
+encoder_a_pins[6] = 0;  // PA0
+encoder_b_pins[6] = 1;  // PA1
+encoder_a_pins[7] = 6;  // PA6
+encoder_b_pins[7] = 7;  // PA7
+
+// Initialize GPIO pins with pulldown mode
+palSetPadMode(GPIOC, 2, PAL_MODE_INPUT_PULLDOWN);  // PC2 - Encoder 1 Trig
+palSetPadMode(GPIOC, 3, PAL_MODE_INPUT_PULLDOWN);  // PC3 - Encoder 1 Dir
+palSetPadMode(GPIOA, 4, PAL_MODE_INPUT_PULLDOWN);  // PA4 - Encoder 2 Trig
+palSetPadMode(GPIOA, 5, PAL_MODE_INPUT_PULLDOWN);  // PA5 - Encoder 2 Dir
+palSetPadMode(GPIOB, 7, PAL_MODE_INPUT_PULLDOWN);  // PB7 - Encoder 3 Trig
+palSetPadMode(GPIOB, 6, PAL_MODE_INPUT_PULLDOWN);  // PB6 - Encoder 3 Dir
+palSetPadMode(GPIOB, 0, PAL_MODE_INPUT_PULLDOWN);  // PB0 - Encoder 4 Trig
+palSetPadMode(GPIOB, 1, PAL_MODE_INPUT_PULLDOWN);  // PB1 - Encoder 4 Dir
+palSetPadMode(GPIOC, 5, PAL_MODE_INPUT_PULLDOWN);  // PC5 - Encoder 5 Trig
+palSetPadMode(GPIOC, 4, PAL_MODE_INPUT_PULLDOWN);  // PC4 - Encoder 5 Dir
+palSetPadMode(GPIOC, 0, PAL_MODE_INPUT_PULLDOWN);  // PC0 - Encoder 6 Trig
+palSetPadMode(GPIOC, 1, PAL_MODE_INPUT_PULLDOWN);  // PC1 - Encoder 6 Dir
+palSetPadMode(GPIOA, 0, PAL_MODE_INPUT_PULLDOWN);  // PA0 - Encoder 7 Trig
+palSetPadMode(GPIOA, 1, PAL_MODE_INPUT_PULLDOWN);  // PA1 - Encoder 7 Dir
+palSetPadMode(GPIOA, 6, PAL_MODE_INPUT_PULLDOWN);  // PA6 - Encoder 8 Trig
+palSetPadMode(GPIOA, 7, PAL_MODE_INPUT_PULLDOWN);  // PA7 - Encoder 8 Dir
+
+// Initialize encoder values
+for (int i = 0; i < 8; i++) {
+    encoderPos[i] = 0.0f;
+    accel[i] = 1;
+    lastTrigTime[i] = 0;
+    lastTrigState[i] = 0;
+    lastDirState[i] = 0;
+}
+
+lastPage = -1;
+timeCounter = 0;]]></code.init>
+      <code.dispose><![CDATA[// Reset GPIO pins to analog input
+palSetPadMode(GPIOC, 2, PAL_MODE_INPUT_ANALOG);
+palSetPadMode(GPIOC, 3, PAL_MODE_INPUT_ANALOG);
+palSetPadMode(GPIOA, 4, PAL_MODE_INPUT_ANALOG);
+palSetPadMode(GPIOA, 5, PAL_MODE_INPUT_ANALOG);
+palSetPadMode(GPIOB, 7, PAL_MODE_INPUT_ANALOG);
+palSetPadMode(GPIOB, 6, PAL_MODE_INPUT_ANALOG);
+palSetPadMode(GPIOB, 0, PAL_MODE_INPUT_ANALOG);
+palSetPadMode(GPIOB, 1, PAL_MODE_INPUT_ANALOG);
+palSetPadMode(GPIOC, 5, PAL_MODE_INPUT_ANALOG);
+palSetPadMode(GPIOC, 4, PAL_MODE_INPUT_ANALOG);
+palSetPadMode(GPIOC, 0, PAL_MODE_INPUT_ANALOG);
+palSetPadMode(GPIOC, 1, PAL_MODE_INPUT_ANALOG);
+palSetPadMode(GPIOA, 0, PAL_MODE_INPUT_ANALOG);
+palSetPadMode(GPIOA, 1, PAL_MODE_INPUT_ANALOG);
+palSetPadMode(GPIOA, 6, PAL_MODE_INPUT_ANALOG);
+palSetPadMode(GPIOA, 7, PAL_MODE_INPUT_ANALOG);]]></code.dispose>
+      <code.krate><![CDATA[// Handle page changes
+if (inlet_page != lastPage) {
+    if (lastPage >= 0) {
+        savePageValues(lastPage);
+    }
+    loadPageValues(inlet_page);
+    lastPage = inlet_page;
+}
+
+// Process encoder input
+processEncoders(inlet_page);
+
+// Debug outputs
+outlet_debugintval = (int32_t)(encoderPos[0] * 1000);
+outlet_debugtableval = parent->instancesketchy__params_i.array[inlet_page][0];]]></code.krate>
+   </obj.normal>
+</objdefs> 

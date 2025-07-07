@@ -81,7 +81,7 @@ const int8_t encoderModes[64] = {
     0, 1, 2, 0, 1, 2, 0, 1
 };
 
-// Min values for integer modes
+// Min values for integer modesthe 
 const int16_t intMin[64] = {
     // Page 0
     0, 0, 0, -64, 0, 0, 0, 0,

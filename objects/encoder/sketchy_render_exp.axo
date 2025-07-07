@@ -1,6 +1,6 @@
 <objdefs appVersion="1.0.12">
-   <obj.normal id="sketchy_render" uuid="5224773f-18de-4231-8f92-b1f22bb95372">
-      <sDescription>The renderer object continuously renders visual objects to a connected SSD1306/1106 OLED display. Objects and texts must be defined and configured in the respective tables. Use a sketchy/object/table and sketchy/object/update to initialize and configure all visual elements. For rendering text you will also need a sketchy/text/table and sketchy/text/update. If you do not want to render text, just initialize an empty sketchy/text/table and set entries to 0.</sDescription>
+   <obj.normal id="sketchy_render_exp" uuid="5224773f-18de-4231-8f92-b1f22bb95373">
+      <sDescription>Expanded renderer with 16-bit loop variables. Fixes object table iteration limits beyond 255 objects. Drop-in replacement for sketchy_render.</sDescription>
       <author>Karlo Sono</author>
       <license>MIT</license>
       <inlets>
@@ -447,7 +447,7 @@ void draw_filled_rounded_rect(int16_t x, int16_t y, int16_t w, int16_t h, uint8_
 }
 
 void render() __attribute__ ((noinline)) {
-	for (uint8_t i = 0; i < parent->instancesketchy__objects_i.LENGTH; i++) {
+	for (uint16_t i = 0; i < parent->instancesketchy__objects_i.LENGTH; i++) {
 		if (parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE] == parent->instancesketchy__objects_i.TYPE_INVISIBLE) {
 			continue;
 		}
@@ -560,7 +560,6 @@ void render() __attribute__ ((noinline)) {
 				break;
 		}
 	}
-	parent->instancesketchy__objects_i.dirty = false;
 }
 
 uint16_t getCurrentPage() __attribute__ ((noinline)) {
@@ -1167,7 +1166,7 @@ palSetPadMode(GPIOB, 8, PAL_MODE_INPUT_ANALOG);
 palSetPadMode(GPIOB, 9, PAL_MODE_INPUT_ANALOG);]]></code.dispose>
       <code.krate><![CDATA[if (inlet_print && !pprint) {
 	pprint = true;
-	for (uint8_t i = 0; i < parent->instancesketchy__objects_i.LENGTH; i++) {
+	for (uint16_t i = 0; i < parent->instancesketchy__objects_i.LENGTH; i++) {
 		LogTextMessage(
 			"i: %3d, type: %3d, x: %3d, y: %3d, w: %3d, h: %3d, color: %3d, text_id: %3d",
 			i,

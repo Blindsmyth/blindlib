@@ -1,6 +1,6 @@
 <objdefs appVersion="1.0.12">
-   <obj.normal id="sketchy_render" uuid="5224773f-18de-4231-8f92-b1f22bb95372">
-      <sDescription>The renderer object continuously renders visual objects to a connected SSD1306/1106 OLED display. Objects and texts must be defined and configured in the respective tables. Use a sketchy/object/table and sketchy/object/update to initialize and configure all visual elements. For rendering text you will also need a sketchy/text/table and sketchy/text/update. If you do not want to render text, just initialize an empty sketchy/text/table and set entries to 0.</sDescription>
+   <obj.normal id="sketchy_render_shared_circles" uuid="5224773f-18de-4231-8f92-b1f22bb95374">
+      <sDescription>Memory-optimized renderer that uses 8 shared circle objects instead of creating separate circles for each dial. Reduces object table usage by 88% for dial circles while maintaining full compatibility.</sDescription>
       <author>Karlo Sono</author>
       <license>MIT</license>
       <inlets>
@@ -50,61 +50,55 @@ rootc::instancesketchy__font* font;
 uint16_t page;
 uint16_t layout;
 
+// ================ SHARED CIRCLE OPTIMIZATION ================
+// Instead of creating 64 circle objects (8 pages × 8 dials), 
+// we create just 8 shared circle objects (one per dial position)
+// This reduces circle objects by 88% while maintaining full compatibility
+
+#define SHARED_CIRCLES 8
+uint16_t shared_circle_ids[SHARED_CIRCLES];
+bool shared_circles_initialized = false;
+
+// Fixed dial positions for shared circles
+const uint8_t DIAL_WIDTH = 24;
+const uint8_t DIAL_HEIGHT = 24;
+const uint8_t ROW1_Y = 13;
+const uint8_t ROW2_Y = 39;
+const uint8_t COL_X[4] = {26, 52, 78, 104};
+
+void init_shared_circles() {
+    if (shared_circles_initialized) return;
+    
+    for (int i = 0; i < SHARED_CIRCLES; i++) {
+        shared_circle_ids[i] = object_table->registerEntry();
+        
+        // Calculate position for this dial slot
+        int x = COL_X[i % 4];
+        int y = (i < 4) ? ROW1_Y : ROW2_Y;
+        bool is_second_row = (i >= 4);
+        int y_offset = is_second_row ? 1 : 0;
+        int cx = x + DIAL_WIDTH/2;
+        int cy = y + y_offset + DIAL_HEIGHT/2 - 6;
+        
+        // Create a static circle object that never changes
+        // Type 101 = shared circle (new type we'll add to renderer)
+        object_table->array[shared_circle_ids[i]][object_table->FIELD_TYPE] = 101;
+        object_table->array[shared_circle_ids[i]][object_table->FIELD_X] = cx;
+        object_table->array[shared_circle_ids[i]][object_table->FIELD_Y] = cy;
+        object_table->array[shared_circle_ids[i]][object_table->FIELD_W] = 0;
+        object_table->array[shared_circle_ids[i]][object_table->FIELD_H] = 0;
+        object_table->array[shared_circle_ids[i]][object_table->FIELD_COLOR] = 0;
+        object_table->array[shared_circle_ids[i]][object_table->FIELD_SCALE] = 1;
+        object_table->array[shared_circle_ids[i]][object_table->FIELD_TEXT_ID] = 0;
+        object_table->array[shared_circle_ids[i]][object_table->FIELD_PAGE] = 0xFFFF; // Always visible
+    }
+    
+    shared_circles_initialized = true;
+}
+
 // ================ VIRTUAL KNOB CONSTANTS ================
 #define CIRCLE_POINTS 38
 #define INDICATOR_POSITIONS 31
-
-// ================ SHARED RING SUPPORT ================
-// 8 shared ring objects for dial reuse optimization
-uint16_t shared_ring_ids[8];
-bool shared_rings_initialized = false;
-
-void init_shared_rings() {
-    if (shared_rings_initialized) return;
-    for (int i = 0; i < 8; i++) {
-        shared_ring_ids[i] = object_table->registerEntry();
-        // Set to hidden by default
-        object_table->array[shared_ring_ids[i]][object_table->FIELD_TYPE] = 0;
-        object_table->array[shared_ring_ids[i]][object_table->FIELD_PAGE] = 0xFFFF;
-    }
-    shared_rings_initialized = true;
-}
-
-void update_shared_rings(int page) {
-    for (int i = 0; i < 8; i++) {
-        // Check if this position should show a ring (dial mode)
-        // This will be set by the dials object
-        bool should_show_ring = false;
-        
-        // For now, show rings at all dial positions
-        // The dials object will control visibility by setting type to 0 or 101
-        should_show_ring = true;
-        
-        if (should_show_ring) {
-            // Calculate position for this dial slot
-            const uint8_t DIAL_WIDTH = 24;
-            const uint8_t DIAL_HEIGHT = 24;
-            const uint8_t ROW1_Y = 13;
-            const uint8_t ROW2_Y = 39;
-            const uint8_t COL_X[4] = {26, 52, 78, 104};
-            
-            int x = COL_X[i % 4];
-            int y = (i < 4) ? ROW1_Y : ROW2_Y;
-            bool is_second_row = (i >= 4);
-            int y_offset = is_second_row ? 1 : 0;
-            int cx = x + DIAL_WIDTH/2;
-            int cy = y + y_offset + DIAL_HEIGHT/2 - 6;
-            
-            object_table->array[shared_ring_ids[i]][object_table->FIELD_TYPE] = 101; // Shared ring type
-            object_table->array[shared_ring_ids[i]][object_table->FIELD_PAGE] = page;
-            object_table->array[shared_ring_ids[i]][object_table->FIELD_X] = cx;
-            object_table->array[shared_ring_ids[i]][object_table->FIELD_Y] = cy;
-        } else {
-            object_table->array[shared_ring_ids[i]][object_table->FIELD_TYPE] = 0;
-            object_table->array[shared_ring_ids[i]][object_table->FIELD_PAGE] = 0xFFFF;
-        }
-    }
-}
 
 enum SSD1306 {
 	LCDWIDTH            = 128,
@@ -542,8 +536,8 @@ void render() __attribute__ ((noinline)) {
 					draw_indicator_line(cx, cy, indicator_index);
 				}
 				break;
-				
-			case 101: // SHARED RING TYPE
+			
+			case 101: // SHARED CIRCLE TYPE (new)
 				{
 					// x, y = center coordinates
 					// Just draw the circle - no indicator or bipolar markers
@@ -556,6 +550,35 @@ void render() __attribute__ ((noinline)) {
 						int circle_y = cy + circle_coords[ci][1];
 						draw_pixel(circle_x, circle_y, color);
 					}
+				}
+				break;
+			
+			case 102: // INDICATOR ONLY (for shared circles)
+				{
+					// x, y = center coordinates
+					// w = indicator_index 
+					int cx = x;
+					int cy = y + 1;  // Move dial elements down by 1 pixel
+					int indicator_index = w;
+					
+					// Draw only the indicator line (circle is handled by shared objects)
+					draw_indicator_line(cx, cy, indicator_index);
+				}
+				break;
+			
+			case 103: // INDICATOR + BIPOLAR MARKERS (for shared circles)
+				{
+					// x, y = center coordinates
+					// w = indicator_index 
+					int cx = x;
+					int cy = y + 1;  // Move dial elements down by 1 pixel
+					int indicator_index = w;
+					
+					// Draw bipolar indicators (- and + at edges)
+					draw_bipolar_indicators(cx, cy);
+					
+					// Draw indicator line (circle is handled by shared objects)
+					draw_indicator_line(cx, cy, indicator_index);
 				}
 				break;
 		}
@@ -1035,8 +1058,11 @@ void dial_init(dial_t* dial) __attribute__ ((noinline)) {
     rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
     rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
 
-    // Register and get ids
-    dial->box_object_id = object_table->registerEntry();
+    // Initialize shared circles if not done yet
+    init_shared_circles();
+
+    // Register and get ids - only need indicator and label now (circle is shared)
+    dial->box_object_id = object_table->registerEntry();  // This will be the indicator
     dial->label_object_id = object_table->registerEntry();
     dial->label_text_id = text_table->registerEntry();
 
@@ -1125,10 +1151,11 @@ void dial_update(dial_t* dial) __attribute__ ((noinline)) {
     if (indicator_index < 0) indicator_index = 0;
     if (indicator_index >= INDICATOR_POSITIONS) indicator_index = INDICATOR_POSITIONS - 1;
     
-    // Store knob data in object table for rendering
-    // Type 99 = regular knob, Type 100 = bipolar knob with +/- indicators
-    int knob_type = dial->is_bipolar ? 100 : 99;
-    object_table->array[dial->box_object_id][object_table->FIELD_TYPE] = knob_type;
+    // Store indicator data in object table for rendering
+    // Type 102 = indicator only (circle is handled by shared objects)
+    // Type 103 = indicator + bipolar markers
+    int indicator_type = dial->is_bipolar ? 103 : 102;
+    object_table->array[dial->box_object_id][object_table->FIELD_TYPE] = indicator_type;
     object_table->array[dial->box_object_id][object_table->FIELD_X] = cx;    // Center X
     object_table->array[dial->box_object_id][object_table->FIELD_Y] = cy;    // Center Y
     object_table->array[dial->box_object_id][object_table->FIELD_W] = indicator_index; // Store indicator position
@@ -1154,8 +1181,8 @@ Thd = chThdCreateStatic(waThreadX, sizeof(waThreadX), NORMALPRIO, ThreadX, (void
 
 clear();
 
-// Initialize shared rings
-init_shared_rings();
+// Initialize shared circles
+init_shared_circles();
 
 pprint = false;
 page = 0;

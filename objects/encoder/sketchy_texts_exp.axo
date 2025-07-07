@@ -1,0 +1,42 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sketchy_texts_exp" uuid="3e1e7b59-1e9f-5c9b-ac3f-8d9f0e1a2b3d">
+      <sDescription>Expanded text table with 512 entries (4x normal capacity). Fixes text table overflow for complex patches with many text elements.</sDescription>
+      <author>AI Assistant</author>
+      <license>MIT</license>
+      <inlets/>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs/>
+      <code.declaration><![CDATA[// Text table configuration
+#define MAX_TEXTS 512
+#define MAX_TEXT_LENGTH 16
+static char text_array[MAX_TEXTS][MAX_TEXT_LENGTH];
+static uint16_t text_count = 0;
+
+// Array access
+char (*array)[MAX_TEXT_LENGTH] = text_array;
+uint16_t LENGTH = text_count;
+
+uint16_t registerEntry() {
+    if (text_count < MAX_TEXTS) {
+        uint16_t id = text_count;
+        text_count++;
+        LENGTH = text_count;
+        
+        // Initialize new entry
+        text_array[id][0] = '\0';
+        
+        return id;
+    }
+    return 0; // Error: table full
+}
+
+void itoa(char* str, int value) {
+    sprintf(str, "%d", value);
+}]]></code.declaration>
+      <code.init><![CDATA[text_count = 0;
+LENGTH = 0;]]></code.init>
+      <code.dispose><![CDATA[// Nothing to dispose]]></code.dispose>
+   </obj.normal>
+</objdefs> 

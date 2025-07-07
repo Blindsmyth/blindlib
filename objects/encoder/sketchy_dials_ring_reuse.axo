@@ -1,0 +1,366 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sketchy_dials_ring_reuse" uuid="5224773f-18de-4231-8f92-b1f22bb95376">
+      <sDescription>Dial configuration with ring reuse optimization. Drop-in replacement for sketchy_dials, but with 8 shared ring objects for dials to avoid object table overflow.</sDescription>
+      <author>AI Assistant</author>
+      <license>BSD</license>
+      <inlets>
+         <int32 name="page"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs/>
+      <depends>
+         <depend>sketchy_font</depend>
+         <depend>sketchy_params</depend>
+         <depend>sketchy_objects</depend>
+         <depend>sketchy_texts</depend>
+         <depend>sketchy_render</depend>
+      </depends>
+      <code.declaration><![CDATA[// Complete dial configuration structure - matches original functionality
+typedef struct {
+    uint8_t mode;           // 0=frac unipolar, 1=frac bipolar, 2=int, 3=list, 4=bar unipolar, 5=bar bipolar, 6=duplicate
+    bool show_value;        // Show/hide value (for fractional modes)
+    const char* label;      // Label text
+    const char* options;    // List options (for mode 3) OR duplicate reference "page,dial" (for mode 6)
+    float default_value;    // Default value
+    int16_t int_min;        // Minimum value (for int/list modes)
+    int16_t int_max;        // Maximum value (for int/list modes)
+} encoder_dial_config_t;
+
+// Configuration for 8 pages, 8 encoders each (64 total configurations)
+// Making this public so other objects can access it via parent->instancesketchy__dials_i.configs
+encoder_dial_config_t configs[8][8];
+
+// Mode constants
+#define MODE_FRAC_UNIPOLAR 0  // 0.0 to 1.0, positive only
+#define MODE_FRAC_BIPOLAR  1  // -1.0 to 1.0, bipolar
+#define MODE_INT           2  // min to max, integer
+#define MODE_LIST          3  // selector mode
+#define MODE_BAR_UNIPOLAR  4  // 0.0 to 1.0, vertical bar
+#define MODE_BAR_BIPOLAR   5  // -1.0 to 1.0, vertical bar
+#define MODE_DUPLICATE     6  // duplicate another parameter
+
+// RING REUSE: Only 8 display objects total (one per position), not 64
+// These get reconfigured when page changes instead of having separate objects per page
+rootc::instancesketchy__render::dial_t dials[8];
+rootc::instancesketchy__render::intdisplay_t intdisplays[8];
+rootc::instancesketchy__render::select_t selects[8];
+rootc::instancesketchy__render::bar_t bars[8];
+
+// Fixed layout positions
+const uint8_t DIAL_WIDTH = 24;
+const uint8_t DIAL_HEIGHT = 24;
+const uint8_t ROW1_Y = 13;
+const uint8_t ROW2_Y = 39;
+const uint8_t COL_X[4] = {26, 52, 78, 104};
+
+// ========== RING REUSE FUNCTIONALITY ==========
+int current_page = -1; // Track current page to avoid unnecessary updates
+
+// Create multiple ring objects - one for each fractional dial position
+uint16_t ring_ids[8];
+bool rings_initialized = false;
+
+void init_multiple_rings() {
+    if (rings_initialized) return;
+    
+    for (int i = 0; i < 8; i++) {
+        ring_ids[i] = parent->instancesketchy__objects_i.registerEntry();
+        
+        // Initialize as hidden by default
+        parent->instancesketchy__objects_i.array[ring_ids[i]][parent->instancesketchy__objects_i.FIELD_TYPE] = 0; // Hidden
+        parent->instancesketchy__objects_i.array[ring_ids[i]][parent->instancesketchy__objects_i.FIELD_PAGE] = 0xFFFF; // Hidden page
+        parent->instancesketchy__objects_i.array[ring_ids[i]][parent->instancesketchy__objects_i.FIELD_X] = 0;
+        parent->instancesketchy__objects_i.array[ring_ids[i]][parent->instancesketchy__objects_i.FIELD_Y] = 0;
+        parent->instancesketchy__objects_i.array[ring_ids[i]][parent->instancesketchy__objects_i.FIELD_W] = 0;
+        parent->instancesketchy__objects_i.array[ring_ids[i]][parent->instancesketchy__objects_i.FIELD_H] = 0;
+        parent->instancesketchy__objects_i.array[ring_ids[i]][parent->instancesketchy__objects_i.FIELD_COLOR] = 0;
+        parent->instancesketchy__objects_i.array[ring_ids[i]][parent->instancesketchy__objects_i.FIELD_SCALE] = 1;
+        parent->instancesketchy__objects_i.array[ring_ids[i]][parent->instancesketchy__objects_i.FIELD_TEXT_ID] = 0;
+    }
+    
+    rings_initialized = true;
+}
+
+void update_ring_for_dial(int dial_index, int page) {
+    const encoder_dial_config_t* config = &configs[page][dial_index];
+    
+    // Only show ring for fractional dial modes
+    if (config->mode == MODE_FRAC_UNIPOLAR || config->mode == MODE_FRAC_BIPOLAR) {
+        // Calculate position for this dial slot
+        int x = COL_X[dial_index % 4];
+        int y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+        bool is_second_row = (dial_index >= 4);
+        int y_offset = is_second_row ? 1 : 0;
+        int cx = x + DIAL_WIDTH/2;
+        int cy = y + y_offset + DIAL_HEIGHT/2 - 6;
+        
+        // Position the ring for this dial
+        int ring_type = (config->mode == MODE_FRAC_BIPOLAR) ? 100 : 99; // 100 = bipolar, 99 = unipolar
+        parent->instancesketchy__objects_i.array[ring_ids[dial_index]][parent->instancesketchy__objects_i.FIELD_TYPE] = ring_type;
+        parent->instancesketchy__objects_i.array[ring_ids[dial_index]][parent->instancesketchy__objects_i.FIELD_PAGE] = page;
+        parent->instancesketchy__objects_i.array[ring_ids[dial_index]][parent->instancesketchy__objects_i.FIELD_X] = cx;
+        parent->instancesketchy__objects_i.array[ring_ids[dial_index]][parent->instancesketchy__objects_i.FIELD_Y] = cy;
+        
+        // Get current parameter value and convert to indicator position
+        int32_t param_value = parent->instancesketchy__params_i.array[page][dial_index];
+        int indicator_pos = 15; // Default center
+        
+        if (config->mode == MODE_FRAC_UNIPOLAR) {
+            // 0 to 1 -> 0 to 30 indicator positions
+            indicator_pos = (param_value * 30) >> 27;
+            if (indicator_pos < 0) indicator_pos = 0;
+            if (indicator_pos > 30) indicator_pos = 30;
+        } else if (config->mode == MODE_FRAC_BIPOLAR) {
+            // -1 to 1 -> 0 to 30 indicator positions (15 = center)
+            indicator_pos = 15 + ((param_value * 15) >> 27);
+            if (indicator_pos < 0) indicator_pos = 0;
+            if (indicator_pos > 30) indicator_pos = 30;
+        }
+        
+        parent->instancesketchy__objects_i.array[ring_ids[dial_index]][parent->instancesketchy__objects_i.FIELD_W] = indicator_pos;
+        parent->instancesketchy__objects_i.array[ring_ids[dial_index]][parent->instancesketchy__objects_i.FIELD_H] = DIAL_WIDTH;
+        parent->instancesketchy__objects_i.array[ring_ids[dial_index]][parent->instancesketchy__objects_i.FIELD_COLOR] = 0;
+    } else {
+        // Hide ring for non-fractional modes
+        parent->instancesketchy__objects_i.array[ring_ids[dial_index]][parent->instancesketchy__objects_i.FIELD_TYPE] = 0;
+        parent->instancesketchy__objects_i.array[ring_ids[dial_index]][parent->instancesketchy__objects_i.FIELD_PAGE] = 0xFFFF;
+    }
+}
+
+// Initialize complete configuration data - matches original functionality
+void init_config_data() {
+    // PAGE 0 - Oscillator controls
+    configs[0][0] = (encoder_dial_config_t){1, true,  "FIN", "", 0.0f, 0, 127};
+    configs[0][1] = (encoder_dial_config_t){1, true,  "WAV", "", 32.0f, 0, 127};
+    configs[0][2] = (encoder_dial_config_t){3, false, "SEL", "Sin,Tri,Saw,Sqr,Nse", 2.0f, 0, 4};
+    configs[0][3] = (encoder_dial_config_t){5, true,  "DOT", "", 32.0f, 0, 127};
+    configs[0][4] = (encoder_dial_config_t){0, false, "DET", "", 0.0f, 0, 127};
+    configs[0][5] = (encoder_dial_config_t){0, false, "SUB", "", 0.0f, 0, 127};
+    configs[0][6] = (encoder_dial_config_t){2, false, "OCT", "", 0.0f, -4, 4};
+    configs[0][7] = (encoder_dial_config_t){4, false, "DOWN", "", 0.0f, 0, 127};
+
+    // PAGE 1 - Filter controls
+    configs[1][0] = (encoder_dial_config_t){0, true,  "CUT", "", 32.0f, 0, 127};
+    configs[1][1] = (encoder_dial_config_t){1, true,  "RES", "", 0.0f, 0, 127};
+    configs[1][2] = (encoder_dial_config_t){1, false, "ENV", "", 0.0f, -64, 64};
+    configs[1][3] = (encoder_dial_config_t){3, false, "TYP", "LP,HP,BP,BR", 0.0f, 0, 3};
+    configs[1][4] = (encoder_dial_config_t){0, false, "KBD", "", 16.0f, 0, 127};
+    configs[1][5] = (encoder_dial_config_t){0, false, "VEL", "", 0.0f, 0, 127};
+    configs[1][6] = (encoder_dial_config_t){0, false, "LFO", "", 0.0f, 0, 127};
+    configs[1][7] = (encoder_dial_config_t){2, false, "DRV", "", 8.0f, 0, 100};
+
+    // PAGE 2 - Envelope controls
+    configs[2][0] = (encoder_dial_config_t){0, false, "ATK", "", 8.0f, 0, 127};
+    configs[2][1] = (encoder_dial_config_t){0, false, "DEC", "", 16.0f, 0, 127};
+    configs[2][2] = (encoder_dial_config_t){0, false, "SUS", "", 48.0f, 0, 127};
+    configs[2][3] = (encoder_dial_config_t){0, false, "REL", "", 24.0f, 0, 127};
+    configs[2][4] = (encoder_dial_config_t){1, false, "VEL", "", 0.0f, -100, 100};
+    configs[2][5] = (encoder_dial_config_t){1, false, "CRV", "", 0.0f, -50, 50};
+    configs[2][6] = (encoder_dial_config_t){0, false, "TIM", "", 32.0f, 0, 127};
+    configs[2][7] = (encoder_dial_config_t){3, false, "TYP", "Lin,Exp,Log", 1.0f, 0, 2};
+
+    // PAGE 3 - LFO controls
+    configs[3][0] = (encoder_dial_config_t){0, true,  "RAT", "", 16.0f, 0, 127};
+    configs[3][1] = (encoder_dial_config_t){1, false, "DEP", "", 0.0f, -127, 127};
+    configs[3][2] = (encoder_dial_config_t){1, false, "PHS", "", 0.0f, -127, 127};
+    configs[3][3] = (encoder_dial_config_t){3, false, "SHP", "Sin,Tri,Saw,Sqr,S&H", 1.0f, 0, 4};
+    configs[3][4] = (encoder_dial_config_t){0, false, "SYN", "", 0.0f, 0, 127};
+    configs[3][5] = (encoder_dial_config_t){0, false, "DEL", "", 0.0f, 0, 127};
+    configs[3][6] = (encoder_dial_config_t){0, false, "FAD", "", 0.0f, 0, 127};
+    configs[3][7] = (encoder_dial_config_t){2, false, "DIV", "", 8.0f, 1, 32};
+
+    // PAGE 4 - Effects controls
+    configs[4][0] = (encoder_dial_config_t){0, false, "REV", "", 16.0f, 0, 127};
+    configs[4][1] = (encoder_dial_config_t){0, false, "DEL", "", 0.0f, 0, 127};
+    configs[4][2] = (encoder_dial_config_t){0, false, "CHO", "", 0.0f, 0, 127};
+    configs[4][3] = (encoder_dial_config_t){0, false, "DIS", "", 0.0f, 0, 127};
+    configs[4][4] = (encoder_dial_config_t){1, false, "TIM", "", 0.0f, -64, 64};
+    configs[4][5] = (encoder_dial_config_t){1, false, "FBK", "", 0.0f, -100, 100};
+    configs[4][6] = (encoder_dial_config_t){0, false, "MIX", "", 32.0f, 0, 127};
+    configs[4][7] = (encoder_dial_config_t){3, false, "TYP", "Off,Hall,Room,Plate", 2.0f, 0, 3};
+
+    // PAGE 5 - Sequencer controls
+    configs[5][0] = (encoder_dial_config_t){2, true,  "STP", "", 8.0f, 1, 64};
+    configs[5][1] = (encoder_dial_config_t){0, true,  "SPD", "", 32.0f, 0, 127};
+    configs[5][2] = (encoder_dial_config_t){1, false, "SWG", "", 0.0f, -50, 50};
+    configs[5][3] = (encoder_dial_config_t){3, false, "DIR", "Fwd,Rev,P-P,Rnd", 0.0f, 0, 3};
+    configs[5][4] = (encoder_dial_config_t){0, false, "GAT", "", 48.0f, 0, 127};
+    configs[5][5] = (encoder_dial_config_t){1, false, "ACC", "", 0.0f, -127, 127};
+    configs[5][6] = (encoder_dial_config_t){0, false, "SLD", "", 0.0f, 0, 127};
+    configs[5][7] = (encoder_dial_config_t){2, false, "RST", "", 0.0f, 0, 1};
+
+    // PAGE 6 - Modulation controls
+    configs[6][0] = (encoder_dial_config_t){1, false, "M1A", "", 0.0f, -127, 127};
+    configs[6][1] = (encoder_dial_config_t){1, false, "M2A", "", 0.0f, -127, 127};
+    configs[6][2] = (encoder_dial_config_t){1, false, "M3A", "", 0.0f, -127, 127};
+    configs[6][3] = (encoder_dial_config_t){3, false, "SRC", "LFO,ENV,VEL,RND", 0.0f, 0, 3};
+    configs[6][4] = (encoder_dial_config_t){3, false, "DS1", "Cut,Res,Amp,Pan", 0.0f, 0, 3};
+    configs[6][5] = (encoder_dial_config_t){3, false, "DS2", "Pit,Phs,PWM,FM", 0.0f, 0, 3};
+    configs[6][6] = (encoder_dial_config_t){0, false, "ATN", "", 64.0f, 0, 127};
+    configs[6][7] = (encoder_dial_config_t){2, false, "LAG", "", 0.0f, 0, 100};
+
+    // PAGE 7 - Global controls
+    configs[7][0] = (encoder_dial_config_t){0, true,  "VOL", "", 48.0f, 0, 127};
+    configs[7][1] = (encoder_dial_config_t){1, false, "PAN", "", 0.0f, -64, 64};
+    configs[7][2] = (encoder_dial_config_t){0, false, "TUN", "", 32.0f, 0, 127};
+    configs[7][3] = (encoder_dial_config_t){2, true,  "TRS", "", 0.0f, -24, 24};
+    configs[7][4] = (encoder_dial_config_t){0, false, "VEL", "", 48.0f, 0, 127};
+    configs[7][5] = (encoder_dial_config_t){0, false, "POR", "", 0.0f, 0, 127};
+    configs[7][6] = (encoder_dial_config_t){2, false, "CHN", "", 1.0f, 1, 16};
+    configs[7][7] = (encoder_dial_config_t){3, false, "PLY", "Poly,Mono,Leg", 0.0f, 0, 2};
+}
+
+// Convert from display value to encoder position (0-1)
+float displayToEncoderValue(float displayValue, int mode) {
+    switch(mode) {
+        case MODE_FRAC_UNIPOLAR:
+        case MODE_BAR_UNIPOLAR:
+            // 0-64 display maps to 0-1 encoder
+            return displayValue / 64.0f;
+        case MODE_FRAC_BIPOLAR:
+        case MODE_BAR_BIPOLAR:
+            // -64 to +64 display maps to 0-1 encoder (-64 = 0.0, 0 = 0.5, +64 = 1.0)
+            return (displayValue + 64.0f) / 128.0f;
+        case MODE_INT:
+        case MODE_LIST:
+            // Not used for these modes
+            return 0.0f;
+        default:
+            return displayValue;
+    }
+}
+
+// Parse duplicate reference "page,dial" into page and dial indices
+void parse_duplicate_reference(const char* options, uint8_t* ref_page, uint8_t* ref_dial) {
+    *ref_page = 0;
+    *ref_dial = 0;
+    
+    // Simple parsing: expect "page,dial" format
+    if (options && strlen(options) >= 3) {
+        *ref_page = options[0] - '0';  // Convert first char to number
+        if (options[1] == ',' && options[2] >= '0' && options[2] <= '7') {
+            *ref_dial = options[2] - '0';  // Convert third char to number
+        }
+    }
+}
+
+// Simple approach: Create text labels for all positions, use single ring for fractional modes only
+void init_simple_labels() {
+    // Initialize simple text labels for all 8 positions
+    // Don't create any dial objects - they would create unwanted rings
+    for (int i = 0; i < 8; i++) {
+        // We'll just use the single ring when needed and position it dynamically
+        // For non-fractional modes, we'll rely on the renderer's built-in text display
+    }
+}
+
+
+]]></code.declaration>
+      <code.init><![CDATA[init_config_data();
+
+// Initialize ring system
+init_multiple_rings();
+
+// Initialize simple labels
+init_simple_labels();
+
+current_page = 0;]]></code.init>
+      <code.dispose><![CDATA[// Clean up handled by renderer]]></code.dispose>
+      <code.krate><![CDATA[// Track page changes and reconfigure all 8 elements when page changes
+if (current_page != inlet_page) {
+    current_page = inlet_page;
+    
+    // Configure all 8 display elements for the new page
+    for (int i = 0; i < 8; i++) {
+        const encoder_dial_config_t* config = &configs[inlet_page][i];
+        
+                 // Initialize the appropriate object type for each position
+         switch (config->mode) {
+             case MODE_FRAC_UNIPOLAR:
+             case MODE_FRAC_BIPOLAR:
+                 // Initialize dial - configure struct fields manually
+                 parent->instancesketchy__render_i.dial_init(&dials[i]);
+                 dials[i].x = COL_X[i % 4];
+                 dials[i].y = (i < 4) ? ROW1_Y : ROW2_Y;
+                 dials[i].width = DIAL_WIDTH;
+                 dials[i].height = DIAL_HEIGHT;
+                 dials[i].label = config->label;
+                 dials[i].show_value = config->show_value;
+                 dials[i].page = inlet_page;
+                 dials[i].param = i;
+                 dials[i].is_bipolar = (config->mode == MODE_FRAC_BIPOLAR);
+                 dials[i].default_value = config->default_value;
+                 break;
+                 
+             case MODE_INT:
+                 parent->instancesketchy__render_i.intdisplay_init(&intdisplays[i]);
+                 intdisplays[i].x = COL_X[i % 4];
+                 intdisplays[i].y = (i < 4) ? ROW1_Y : ROW2_Y;
+                 intdisplays[i].width = DIAL_WIDTH;
+                 intdisplays[i].height = DIAL_HEIGHT;
+                 intdisplays[i].label = config->label;
+                 intdisplays[i].page = inlet_page;
+                 intdisplays[i].param = i;
+                 break;
+                 
+             case MODE_LIST:
+                 parent->instancesketchy__render_i.select_init(&selects[i]);
+                 selects[i].x = COL_X[i % 4];
+                 selects[i].y = (i < 4) ? ROW1_Y : ROW2_Y;
+                 selects[i].width = DIAL_WIDTH;
+                 selects[i].height = DIAL_HEIGHT;
+                 selects[i].param_label = config->label;
+                 selects[i].options = config->options;
+                 selects[i].page = inlet_page;
+                 selects[i].param = i;
+                 selects[i].is_int = true;
+                 break;
+                 
+             case MODE_BAR_UNIPOLAR:
+             case MODE_BAR_BIPOLAR:
+                 parent->instancesketchy__render_i.bar_init(&bars[i]);
+                 bars[i].x = COL_X[i % 4];
+                 bars[i].y = (i < 4) ? ROW1_Y : ROW2_Y;
+                 bars[i].width = DIAL_WIDTH;
+                 bars[i].height = DIAL_HEIGHT;
+                 bars[i].label = config->label;
+                 bars[i].show_value = config->show_value;
+                 bars[i].is_bipolar = (config->mode == MODE_BAR_BIPOLAR);
+                 bars[i].page = inlet_page;
+                 bars[i].param = i;
+                 bars[i].default_value = config->default_value;
+                 break;
+         }
+    }
+}
+
+// Update all 8 display elements and position rings for fractional dials
+for (int i = 0; i < 8; i++) {
+    const encoder_dial_config_t* config = &configs[inlet_page][i];
+    
+    switch (config->mode) {
+                 case MODE_FRAC_UNIPOLAR:
+         case MODE_FRAC_BIPOLAR:
+             // Update dial and position ring at this dial's location
+             parent->instancesketchy__render_i.dial_update(&dials[i]);
+             update_ring_for_dial(i, inlet_page);
+             break;
+            
+        case MODE_INT:
+            parent->instancesketchy__render_i.intdisplay_update(&intdisplays[i]);
+            break;
+            
+        case MODE_LIST:
+            parent->instancesketchy__render_i.select_update(&selects[i]);
+            break;
+            
+        case MODE_BAR_UNIPOLAR:
+        case MODE_BAR_BIPOLAR:
+            parent->instancesketchy__render_i.bar_update(&bars[i]);
+            break;
+    }
+}]]></code.krate>
+   </obj.normal>
+</objdefs> 

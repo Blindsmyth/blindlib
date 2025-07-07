@@ -1,0 +1,74 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sketchy_objects_exp" uuid="2d0d6a48-0d8e-4b8a-9b2e-7c8f9e0a1b2d">
+      <sDescription>Expanded object table with 1024 entries (4x normal capacity). Fixes object table overflow for complex patches with many visual elements.</sDescription>
+      <author>AI Assistant</author>
+      <license>MIT</license>
+      <inlets/>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="entries" description="Maximum amount of display objects" MinValue="1" MaxValue="8192" DefaultValue="1024"/>
+      </attribs>
+      <code.declaration><![CDATA[// Object table configuration - uses attribute-based sizing
+static const uint32_t LENGTH = attr_entries;
+static uint16_t object_count = 0;
+
+// Object type constants - accessible as public members
+uint8_t TYPE_INVISIBLE = 0;
+uint8_t TYPE_RECT = 1;
+uint8_t TYPE_FILLED_RECT = 2;
+uint8_t TYPE_ROUNDED_RECT = 3;
+uint8_t TYPE_FILLED_ROUNDED_RECT = 4;
+uint8_t TYPE_LINE = 5;
+uint8_t TYPE_TEXT = 6;
+uint8_t TYPE_TEXT_CENTER_X = 7;
+uint8_t TYPE_TEXT_CENTER_Y = 8;
+uint8_t TYPE_TEXT_CENTER_XY = 9;
+uint8_t TYPE_TEXT_CENTER_BOTH = 9;  // Alias for original system compatibility
+uint8_t TYPE_VIRTUAL_KNOB = 99;     // Match original hardcoded value
+uint8_t TYPE_VIRTUAL_KNOB_BIPOLAR = 100; // Match original hardcoded value
+
+// Field constants - accessible as public members
+uint8_t FIELD_TYPE = 0;
+uint8_t FIELD_X = 1;
+uint8_t FIELD_Y = 2;
+uint8_t FIELD_W = 3;
+uint8_t FIELD_H = 4;
+uint8_t FIELD_COLOR = 5;
+uint8_t FIELD_SCALE = 6;
+uint8_t FIELD_TEXT_ID = 7;
+uint8_t FIELD_PAGE = 8;
+
+// Array access
+int16_t (*array)[9];
+
+uint16_t registerEntry() {
+    if (object_count < LENGTH) {
+        uint16_t id = object_count;
+        object_count++;
+
+        
+        // Initialize new entry
+        array[id][FIELD_TYPE] = TYPE_INVISIBLE;
+        array[id][FIELD_X] = 0;
+        array[id][FIELD_Y] = 0;
+        array[id][FIELD_W] = 0;
+        array[id][FIELD_H] = 0;
+        array[id][FIELD_COLOR] = 0;
+        array[id][FIELD_SCALE] = 1;
+        array[id][FIELD_TEXT_ID] = 0;
+        array[id][FIELD_PAGE] = 0;
+        
+        return id;
+    }
+    return 0; // Error: table full
+}]]></code.declaration>
+      <code.init><![CDATA[object_count = 0;
+
+static int16_t _array[LENGTH][9] __attribute__ ((section (".sdram")));
+array = _array;
+memset(_array, 0, sizeof(_array));]]></code.init>
+      <code.dispose><![CDATA[// Nothing to dispose]]></code.dispose>
+   </obj.normal>
+</objdefs> 

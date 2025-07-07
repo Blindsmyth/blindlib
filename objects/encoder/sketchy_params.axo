@@ -1,0 +1,26 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sketchy_params" uuid="4f2f8c6a-2f0f-6d0c-bd4f-9e0f1f2a3b4c">
+      <sDescription>Parameter table for storing encoder values organized by page and parameter index. Provides parameter storage and access.</sDescription>
+      <author>AI Assistant</author>
+      <license>MIT</license>
+      <inlets/>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs/>
+      <code.declaration><![CDATA[// Parameter table configuration
+#define MAX_PAGES 32
+#define MAX_PARAMS_PER_PAGE 8
+static int32_t param_array[MAX_PAGES][MAX_PARAMS_PER_PAGE];
+
+// Array access
+int32_t (*array)[MAX_PARAMS_PER_PAGE] = param_array;]]></code.declaration>
+      <code.init><![CDATA[// Initialize all parameters to default values
+for (int page = 0; page < MAX_PAGES; page++) {
+    for (int param = 0; param < MAX_PARAMS_PER_PAGE; param++) {
+        param_array[page][param] = 0;
+    }
+}]]></code.init>
+      <code.dispose><![CDATA[// Nothing to dispose]]></code.dispose>
+   </obj.normal>
+</objdefs> 

@@ -1,0 +1,45 @@
+<patch appVersion="1.0.12">
+   <obj type="encoder/sketchy_render_shared_circles" uuid="5224773f-18de-4231-8f92-b1f22bb95374" name="renderer" x="14" y="14">
+      <params/>
+      <attribs>
+         <combo attributeName="type" selection="SSD1306"/>
+         <combo attributeName="I2CADDR" selection="0x3C"/>
+      </attribs>
+   </obj>
+   <obj type="encoder/sketchy_objects" uuid="2d0d6a48-0d8e-4b8a-9b2e-7c8f9e0a1b2c" name="objects" x="14" y="70">
+      <params/>
+      <attribs/>
+   </obj>
+   <obj type="encoder/sketchy_texts" uuid="3e1e7b59-1e9f-5c9b-ac3f-8d9f0e1a2b3c" name="texts" x="14" y="126">
+      <params/>
+      <attribs/>
+   </obj>
+   <obj type="encoder/sketchy_params" uuid="4f2f8c6a-2f0f-6d0c-bd4f-9e0f1f2a3b4c" name="params" x="14" y="182">
+      <params/>
+      <attribs/>
+   </obj>
+   <obj type="encoder/sketchy_font" uuid="c8bae293-4a08-4da6-b25a-a3a83552e55e" name="font" x="14" y="238">
+      <params/>
+      <attribs/>
+   </obj>
+   <obj type="encoder/sketchy_dials_shared_circles" uuid="8e42a9f1-5c67-4d2a-9f38-2b8e9d4c7e12" name="dials" x="140" y="14">
+      <params/>
+      <attribs/>
+   </obj>
+   <obj type="ctrl/i" uuid="a3786816-4904-4ccd-8158-e8f4e9b2a4d7" name="page" x="266" y="14">
+      <params>
+         <int32 name="value" value="0"/>
+      </params>
+      <attribs/>
+   </obj>
+   <nets>
+      <net>
+         <source obj="page" outlet="out"/>
+         <dest obj="renderer" inlet="page"/>
+      </net>
+      <net>
+         <source obj="page" outlet="out"/>
+         <dest obj="dials" inlet="page"/>
+      </net>
+   </nets>
+</patch> 
