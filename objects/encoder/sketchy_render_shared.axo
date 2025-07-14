@@ -1,0 +1,798 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sketchy_render_shared" uuid="5224773f-18de-4231-8f92-b1f22bb95376">
+      <sDescription>The shared renderer object using 6 shared objects for memory efficiency. Dynamically repositions objects instead of creating new ones for each dial position.</sDescription>
+      <author>AI Assistant</author>
+      <license>MIT</license>
+      <inlets>
+         <int32.positive name="page"/>
+         <int32.positive name="layout"/>
+         <bool32.rising name="print"/>
+      </inlets>
+      <outlets>
+         <int32.positive name="sw"/>
+         <int32.positive name="sh"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <combo name="type">
+            <MenuEntries>
+               <string>SSD1306</string>
+               <string>SH1106</string>
+            </MenuEntries>
+            <CEntries>
+               <string>1306</string>
+               <string>1106</string>
+            </CEntries>
+         </combo>
+         <combo name="I2CADDR">
+            <MenuEntries>
+               <string>0x3C</string>
+               <string>0x3D</string>
+            </MenuEntries>
+            <CEntries>
+               <string>0x3C</string>
+               <string>0x3D</string>
+            </CEntries>
+         </combo>
+      </attribs>
+      <includes/>
+      <depends>
+         <depend>SD1</depend>
+         <depend>I2CD1</depend>
+         <depend>SPID1</depend>
+      </depends>
+      <code.declaration><![CDATA[rootc::instancesketchy__objects* object_table;
+rootc::instancesketchy__texts* text_table;
+rootc::instancesketchy__params* param_table;
+rootc::instancesketchy__font* font;
+
+uint16_t page;
+uint16_t layout;
+
+// Thread variables
+static THD_WORKING_AREA(waThreadX, 1024);
+static Thread* Thd;
+bool pprint;
+
+// ================ VIRTUAL KNOB CONSTANTS ================
+#define CIRCLE_POINTS 38
+#define INDICATOR_POSITIONS 31
+
+// ================ 6 SHARED OBJECTS SYSTEM ================
+// Type definitions matching dials object
+#define MODE_FRAC_UNIPOLAR 0  // 0.0 to 1.0, positive only (dial)
+#define MODE_FRAC_BIPOLAR  1  // -1.0 to 1.0, bipolar (dial)  
+#define MODE_INT           2  // min to max, integer (intdisplay)
+#define MODE_LIST          3  // selector mode (select)
+#define MODE_BAR_UNIPOLAR  4  // 0.0 to 1.0, vertical bar (bar)
+#define MODE_BAR_BIPOLAR   5  // -1.0 to 1.0, vertical bar (bar)
+#define MODE_DUPLICATE     6  // duplicate another parameter (handled specially)
+
+// Shared object structure - one set per type
+typedef struct {
+    uint16_t main_object_id;    // dial/bar/intdisplay/select
+    uint16_t label_object_id;   // label background
+    uint16_t label_text_id;     // label text
+    uint16_t value_object_id;   // value background (for bars, intdisplays, selects)
+    uint16_t value_text_id;     // value text (for bars, intdisplays, selects)
+} shared_object_set_t;
+
+shared_object_set_t shared_objects[6]; // One set per type (0-5)
+
+// Position constants
+const uint8_t DIAL_WIDTH = 24;
+const uint8_t DIAL_HEIGHT = 24;
+const uint8_t ROW1_Y = 13;
+const uint8_t ROW2_Y = 39;
+const uint8_t COL_X[4] = {26, 52, 78, 104};
+
+// State tracking for shared objects
+int32_t last_values[6] = {-999999, -999999, -999999, -999999, -999999, -999999};
+uint8_t current_pages[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+uint8_t current_positions[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+// Initialize shared objects for each type
+void init_shared_objects() {
+    for (int type = 0; type < 6; type++) {
+        // Register all component objects for this type
+        shared_objects[type].main_object_id = object_table->registerEntry();
+        shared_objects[type].label_object_id = object_table->registerEntry();
+        shared_objects[type].label_text_id = text_table->registerEntry();
+        shared_objects[type].value_object_id = object_table->registerEntry();
+        shared_objects[type].value_text_id = text_table->registerEntry();
+        
+        // Set up basic properties (type-specific)
+        setup_shared_object_type(type);
+    }
+}
+
+// Set up basic properties for each shared object type
+void setup_shared_object_type(uint8_t type) {
+    // Set up main object based on type
+    switch (type) {
+        case MODE_FRAC_UNIPOLAR:
+        case MODE_FRAC_BIPOLAR:
+            // Dial objects - set up as invisible initially
+            object_table->array[shared_objects[type].main_object_id][object_table->FIELD_TYPE] = 0;
+            object_table->array[shared_objects[type].main_object_id][object_table->FIELD_W] = DIAL_WIDTH;
+            object_table->array[shared_objects[type].main_object_id][object_table->FIELD_H] = DIAL_HEIGHT;
+            break;
+            
+        case MODE_BAR_UNIPOLAR:
+        case MODE_BAR_BIPOLAR:
+            // Bar objects - set up as invisible initially
+            object_table->array[shared_objects[type].main_object_id][object_table->FIELD_TYPE] = 0;
+            object_table->array[shared_objects[type].main_object_id][object_table->FIELD_W] = DIAL_WIDTH;
+            object_table->array[shared_objects[type].main_object_id][object_table->FIELD_H] = DIAL_HEIGHT;
+            break;
+            
+        case MODE_INT:
+            // Int display objects - set up as invisible initially
+            object_table->array[shared_objects[type].main_object_id][object_table->FIELD_TYPE] = 0;
+            object_table->array[shared_objects[type].main_object_id][object_table->FIELD_W] = DIAL_WIDTH;
+            object_table->array[shared_objects[type].main_object_id][object_table->FIELD_H] = DIAL_HEIGHT;
+            break;
+            
+        case MODE_LIST:
+            // Select objects - set up as invisible initially
+            object_table->array[shared_objects[type].main_object_id][object_table->FIELD_TYPE] = 0;
+            object_table->array[shared_objects[type].main_object_id][object_table->FIELD_W] = DIAL_WIDTH;
+            object_table->array[shared_objects[type].main_object_id][object_table->FIELD_H] = DIAL_HEIGHT;
+            break;
+    }
+    
+    // Set up label object (same for all types)
+    object_table->array[shared_objects[type].label_object_id][object_table->FIELD_TYPE] = 9; // Text center
+    object_table->array[shared_objects[type].label_object_id][object_table->FIELD_W] = DIAL_WIDTH;
+    object_table->array[shared_objects[type].label_object_id][object_table->FIELD_H] = 8;
+    object_table->array[shared_objects[type].label_object_id][object_table->FIELD_COLOR] = 2;
+    object_table->array[shared_objects[type].label_object_id][object_table->FIELD_TEXT_ID] = shared_objects[type].label_text_id;
+    
+    // Set up value object (for bars, intdisplays, selects)
+    object_table->array[shared_objects[type].value_object_id][object_table->FIELD_TYPE] = 9; // Text center
+    object_table->array[shared_objects[type].value_object_id][object_table->FIELD_W] = DIAL_WIDTH;
+    object_table->array[shared_objects[type].value_object_id][object_table->FIELD_H] = 8;
+    object_table->array[shared_objects[type].value_object_id][object_table->FIELD_COLOR] = 2;
+    object_table->array[shared_objects[type].value_object_id][object_table->FIELD_TEXT_ID] = shared_objects[type].value_text_id;
+}
+
+// Reposition shared object to specific position and page
+void reposition_shared_object(uint8_t type, uint8_t dial_index, uint8_t target_page) {
+    // Calculate position
+    int x = COL_X[dial_index % 4];
+    int y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+    bool is_second_row = (dial_index >= 4);
+    int y_offset = is_second_row ? 1 : 0;
+    
+    // Update main object position
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_X] = x;
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_Y] = y + y_offset;
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_PAGE] = target_page;
+    
+    // Update label object position
+    object_table->array[shared_objects[type].label_object_id][object_table->FIELD_X] = x;
+    object_table->array[shared_objects[type].label_object_id][object_table->FIELD_Y] = y + y_offset + DIAL_HEIGHT - 11;
+    object_table->array[shared_objects[type].label_object_id][object_table->FIELD_PAGE] = target_page;
+    
+    // Update value object position (for types that need it)
+    if (type == MODE_BAR_UNIPOLAR || type == MODE_BAR_BIPOLAR || type == MODE_INT || type == MODE_LIST) {
+        object_table->array[shared_objects[type].value_object_id][object_table->FIELD_X] = x;
+        object_table->array[shared_objects[type].value_object_id][object_table->FIELD_Y] = y + y_offset + 8;
+        object_table->array[shared_objects[type].value_object_id][object_table->FIELD_PAGE] = target_page;
+    }
+    
+    // Track current state
+    current_pages[type] = target_page;
+    current_positions[type] = dial_index;
+}
+
+// Update shared object value and visibility
+void update_shared_object_value(uint8_t type, uint8_t page, uint8_t dial_index) {
+    int32_t value = param_table->array[page][dial_index];
+    
+    // Change detection
+    if (value == last_values[type] && current_pages[type] == page && current_positions[type] == dial_index) {
+        return; // No change
+    }
+    
+    last_values[type] = value;
+    
+    // Calculate position for dial center
+    int x = COL_X[dial_index % 4];
+    int y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+    bool is_second_row = (dial_index >= 4);
+    int y_offset = is_second_row ? 1 : 0;
+    int cx = x + DIAL_WIDTH/2;
+    int cy = y + y_offset + DIAL_HEIGHT/2 - 6;
+    
+    switch (type) {
+        case MODE_FRAC_UNIPOLAR:
+        case MODE_FRAC_BIPOLAR:
+            update_dial_value(type, value, cx, cy);
+            break;
+            
+        case MODE_BAR_UNIPOLAR:
+        case MODE_BAR_BIPOLAR:
+            update_bar_value(type, value, x, y + y_offset);
+            break;
+            
+        case MODE_INT:
+            update_int_value(type, value, x, y + y_offset);
+            break;
+            
+        case MODE_LIST:
+            update_select_value(type, value, x, y + y_offset);
+            break;
+    }
+}
+
+// Update dial value (fractional modes)
+void update_dial_value(uint8_t type, int32_t value, int cx, int cy) {
+    // Process value differently for bipolar vs unipolar
+    float lookup_pos;
+    
+    if (type == MODE_FRAC_BIPOLAR) {
+        // Bipolar: transform value and map to -1/+1 range, then convert to 0/1 for lookup
+        value = (value-(1<<26))<<1;
+        float frac_value = ((float)value / 0x00200000);
+        float norm_value = frac_value / 64.0f;
+        
+        // Clamp to -1.0 to 1.0 range
+        if (norm_value < -1.0f) norm_value = -1.0f;
+        if (norm_value > 1.0f) norm_value = 1.0f;
+        
+        // Convert from -1/+1 to 0/1 range for lookup
+        lookup_pos = (norm_value + 1.0f) / 2.0f;
+    } else {
+        // Unipolar: map 0 to max_value directly to 0/1 range for full circle coverage
+        float max_value = (1<<27);  // 134217728
+        lookup_pos = (float)value / max_value;
+        
+        // Clamp to 0.0 to 1.0 range
+        if (lookup_pos < 0.0f) lookup_pos = 0.0f;
+        if (lookup_pos > 1.0f) lookup_pos = 1.0f;
+    }
+    
+    // Map to indicator positions
+    int indicator_index = (int)(lookup_pos * (INDICATOR_POSITIONS - 1) + 0.5f);
+    if (indicator_index < 0) indicator_index = 0;
+    if (indicator_index >= INDICATOR_POSITIONS) indicator_index = INDICATOR_POSITIONS - 1;
+    
+    // Store knob data in object table for rendering
+    // Type 99 = regular knob, Type 100 = bipolar knob with +/- indicators
+    int knob_type = (type == MODE_FRAC_BIPOLAR) ? 100 : 99;
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_TYPE] = knob_type;
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_X] = cx;    // Center X
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_Y] = cy;    // Center Y
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_W] = indicator_index; // Store indicator position
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_H] = DIAL_WIDTH;     // Store dial width for bounds
+}
+
+// Update bar value (bar modes)
+void update_bar_value(uint8_t type, int32_t value, int x, int y) {
+    // Calculate bar height based on value
+    float bar_height;
+    
+    if (type == MODE_BAR_BIPOLAR) {
+        // Bipolar: map to -1/+1 range
+        value = (value-(1<<26))<<1;
+        float frac_value = ((float)value / 0x00200000);
+        float norm_value = frac_value / 64.0f;
+        
+        // Clamp to -1.0 to 1.0 range
+        if (norm_value < -1.0f) norm_value = -1.0f;
+        if (norm_value > 1.0f) norm_value = 1.0f;
+        
+        // Convert to 0-1 range for bar height
+        bar_height = (norm_value + 1.0f) / 2.0f;
+    } else {
+        // Unipolar: map directly to 0-1 range
+        float max_value = (1<<27);
+        bar_height = (float)value / max_value;
+        
+        // Clamp to 0.0 to 1.0 range
+        if (bar_height < 0.0f) bar_height = 0.0f;
+        if (bar_height > 1.0f) bar_height = 1.0f;
+    }
+    
+    int bar_pixels = (int)(bar_height * (DIAL_HEIGHT - 4) + 0.5f);
+    if (bar_pixels < 0) bar_pixels = 0;
+    if (bar_pixels > DIAL_HEIGHT - 4) bar_pixels = DIAL_HEIGHT - 4;
+    
+    // Set up bar object
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_TYPE] = 2; // Filled rect
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_X] = x + 2;
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_Y] = y + DIAL_HEIGHT - 2 - bar_pixels;
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_W] = DIAL_WIDTH - 4;
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_H] = bar_pixels;
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_COLOR] = 1;
+}
+
+// Update int display value
+void update_int_value(uint8_t type, int32_t value, int x, int y) {
+    // Set up int display object
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_TYPE] = 2; // Filled rect
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_X] = x + 2;
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_Y] = y + 8;
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_W] = DIAL_WIDTH - 4;
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_H] = 8;
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_COLOR] = 0;
+    
+    // Update value text
+    char value_str[8];
+    sprintf(value_str, "%d", (int)value);
+    strcpy(text_table->array[shared_objects[type].value_text_id], value_str);
+}
+
+// Update select value
+void update_select_value(uint8_t type, int32_t value, int x, int y) {
+    // Set up select object
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_TYPE] = 2; // Filled rect
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_X] = x + 2;
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_Y] = y + 8;
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_W] = DIAL_WIDTH - 4;
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_H] = 8;
+    object_table->array[shared_objects[type].main_object_id][object_table->FIELD_COLOR] = 0;
+    
+    // Update value text (for now, just show the index)
+    char value_str[8];
+    sprintf(value_str, "%d", (int)value);
+    strcpy(text_table->array[shared_objects[type].value_text_id], value_str);
+}
+
+// Original dial structure for compatibility
+typedef struct {
+    uint16_t box_object_id;
+    uint16_t label_object_id;
+    uint16_t label_text_id;
+    int32_t last_value;
+    int32_t page;
+    int32_t param;
+    bool is_bipolar;
+    int32_t x;
+    int32_t y;
+    int32_t width;
+    int32_t height;
+    const char* label;
+    bool show_value;
+    int32_t default_value;
+} dial_t;
+
+// Original dial functions for compatibility (but using shared objects)
+void dial_init(dial_t* dial) __attribute__ ((noinline)) { 
+    // For shared objects, we don't need to register new objects
+    // Just set up the dial state for later use
+    dial->last_value = -999999;  // Force first update
+}
+
+void dial_update(dial_t* dial) __attribute__ ((noinline)) {
+    // Completely minimal - do nothing for now
+    // This will help us identify if the issue is with the dial_update function itself
+}
+
+// Shared dial state structure
+typedef struct {
+    uint8_t type;
+    uint8_t page;
+    uint8_t dial_index;
+    const char* label;
+} shared_dial_state_t;
+
+// Global functions for dials object to call
+void shared_dial_update(shared_dial_state_t* state) __attribute__ ((noinline)) {
+    // Reposition shared object
+    reposition_shared_object(state->type, state->dial_index, state->page);
+    
+    // Update label text
+    strcpy(text_table->array[shared_objects[state->type].label_text_id], state->label);
+    
+    // Update value
+    update_shared_object_value(state->type, state->page, state->dial_index);
+}
+
+// Hide all shared objects
+void hide_all_shared_objects() {
+    for (int type = 0; type < 6; type++) {
+        object_table->array[shared_objects[type].main_object_id][object_table->FIELD_TYPE] = 0;
+        object_table->array[shared_objects[type].label_object_id][object_table->FIELD_TYPE] = 0;
+        object_table->array[shared_objects[type].value_object_id][object_table->FIELD_TYPE] = 0;
+    }
+}
+
+// Helper functions for pager compatibility
+uint16_t getCurrentPage() __attribute__ ((noinline)) {
+    return page;
+}
+
+char* tokenize(char* str, const char* delim, char** saveptr) __attribute__ ((noinline)) {
+    return strtok_r(str, delim, saveptr);
+}
+
+char* get_token_at_index(const char* str, int desired_index) __attribute__ ((noinline)) {
+    static char buffer[256];
+    char* saveptr = NULL;
+    strncpy(buffer, str, sizeof(buffer)-1);
+    buffer[sizeof(buffer)-1] = '\0';
+    char* token = strtok_r(buffer, ",", &saveptr);
+    for (int i = 0; i < desired_index && token != NULL; i++) {
+        token = strtok_r(NULL, ",", &saveptr);
+    }
+    return token;
+}
+
+int count_tokens(const char* str) __attribute__ ((noinline)) {
+    if (!str || *str == '\0') return 0;
+    int count = 1;
+    for (const char* p = str; *p != '\0'; p++) {
+        if (*p == ',' && *(p+1) != ',' && *(p+1) != '\0') {
+            count++;
+        }
+    }
+    return count;
+}
+
+enum SSD1306 {
+	LCDWIDTH            = 128,
+	LCDHEIGHT           = 64,
+	SETCONTRAST         = 0x81,
+	DISPLAYON           = 0xAF,
+	DISPLAYOFF          = 0xAE,
+	DISPLAYALLON_RESUME = 0xA4,
+	NORMALDISPLAY       = 0xA6,
+	DEACTIVATE_SCROLL   = 0x2E,
+	MEMORYMODE          = 0x20,
+	COLUMNADDR          = 0x21,
+	PAGEADDR            = 0x22,
+	SETSTARTLINE_0      = 0x40,
+	SEGREMAP            = 0xA0,
+	SETMULTIPLEX        = 0xA8,
+	COMSCANDEC          = 0xC8,
+	SETDISPLAYOFFSET    = 0xD3,
+	SETCOMPINS          = 0xDA,
+	SETDISPLAYCLOCKDIV  = 0xD5,
+	SETPRECHARGE        = 0xD9,
+	SETVCOMDETECT       = 0xDB,
+	CHARGEPUMP          = 0x8D,
+};
+
+uint8_t pixels[8][LCDWIDTH];
+uint8_t *txbuf;
+uint8_t *rxbuf;
+
+void cmd(uint8_t c) {
+	txbuf[0] = 0;
+	txbuf[1] = c;
+	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 2, rxbuf, 0, 30);
+}
+
+void clear() {
+	for (int page = 0; page < 8; page++) {
+		for (int i = 0; i < LCDWIDTH; i++) {
+			pixels[page][i] = 0;
+		}
+	}
+}
+
+void sendPage(int page) {
+	cmd(COLUMNADDR); cmd(0); cmd(127);
+	cmd(PAGEADDR); cmd(page); cmd(page);
+
+	if (attr_type == 1106) {
+		cmd(0xB0 + page);
+		cmd(2 & 0xf);
+		cmd(0x10 | (2 >> 4));
+	}
+
+	txbuf[0] = 0x40;
+	memcpy(txbuf + 1, pixels[page], LCDWIDTH);
+	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 129, rxbuf, 0, 30);
+}
+
+void init() {
+	cmd(DISPLAYOFF);
+	cmd(SETDISPLAYCLOCKDIV); cmd(0x80);
+	cmd(SETMULTIPLEX); cmd(LCDHEIGHT - 1);
+	cmd(SETDISPLAYOFFSET); cmd(attr_type == 1306 ? 0x00 : 0x01);
+	cmd(SETSTARTLINE_0);
+	cmd(CHARGEPUMP); cmd(0x14);
+	cmd(MEMORYMODE); cmd(0x00);
+	cmd(SEGREMAP | 0x1);
+	cmd(COMSCANDEC);
+	cmd(SETCOMPINS); cmd(0x12);
+	cmd(SETCONTRAST); cmd(0xCF);
+	cmd(SETPRECHARGE); cmd(0xF1);
+	cmd(SETVCOMDETECT); cmd(0x40);
+	cmd(DISPLAYALLON_RESUME);
+	cmd(NORMALDISPLAY);
+	cmd(DEACTIVATE_SCROLL);
+	cmd(DISPLAYON);
+}
+
+void setup() {
+	static uint8_t _txbuf[129] __attribute__ ((section (".sram2")));
+	static uint8_t _rxbuf[8] __attribute__ ((section (".sram2")));
+	txbuf = _txbuf;
+	rxbuf = _rxbuf;
+	init();
+}
+
+msg_t ThreadX2() {
+	setup();
+	while (!chThdShouldTerminate()) {
+		clear();
+		render();
+		uint8_t i; 
+		for (i = 0; i < 8; i++) {
+			sendPage(i);
+		}
+		chThdSleepMilliseconds(16);
+	}
+	return 0;
+}
+
+void draw_pixel(int x, int y, uint8_t color) {
+	if (x < 0 || x >= LCDWIDTH || y < 0 || y >= LCDHEIGHT) return;
+	
+	int page = y / 8;
+	int bit = y % 8;
+	
+	if (color) {
+		pixels[page][x] |= (1 << bit);
+	} else {
+		pixels[page][x] &= ~(1 << bit);
+	}
+}
+
+void draw_line(int x0, int y0, int x1, int y1, uint8_t color, uint8_t thickness) {
+	int dx = abs(x1 - x0);
+	int dy = abs(y1 - y0);
+	int sx = x0 < x1 ? 1 : -1;
+	int sy = y0 < y1 ? 1 : -1;
+	int err = dx - dy;
+	
+	while (true) {
+		for (int t = 0; t < thickness; t++) {
+			draw_pixel(x0 + (t - thickness/2), y0, color);
+		}
+		
+		if (x0 == x1 && y0 == y1) break;
+		int e2 = 2 * err;
+		if (e2 > -dy) {
+			err -= dy;
+			x0 += sx;
+		}
+		if (e2 < dx) {
+			err += dx;
+			y0 += sy;
+		}
+	}
+}
+
+void draw_circle(int cx, int cy, int radius, uint8_t color, uint8_t thickness) {
+	for (int i = 0; i < CIRCLE_POINTS; i++) {
+		float angle = (2.0f * M_PI * i) / CIRCLE_POINTS;
+		int x = cx + (int)(radius * cos(angle));
+		int y = cy + (int)(radius * sin(angle));
+		
+		for (int t = 0; t < thickness; t++) {
+			draw_pixel(x + (t - thickness/2), y, color);
+		}
+	}
+}
+
+void draw_filled_circle(int cx, int cy, int radius, uint8_t color) {
+	for (int y = -radius; y <= radius; y++) {
+		for (int x = -radius; x <= radius; x++) {
+			if (x*x + y*y <= radius*radius) {
+				draw_pixel(cx + x, cy + y, color);
+			}
+		}
+	}
+}
+
+void draw_rect(int x, int y, int w, int h, uint8_t color, uint8_t thickness) {
+	for (int t = 0; t < thickness; t++) {
+		// Top and bottom lines
+		for (int i = x; i < x + w; i++) {
+			draw_pixel(i, y + t, color);
+			draw_pixel(i, y + h - 1 - t, color);
+		}
+		// Left and right lines
+		for (int i = y; i < y + h; i++) {
+			draw_pixel(x + t, i, color);
+			draw_pixel(x + w - 1 - t, i, color);
+		}
+	}
+}
+
+void draw_filled_rect(int x, int y, int w, int h, uint8_t color) {
+	for (int j = y; j < y + h; j++) {
+		for (int i = x; i < x + w; i++) {
+			draw_pixel(i, j, color);
+		}
+	}
+}
+
+void draw_text(int x, int y, const char* text, uint8_t color, uint8_t scale) {
+	int char_x = x;
+	while (*text) {
+		if (*text >= 32 && *text <= 126) {
+			int char_index = *text - 32;
+			for (int row = 0; row < 8; row++) {
+				for (int col = 0; col < 6; col++) {
+					int index = char_index * 48 + row * 6 + col;
+					uint8_t pixel_data = font->data[index];
+					if (pixel_data) {
+						for (int sy = 0; sy < scale; sy++) {
+							for (int sx = 0; sx < scale; sx++) {
+								draw_pixel(char_x + col * scale + sx, y + row * scale + sy, color);
+							}
+						}
+					}
+				}
+			}
+		}
+		char_x += 6 * scale;
+		text++;
+	}
+}
+
+void draw_text_center(int x, int y, int w, int h, const char* text, uint8_t color, uint8_t scale) {
+	// Calculate text width
+	int text_width = 0;
+	const char* temp = text;
+	while (*temp) {
+		if (*temp >= 32 && *temp <= 126) {
+			text_width += 6 * scale;
+		}
+		temp++;
+	}
+	
+	// Center text
+	int text_x = x + (w - text_width) / 2;
+	int text_y = y + (h - 8 * scale) / 2;
+	
+	draw_text(text_x, text_y, text, color, scale);
+}
+
+void render() __attribute__ ((noinline)) {
+	// Add a simple test pattern to see if basic rendering works
+	draw_filled_rect(0, 0, 64, 32, 1); // Draw a white rectangle in top-left
+	
+	// Render all objects in the object table
+	for (uint16_t i = 0; i < object_table->LENGTH; i++) {
+		int16_t* obj = object_table->array[i];
+		uint8_t type = obj[object_table->FIELD_TYPE];
+		uint16_t page = obj[object_table->FIELD_PAGE];
+		
+		// Only render objects for current page or layout page
+		if (page != this->page && page != this->layout) continue;
+		
+		int16_t x = obj[object_table->FIELD_X];
+		int16_t y = obj[object_table->FIELD_Y];
+		int16_t w = obj[object_table->FIELD_W];
+		int16_t h = obj[object_table->FIELD_H];
+		uint8_t color = obj[object_table->FIELD_COLOR];
+		uint8_t scale = obj[object_table->FIELD_SCALE];
+		uint16_t text_id = obj[object_table->FIELD_TEXT_ID];
+		
+		switch (type) {
+			case 1: // Rect
+				draw_rect(x, y, w, h, color, 1);
+				break;
+			case 2: // Filled rect
+				draw_filled_rect(x, y, w, h, color);
+				break;
+			case 3: // Rounded rect
+				draw_rect(x, y, w, h, color, 1); // Simplified
+				break;
+			case 4: // Filled rounded rect
+				draw_filled_rect(x, y, w, h, color); // Simplified
+				break;
+			case 5: // Line
+				draw_line(x, y, w, h, color, 1);
+				break;
+			case 6: // Text
+				draw_text(x, y, text_table->array[text_id], color, scale);
+				break;
+			case 7: // Text center X
+				draw_text_center(x, y, w, h, text_table->array[text_id], color, scale);
+				break;
+			case 8: // Text center Y
+				draw_text_center(x, y, w, h, text_table->array[text_id], color, scale);
+				break;
+			case 9: // Text center XY
+				draw_text_center(x, y, w, h, text_table->array[text_id], color, scale);
+				break;
+			case 99: // Virtual knob (unipolar)
+				draw_circle(x, y, h/2, color, 1);
+				if (w > 0) {
+					float angle = (2.0f * M_PI * w) / INDICATOR_POSITIONS;
+					int indicator_x = x + (int)((h/2 - 2) * cos(angle));
+					int indicator_y = y + (int)((h/2 - 2) * sin(angle));
+					draw_filled_circle(indicator_x, indicator_y, 2, color);
+				}
+				break;
+			case 100: // Virtual knob (bipolar)
+				draw_circle(x, y, h/2, color, 1);
+				if (w > 0) {
+					float angle = (2.0f * M_PI * w) / INDICATOR_POSITIONS;
+					int indicator_x = x + (int)((h/2 - 2) * cos(angle));
+					int indicator_y = y + (int)((h/2 - 2) * sin(angle));
+					draw_filled_circle(indicator_x, indicator_y, 2, color);
+				}
+				// Draw "-" on the left side
+				int minus_x = x - 10;
+				int minus_y = y + 5;
+				draw_line(minus_x - 1, minus_y, minus_x + 1, minus_y, 0, 1);
+				// Draw "+" on the right side
+				int plus_x = x + 10;
+				int plus_y = y + 5;
+				draw_line(plus_x - 1, plus_y, plus_x + 1, plus_y, 0, 1);
+				draw_line(plus_x, plus_y - 1, plus_x, plus_y + 1, 0, 1);
+				break;
+		}
+	}
+}]]></code.declaration>
+      <code.init><![CDATA[object_table = &parent->instancesketchy__objects_i;
+text_table = &parent->instancesketchy__texts_i;
+param_table = &parent->instancesketchy__params_i;
+font = &parent->instancesketchy__font_i;
+
+palSetPadMode(GPIOB, 8, PAL_MODE_ALTERNATE(4)|PAL_STM32_PUDR_PULLUP|PAL_STM32_OTYPE_OPENDRAIN);
+palSetPadMode(GPIOB, 9, PAL_MODE_ALTERNATE(4)|PAL_STM32_PUDR_PULLUP|PAL_STM32_OTYPE_OPENDRAIN);
+static const I2CConfig i2cfg = {
+    OPMODE_I2C,
+    400000,
+    FAST_DUTY_CYCLE_2,
+};
+i2cStart(&I2CD1, &i2cfg);
+Thd = chThdCreateStatic(waThreadX, sizeof(waThreadX), NORMALPRIO, ThreadX, (void *)this);
+
+clear();
+
+// Initialize 6 shared objects
+// init_shared_objects(); // Temporarily disabled for debugging
+
+pprint = false;
+page = 0;
+layout = 0xFFFF;]]></code.init>
+      <code.dispose><![CDATA[chThdTerminate( Thd );
+chThdWait( Thd );
+i2cStop(&I2CD1);
+palSetPadMode(GPIOB, 8, PAL_MODE_INPUT_ANALOG);
+palSetPadMode(GPIOB, 9, PAL_MODE_INPUT_ANALOG);]]></code.dispose>
+      <code.krate><![CDATA[if (inlet_print && !pprint) {
+	pprint = true;
+	for (uint8_t i = 0; i < parent->instancesketchy__objects_i.LENGTH; i++) {
+		LogTextMessage(
+			"i: %3d, type: %3d, x: %3d, y: %3d, w: %3d, h: %3d, color: %3d, text_id: %3d",
+			i,
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE],
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_X], 
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_Y], 
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_W],
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_H], 
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_COLOR],
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TEXT_ID]
+		);
+	}
+	LogTextMessage("");
+}
+
+if (!inlet_print && pprint) {
+	pprint = false;
+}
+
+if (page != inlet_page) {
+	page = inlet_page;
+}
+if (layout != inlet_layout) {
+	layout = inlet_layout;
+}
+
+outlet_sw = LCDWIDTH;
+outlet_sh = LCDHEIGHT;]]></code.krate>
+   </obj.normal>
+</objdefs> 

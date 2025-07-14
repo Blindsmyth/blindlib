@@ -1,6 +1,6 @@
-<objdefs appVersion="1.0.12">
-   <obj.normal id="sketchy_render_shared_circles" uuid="5224773f-18de-4231-8f92-b1f22bb95374">
-      <sDescription>Memory-optimized renderer that uses 8 shared circle objects instead of creating separate circles for each dial. Reduces object table usage by 88% for dial circles while maintaining full compatibility.</sDescription>
+<objdefs appVersion="1.1.0">
+   <obj.normal id="sketchy_render_kso" uuid="e9a4f8a1-3e79-4fe6-9590-46abee6f9628">
+      <sDescription>Expanded renderer with 16-bit loop variables. Fixes object table iteration limits beyond 255 objects. Drop-in replacement for sketchy_render.</sDescription>
       <author>Karlo Sono</author>
       <license>MIT</license>
       <inlets>
@@ -36,69 +36,74 @@
             </CEntries>
          </combo>
       </attribs>
-      <includes/>
       <depends>
          <depend>SD1</depend>
          <depend>I2CD1</depend>
          <depend>SPID1</depend>
       </depends>
-      <code.declaration><![CDATA[rootc::instancesketchy__objects* object_table;
-rootc::instancesketchy__texts* text_table;
-rootc::instancesketchy__params* param_table;
-rootc::instancesketchy__font* font;
+      <code.declaration><![CDATA[rootc::objectinstance_sketchy__objects* object_table;
+rootc::objectinstance_sketchy__texts* text_table;
+rootc::objectinstance_sketchy__params* param_table;
+rootc::objectinstance_sketchy__font* font;
 
 uint16_t page;
 uint16_t layout;
 
-// ================ SHARED CIRCLE OPTIMIZATION ================
-// Instead of creating 64 circle objects (8 pages × 8 dials), 
-// we create just 8 shared circle objects (one per dial position)
-// This reduces circle objects by 88% while maintaining full compatibility
-
-#define SHARED_CIRCLES 8
-uint16_t shared_circle_ids[SHARED_CIRCLES];
-bool shared_circles_initialized = false;
-
-// Fixed dial positions for shared circles
-const uint8_t DIAL_WIDTH = 24;
-const uint8_t DIAL_HEIGHT = 24;
-const uint8_t ROW1_Y = 13;
-const uint8_t ROW2_Y = 39;
-const uint8_t COL_X[4] = {26, 52, 78, 104};
-
-void init_shared_circles() {
-    if (shared_circles_initialized) return;
-    
-    for (int i = 0; i < SHARED_CIRCLES; i++) {
-        shared_circle_ids[i] = object_table->registerEntry();
-        
-        // Calculate position for this dial slot
-        int x = COL_X[i % 4];
-        int y = (i < 4) ? ROW1_Y : ROW2_Y;
-        bool is_second_row = (i >= 4);
-        int y_offset = is_second_row ? 1 : 0;
-        int cx = x + DIAL_WIDTH/2;
-        int cy = y + y_offset + DIAL_HEIGHT/2 - 6;
-        
-        // Create a static circle object that never changes
-        // Type 101 = shared circle (new type we'll add to renderer)
-        object_table->array[shared_circle_ids[i]][object_table->FIELD_TYPE] = 101;
-        object_table->array[shared_circle_ids[i]][object_table->FIELD_X] = cx;
-        object_table->array[shared_circle_ids[i]][object_table->FIELD_Y] = cy;
-        object_table->array[shared_circle_ids[i]][object_table->FIELD_W] = 0;
-        object_table->array[shared_circle_ids[i]][object_table->FIELD_H] = 0;
-        object_table->array[shared_circle_ids[i]][object_table->FIELD_COLOR] = 0;
-        object_table->array[shared_circle_ids[i]][object_table->FIELD_SCALE] = 1;
-        object_table->array[shared_circle_ids[i]][object_table->FIELD_TEXT_ID] = 0;
-        object_table->array[shared_circle_ids[i]][object_table->FIELD_PAGE] = 0xFFFF; // Always visible
-    }
-    
-    shared_circles_initialized = true;
-}
-
 // ================ VIRTUAL KNOB CONSTANTS ================
 #define CIRCLE_POINTS 38
 #define INDICATOR_POSITIONS 31
+
+// ================ SHARED RING SUPPORT ================
+// 8 shared ring objects for dial reuse optimization
+uint16_t shared_ring_ids[8];
+bool shared_rings_initialized = false;
+
+void init_shared_rings() {
+    if (shared_rings_initialized) return;
+    for (int i = 0; i < 8; i++) {
+        shared_ring_ids[i] = object_table->registerEntry();
+        // Set to hidden by default
+        object_table->array[shared_ring_ids[i]][object_table->FIELD_TYPE] = 0;
+        object_table->array[shared_ring_ids[i]][object_table->FIELD_PAGE] = 0xFFFF;
+    }
+    shared_rings_initialized = true;
+}
+
+void update_shared_rings(int page) {
+    for (int i = 0; i < 8; i++) {
+        // Check if this position should show a ring (dial mode)
+        // This will be set by the dials object
+        bool should_show_ring = false;
+        
+        // For now, show rings at all dial positions
+        // The dials object will control visibility by setting type to 0 or 101
+        should_show_ring = true;
+        
+        if (should_show_ring) {
+            // Calculate position for this dial slot
+            const uint8_t DIAL_WIDTH = 24;
+            const uint8_t DIAL_HEIGHT = 24;
+            const uint8_t ROW1_Y = 13;
+            const uint8_t ROW2_Y = 39;
+            const uint8_t COL_X[4] = {26, 52, 78, 104};
+            
+            int x = COL_X[i % 4];
+            int y = (i < 4) ? ROW1_Y : ROW2_Y;
+            bool is_second_row = (i >= 4);
+            int y_offset = is_second_row ? 1 : 0;
+            int cx = x + DIAL_WIDTH/2;
+            int cy = y + y_offset + DIAL_HEIGHT/2 - 6;
+            
+            object_table->array[shared_ring_ids[i]][object_table->FIELD_TYPE] = 101; // Shared ring type
+            object_table->array[shared_ring_ids[i]][object_table->FIELD_PAGE] = page;
+            object_table->array[shared_ring_ids[i]][object_table->FIELD_X] = cx;
+            object_table->array[shared_ring_ids[i]][object_table->FIELD_Y] = cy;
+        } else {
+            object_table->array[shared_ring_ids[i]][object_table->FIELD_TYPE] = 0;
+            object_table->array[shared_ring_ids[i]][object_table->FIELD_PAGE] = 0xFFFF;
+        }
+    }
+}
 
 enum SSD1306 {
 	LCDWIDTH            = 128,
@@ -155,6 +160,8 @@ void sendPage(int page) {
 	txbuf[0] = 0x40;
 	memcpy(txbuf + 1, pixels[page], LCDWIDTH);
 	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 129, rxbuf, 0, 30);
+    
+    chThdSleepMilliseconds(1);  // Add 1ms delay between pages
 }
 
 void init() {
@@ -194,7 +201,7 @@ msg_t ThreadX2() {
 		for (i = 0; i < 8; i++) {
 			sendPage(i);
 		}
-		chThdSleepMilliseconds(32);
+		chThdSleepMilliseconds(64);
 	}
 	chThdExit((msg_t)0);
 }
@@ -277,12 +284,12 @@ void draw_line(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t color, ui
 }
 
 void draw_string_from_index(int text_id, int16_t x, int16_t y, int16_t w, int16_t h, uint8_t color, bool center, bool center_v = false, uint8_t scale = 1) __attribute__ ((noinline)) {
-    const char* str = parent->instancesketchy__texts_i.array[text_id];
+    const char* str = text_table->array[text_id];
     int16_t char_width = 5;
     int16_t char_spacing = 1;
     int16_t total_char_width = char_width + char_spacing;
     int16_t char_height = font->height;
-    size_t max_length = parent->instancesketchy__texts_i.STRING_LENGTH;
+    size_t max_length = text_table->STRING_LENGTH;
 
     int total_lines = 0;
     if (center_v) {
@@ -441,53 +448,53 @@ void draw_filled_rounded_rect(int16_t x, int16_t y, int16_t w, int16_t h, uint8_
 }
 
 void render() __attribute__ ((noinline)) {
-	for (uint8_t i = 0; i < parent->instancesketchy__objects_i.LENGTH; i++) {
-		if (parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE] == parent->instancesketchy__objects_i.TYPE_INVISIBLE) {
+	for (uint16_t i = 0; i < object_table->LENGTH; i++) {
+		if (object_table->array[i][object_table->FIELD_TYPE] == object_table->TYPE_INVISIBLE) {
 			continue;
 		}
-		uint16_t current_object_page = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_PAGE];
+		uint16_t current_object_page = object_table->array[i][object_table->FIELD_PAGE];
 		if (current_object_page != page && current_object_page != layout) {
 			continue;
 		}
 		
-		int16_t x = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_X];
-		int16_t y = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_Y];
-		int16_t w = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_W];
-		int16_t h = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_H];
-		uint8_t color = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_COLOR];
-		uint8_t scale = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_SCALE];
+		int16_t x = object_table->array[i][object_table->FIELD_X];
+		int16_t y = object_table->array[i][object_table->FIELD_Y];
+		int16_t w = object_table->array[i][object_table->FIELD_W];
+		int16_t h = object_table->array[i][object_table->FIELD_H];
+		uint8_t color = object_table->array[i][object_table->FIELD_COLOR];
+		uint8_t scale = object_table->array[i][object_table->FIELD_SCALE];
 
-		switch (parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE]) {
-			case parent->instancesketchy__objects_i.TYPE_RECT:
+		switch (object_table->array[i][object_table->FIELD_TYPE]) {
+			case object_table->TYPE_RECT:
 				draw_rect(x, y, w, h, color, scale);
 				break;
-			case parent->instancesketchy__objects_i.TYPE_FILLED_RECT:
+			case parent->objectinstance_sketchy__objects_i.TYPE_FILLED_RECT:
 				draw_filled_rect(x, y, w, h, color, scale);
 				break;
-			case parent->instancesketchy__objects_i.TYPE_ROUNDED_RECT:
+			case parent->objectinstance_sketchy__objects_i.TYPE_ROUNDED_RECT:
 				draw_rounded_rect(x, y, w, h, color, scale);
 				break;
-			case parent->instancesketchy__objects_i.TYPE_FILLED_ROUNDED_RECT:
+			case parent->objectinstance_sketchy__objects_i.TYPE_FILLED_ROUNDED_RECT:
 				draw_filled_rounded_rect(x, y, w, h, color, scale);
 				break;
-			case parent->instancesketchy__objects_i.TYPE_LINE:
-				if (i > 0 && parent->instancesketchy__objects_i.array[i - 1][parent->instancesketchy__objects_i.FIELD_TYPE] == parent->instancesketchy__objects_i.TYPE_LINE) {
-					int16_t prev_x = parent->instancesketchy__objects_i.array[i - 1][parent->instancesketchy__objects_i.FIELD_X];
-					int16_t prev_y = parent->instancesketchy__objects_i.array[i - 1][parent->instancesketchy__objects_i.FIELD_Y];
+			case object_table->TYPE_LINE:
+				if (i > 0 && object_table->array[i - 1][object_table->FIELD_TYPE] == object_table->TYPE_LINE) {
+					int16_t prev_x = object_table->array[i - 1][object_table->FIELD_X];
+					int16_t prev_y = object_table->array[i - 1][object_table->FIELD_Y];
 					draw_line(prev_x, prev_y, x, y, color, scale);
 				}
 				break;
-			case parent->instancesketchy__objects_i.TYPE_TEXT:
-				draw_string_from_index(parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TEXT_ID], x, y, w, h, color, false, false, scale);
+			case object_table->TYPE_TEXT:
+				draw_string_from_index(object_table->array[i][object_table->FIELD_TEXT_ID], x, y, w, h, color, false, false, scale);
 				break;
-			case parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_X:
-				draw_string_from_index(parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TEXT_ID], x, y, w, h, color, true, false, scale);
+			case object_table->TYPE_TEXT_CENTER_X:
+				draw_string_from_index(object_table->array[i][object_table->FIELD_TEXT_ID], x, y, w, h, color, true, false, scale);
 				break;
-			case parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_Y:
-				draw_string_from_index(parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TEXT_ID], x, y, w, h, color, false, true, scale);
+			case object_table->TYPE_TEXT_CENTER_Y:
+				draw_string_from_index(object_table->array[i][object_table->FIELD_TEXT_ID], x, y, w, h, color, false, true, scale);
 				break;
-			case parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_BOTH:
-				draw_string_from_index(parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TEXT_ID], x, y, w, h, color, true, true, scale);
+			case object_table->TYPE_TEXT_CENTER_BOTH:
+				draw_string_from_index(object_table->array[i][object_table->FIELD_TEXT_ID], x, y, w, h, color, true, true, scale);
 				break;
 				
 			case 99: // VIRTUAL KNOB TYPE (unipolar)
@@ -536,8 +543,8 @@ void render() __attribute__ ((noinline)) {
 					draw_indicator_line(cx, cy, indicator_index);
 				}
 				break;
-			
-			case 101: // SHARED CIRCLE TYPE (new)
+				
+			case 101: // SHARED RING TYPE
 				{
 					// x, y = center coordinates
 					// Just draw the circle - no indicator or bipolar markers
@@ -552,38 +559,8 @@ void render() __attribute__ ((noinline)) {
 					}
 				}
 				break;
-			
-			case 102: // INDICATOR ONLY (for shared circles)
-				{
-					// x, y = center coordinates
-					// w = indicator_index 
-					int cx = x;
-					int cy = y + 1;  // Move dial elements down by 1 pixel
-					int indicator_index = w;
-					
-					// Draw only the indicator line (circle is handled by shared objects)
-					draw_indicator_line(cx, cy, indicator_index);
-				}
-				break;
-			
-			case 103: // INDICATOR + BIPOLAR MARKERS (for shared circles)
-				{
-					// x, y = center coordinates
-					// w = indicator_index 
-					int cx = x;
-					int cy = y + 1;  // Move dial elements down by 1 pixel
-					int indicator_index = w;
-					
-					// Draw bipolar indicators (- and + at edges)
-					draw_bipolar_indicators(cx, cy);
-					
-					// Draw indicator line (circle is handled by shared objects)
-					draw_indicator_line(cx, cy, indicator_index);
-				}
-				break;
 		}
 	}
-	parent->instancesketchy__objects_i.dirty = false;
 }
 
 uint16_t getCurrentPage() __attribute__ ((noinline)) {
@@ -659,9 +636,9 @@ typedef struct {
 } bar_t;
 
 void bar_init(bar_t* bar) __attribute__ ((noinline)) { 
-   rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
-   rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
-   rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+   rootc::objectinstance_sketchy__objects* object_table = &parent->objectinstance_sketchy__objects_i;
+   rootc::objectinstance_sketchy__texts* text_table = &parent->objectinstance_sketchy__texts_i;
+   rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
 
        // Calculate vertical offset for bars: positions 0-3 up 1px, positions 4-7 no offset
     bool is_second_row = (bar->y >= 32);
@@ -736,9 +713,9 @@ void bar_init(bar_t* bar) __attribute__ ((noinline)) {
 }
 
 void bar_update(bar_t* bar) __attribute__ ((noinline)) {
-   rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
-   rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
-   rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+   rootc::objectinstance_sketchy__objects* object_table = &parent->objectinstance_sketchy__objects_i;
+   rootc::objectinstance_sketchy__texts* text_table = &parent->objectinstance_sketchy__texts_i;
+   rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
 	
    int32_t value = param_table->array[bar->page][bar->param];
 
@@ -803,9 +780,9 @@ typedef struct {
 } select_t;
 
 void select_init(select_t* select) __attribute__ ((noinline)) { 
-   rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
-   rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
-   rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+   rootc::objectinstance_sketchy__objects* object_table = &parent->objectinstance_sketchy__objects_i;
+   rootc::objectinstance_sketchy__texts* text_table = &parent->objectinstance_sketchy__texts_i;
+   rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
 
    // Calculate vertical offset for alignment: positions 0-3 up 1px, positions 4-7 no offset
    bool is_second_row = (select->y >= 32);
@@ -865,9 +842,9 @@ void select_init(select_t* select) __attribute__ ((noinline)) {
 }
 
 void select_update(select_t* select) __attribute__ ((noinline)) {
-   rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
-   rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
-   rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+   rootc::objectinstance_sketchy__objects* object_table = &parent->objectinstance_sketchy__objects_i;
+   rootc::objectinstance_sketchy__texts* text_table = &parent->objectinstance_sketchy__texts_i;
+   rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
 	
    int32_t value = param_table->array[select->page][select->param];
    int option_index = 0;
@@ -913,9 +890,9 @@ typedef struct {
 } intdisplay_t;
 
 void intdisplay_init(intdisplay_t* disp) __attribute__ ((noinline)) {
-    rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
-    rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
-    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+    rootc::objectinstance_sketchy__objects* object_table = &parent->objectinstance_sketchy__objects_i;
+    rootc::objectinstance_sketchy__texts* text_table = &parent->objectinstance_sketchy__texts_i;
+    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
 
     // Calculate vertical offset for alignment: positions 0-3 up 1px, positions 4-7 no offset
     bool is_second_row = (disp->y >= 32);
@@ -966,9 +943,9 @@ void intdisplay_init(intdisplay_t* disp) __attribute__ ((noinline)) {
 }
 
 void intdisplay_update(intdisplay_t* disp) __attribute__ ((noinline)) {
-    rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
-    rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
-    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+    rootc::objectinstance_sketchy__objects* object_table = &parent->objectinstance_sketchy__objects_i;
+    rootc::objectinstance_sketchy__texts* text_table = &parent->objectinstance_sketchy__texts_i;
+    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
 
     int32_t value = param_table->array[disp->page][disp->param];
     if (value == disp->last_value) {
@@ -1054,15 +1031,12 @@ typedef struct {
 
 void dial_init(dial_t* dial) __attribute__ ((noinline)) { 
     // Get table pointers
-    rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
-    rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
-    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+    rootc::objectinstance_sketchy__objects* object_table = &parent->objectinstance_sketchy__objects_i;
+    rootc::objectinstance_sketchy__texts* text_table = &parent->objectinstance_sketchy__texts_i;
+    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
 
-    // Initialize shared circles if not done yet
-    init_shared_circles();
-
-    // Register and get ids - only need indicator and label now (circle is shared)
-    dial->box_object_id = object_table->registerEntry();  // This will be the indicator
+    // Register and get ids
+    dial->box_object_id = object_table->registerEntry();
     dial->label_object_id = object_table->registerEntry();
     dial->label_text_id = text_table->registerEntry();
 
@@ -1102,9 +1076,9 @@ void dial_init(dial_t* dial) __attribute__ ((noinline)) {
 
 void dial_update(dial_t* dial) __attribute__ ((noinline)) {
     // Get table pointers 
-    rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
-    rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
-    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+    rootc::objectinstance_sketchy__objects* object_table = &parent->objectinstance_sketchy__objects_i;
+    rootc::objectinstance_sketchy__texts* text_table = &parent->objectinstance_sketchy__texts_i;
+    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
 
     int32_t value = param_table->array[dial->page][dial->param];
 
@@ -1151,11 +1125,10 @@ void dial_update(dial_t* dial) __attribute__ ((noinline)) {
     if (indicator_index < 0) indicator_index = 0;
     if (indicator_index >= INDICATOR_POSITIONS) indicator_index = INDICATOR_POSITIONS - 1;
     
-    // Store indicator data in object table for rendering
-    // Type 102 = indicator only (circle is handled by shared objects)
-    // Type 103 = indicator + bipolar markers
-    int indicator_type = dial->is_bipolar ? 103 : 102;
-    object_table->array[dial->box_object_id][object_table->FIELD_TYPE] = indicator_type;
+    // Store knob data in object table for rendering
+    // Type 99 = regular knob, Type 100 = bipolar knob with +/- indicators
+    int knob_type = dial->is_bipolar ? 100 : 99;
+    object_table->array[dial->box_object_id][object_table->FIELD_TYPE] = knob_type;
     object_table->array[dial->box_object_id][object_table->FIELD_X] = cx;    // Center X
     object_table->array[dial->box_object_id][object_table->FIELD_Y] = cy;    // Center Y
     object_table->array[dial->box_object_id][object_table->FIELD_W] = indicator_index; // Store indicator position
@@ -1164,25 +1137,25 @@ void dial_update(dial_t* dial) __attribute__ ((noinline)) {
     // Update label text
     strcpy(text_table->array[dial->label_text_id], dial->label);
 }]]></code.declaration>
-      <code.init><![CDATA[object_table = &parent->instancesketchy__objects_i;
-text_table = &parent->instancesketchy__texts_i;
-param_table = &parent->instancesketchy__params_i;
-font = &parent->instancesketchy__font_i;
+      <code.init><![CDATA[object_table = &parent->objectinstance_sketchy__objects_i;
+text_table = &parent->objectinstance_sketchy__texts_i;
+param_table = &parent->objectinstance_sketchy__params_i;
+font = &parent->objectinstance_sketchy__font_i;
 
 palSetPadMode(GPIOB, 8, PAL_MODE_ALTERNATE(4)|PAL_STM32_PUDR_PULLUP|PAL_STM32_OTYPE_OPENDRAIN);
 palSetPadMode(GPIOB, 9, PAL_MODE_ALTERNATE(4)|PAL_STM32_PUDR_PULLUP|PAL_STM32_OTYPE_OPENDRAIN);
 static const I2CConfig i2cfg = {
     OPMODE_I2C,
-    400000,
-    FAST_DUTY_CYCLE_2,
+    100000,  // Change from 400000 to 100000
+    STD_DUTY_CYCLE,  // Change from FAST_DUTY_CYCLE_2 to STD_DUTY_CYCLE
 };
 i2cStart(&I2CD1, &i2cfg);
 Thd = chThdCreateStatic(waThreadX, sizeof(waThreadX), NORMALPRIO, ThreadX, (void *)this);
 
 clear();
 
-// Initialize shared circles
-init_shared_circles();
+// Initialize shared rings
+init_shared_rings();
 
 pprint = false;
 page = 0;
@@ -1194,17 +1167,17 @@ palSetPadMode(GPIOB, 8, PAL_MODE_INPUT_ANALOG);
 palSetPadMode(GPIOB, 9, PAL_MODE_INPUT_ANALOG);]]></code.dispose>
       <code.krate><![CDATA[if (inlet_print && !pprint) {
 	pprint = true;
-	for (uint8_t i = 0; i < parent->instancesketchy__objects_i.LENGTH; i++) {
+	for (uint16_t i = 0; i < object_table->LENGTH; i++) {
 		LogTextMessage(
 			"i: %3d, type: %3d, x: %3d, y: %3d, w: %3d, h: %3d, color: %3d, text_id: %3d",
 			i,
-			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE],
-			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_X], 
-			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_Y], 
-			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_W],
-			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_H], 
-			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_COLOR],
-			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TEXT_ID]
+			object_table->array[i][object_table->FIELD_TYPE],
+			object_table->array[i][object_table->FIELD_X], 
+			object_table->array[i][object_table->FIELD_Y], 
+			object_table->array[i][object_table->FIELD_W],
+			object_table->array[i][object_table->FIELD_H], 
+			object_table->array[i][object_table->FIELD_COLOR],
+			object_table->array[i][object_table->FIELD_TEXT_ID]
 		);
 	}
 	LogTextMessage("");

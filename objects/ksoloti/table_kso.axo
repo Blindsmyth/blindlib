@@ -1,0 +1,54 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="table" uuid="39bcfc76-6bf8-4feb-b389-42c579eef256">
+      <sDescription>Allocate table in RAM memory for visual objects. These objects can be drawn to a OLED screen using the sketchy/renderer.</sDescription>
+      <author>Karlo Sono</author>
+      <license>MIT</license>
+      <inlets/>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs>
+         <text name="init" description="Edit to pre-define some objects when patch starts"/>
+         <spinner name="entries" description="Maximum amount of display objects" MinValue="1" MaxValue="1024" DefaultValue="32"/>
+      </attribs>
+      <code.declaration><![CDATA[static const uint32_t LENGTH = attr_entries;
+
+static const uint8_t COLOR_BRIGHT = 0;
+static const uint8_t COLOR_DARK = 1;
+static const uint8_t COLOR_INVERT = 2;
+
+static const uint8_t TYPE_INVISIBLE = 0;
+static const uint8_t TYPE_RECT = 1;
+static const uint8_t TYPE_FILLED_RECT = 2;
+static const uint8_t TYPE_ROUNDED_RECT = 3;
+static const uint8_t TYPE_FILLED_ROUNDED_RECT = 4;
+static const uint8_t TYPE_LINE = 5;
+static const uint8_t TYPE_TEXT = 6;
+static const uint8_t TYPE_TEXT_CENTER_X = 7;
+static const uint8_t TYPE_TEXT_CENTER_Y = 8;
+static const uint8_t TYPE_TEXT_CENTER_BOTH = 9;
+
+static const uint8_t FIELD_TYPE = 0;
+static const uint8_t FIELD_X = 1;
+static const uint8_t FIELD_Y = 2;
+static const uint8_t FIELD_W = 3;
+static const uint8_t FIELD_H = 4;
+static const uint8_t FIELD_COLOR = 5;
+static const uint8_t FIELD_SCALE = 6;
+static const uint8_t FIELD_TEXT_ID = 7;
+static const uint8_t NUM_FIELDS = 8;
+
+int16_t array[LENGTH][NUM_FIELDS];
+bool dirty;]]></code.declaration>
+      <code.init><![CDATA[dirty = true;
+array[LENGTH][NUM_FIELDS] = {};
+
+for (uint16_t i = 0; i < LENGTH; i++) {
+	for (uint16_t j = 0; j < NUM_FIELDS; j++) {
+		array[i][j] = 0;
+	}
+}
+
+attr_init;]]></code.init>
+   </obj.normal>
+</objdefs>

@@ -1,0 +1,18 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="int param get" uuid="15dd0345-8a78-4bde-9dc2-ccacf06ac298">
+      <license>GPL</license>
+      <inlets/>
+      <outlets>
+         <int32 name="value"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="page" MinValue="-127" MaxValue="127" DefaultValue="0"/>
+         <spinner name="param" MinValue="0" MaxValue="127" DefaultValue="0"/>
+      </attribs>
+      <code.declaration><![CDATA[rootc::instancesketchy__params* param_table;]]></code.declaration>
+      <code.init><![CDATA[param_table = &parent->instancesketchy__params_i;]]></code.init>
+      <code.krate><![CDATA[outlet_value = param_table->array[attr_page][attr_param];]]></code.krate>
+   </obj.normal>
+</objdefs>

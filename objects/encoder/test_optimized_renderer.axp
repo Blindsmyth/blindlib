@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<axoloti>
+  <patch>
+    <objdefs>
+      <obj.normal id="test_optimized" uuid="12345678-1234-1234-1234-123456789abc">
+        <sDescription>Simple test for optimized renderer</sDescription>
+        <author>AI Assistant</author>
+        <license>MIT</license>
+        <inlets/>
+        <outlets/>
+        <displays/>
+        <params/>
+        <attribs/>
+        <includes/>
+        <depends>
+          <depend>sketchy_render_optimized</depend>
+          <depend>sketchy_objects</depend>
+          <depend>sketchy_texts</depend>
+          <depend>sketchy_params</depend>
+          <depend>sketchy_font</depend>
+        </depends>
+        <code.declaration><![CDATA[
+// Simple test - just show a white rectangle
+void test_render() {
+    // Draw a simple white rectangle in the center
+    draw_filled_rect(50, 25, 28, 14, 1);
+}
+]]></code.declaration>
+        <code.init><![CDATA[
+// Initialize tables
+parent->instancesketchy__objects_i.init();
+parent->instancesketchy__texts_i.init();
+parent->instancesketchy__params_i.init();
+parent->instancesketchy__font_i.init();
+]]></code.init>
+        <code.dispose><![CDATA[
+// Cleanup
+]]></code.dispose>
+        <code.krate><![CDATA[
+// Test the renderer
+test_render();
+]]></code.krate>
+      </obj.normal>
+    </objdefs>
+    <connections/>
+    <displays/>
+    <inlets/>
+    <outlets/>
+    <params/>
+    <attribs/>
+    <includes/>
+    <depends>
+      <depend>sketchy_render_optimized</depend>
+      <depend>sketchy_objects</depend>
+      <depend>sketchy_texts</depend>
+      <depend>sketchy_params</depend>
+      <depend>sketchy_font</depend>
+    </depends>
+  </patch>
+</axoloti> 

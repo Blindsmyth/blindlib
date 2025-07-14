@@ -1,0 +1,2857 @@
+<patch-1.0 appVersion="1.1.0">
+   <patchobj type="patch/object" uuid="085a4cdd-b870-46bb-b1e3-1c29cb983e98" name="sketchy_objects" x="322" y="28">
+      <params/>
+      <attribs>
+         <text attributeName="init">
+            <sText><![CDATA[]]></sText>
+         </text>
+         <spinner attributeName="entries" value="500"/>
+      </attribs>
+      <object id="patch/object" uuid="085a4cdd-b870-46bb-b1e3-1c29cb983e98">
+         <sDescription>Allocate table in RAM memory for visual objects. These objects can be drawn to a OLED screen using the sketchy/renderer.</sDescription>
+         <author>Karlo Sono</author>
+         <license>MIT</license>
+         <inlets>
+            <bool32 name="print"/>
+         </inlets>
+         <outlets/>
+         <displays/>
+         <params/>
+         <attribs>
+            <text name="init" description="Edit to pre-define some objects when patch starts"/>
+            <spinner name="entries" description="Maximum amount of display objects" MinValue="1" MaxValue="1024" DefaultValue="32"/>
+         </attribs>
+         <includes/>
+         <code.declaration><![CDATA[static const uint32_t LENGTH = attr_entries;
+
+static const uint8_t COLOR_BRIGHT = 0;
+static const uint8_t COLOR_DARK = 1;
+static const uint8_t COLOR_INVERT = 2;
+
+static const uint8_t TYPE_INVISIBLE = 0;
+static const uint8_t TYPE_RECT = 1;
+static const uint8_t TYPE_FILLED_RECT = 2;
+static const uint8_t TYPE_ROUNDED_RECT = 3;
+static const uint8_t TYPE_FILLED_ROUNDED_RECT = 4;
+static const uint8_t TYPE_LINE = 5;
+static const uint8_t TYPE_TEXT = 6;
+static const uint8_t TYPE_TEXT_CENTER_X = 7;
+static const uint8_t TYPE_TEXT_CENTER_Y = 8;
+static const uint8_t TYPE_TEXT_CENTER_BOTH = 9;
+
+static const uint8_t FIELD_TYPE = 0;
+static const uint8_t FIELD_X = 1;
+static const uint8_t FIELD_Y = 2;
+static const uint8_t FIELD_W = 3;
+static const uint8_t FIELD_H = 4;
+static const uint8_t FIELD_COLOR = 5;
+static const uint8_t FIELD_SCALE = 6;
+static const uint8_t FIELD_TEXT_ID = 7;
+static const uint8_t FIELD_PAGE = 8;
+static const uint8_t NUM_FIELDS = 9;
+
+int16_t (*array)[NUM_FIELDS];
+bool pprint = false;
+bool dirty;
+uint16_t next_free_slot;
+
+uint16_t registerEntry() {
+    if (next_free_slot >= LENGTH) {
+        LogTextMessage("WARNING: object table is full! Reusing last available slot!");
+        return LENGTH - 1;  
+    }
+
+    uint32_t slot = next_free_slot;
+    next_free_slot++;
+    return slot;
+}]]></code.declaration>
+         <code.init><![CDATA[dirty = true;
+next_free_slot = 0;
+
+static int16_t _array[LENGTH][NUM_FIELDS] __attribute__ ((section (".sdram")));
+array = _array;
+
+memset(_array, 0, sizeof(_array));
+
+attr_init;]]></code.init>
+         <code.krate><![CDATA[if (!pprint && inlet_print) {
+	for (uint16_t i = 0; i < next_free_slot; i++) {
+		LogTextMessage("object[%d] page: %d, type: %d, x: %d, y: %d, w: %d, h: %d", 
+			i, 
+			array[i][FIELD_PAGE], 
+			array[i][FIELD_TYPE], 
+			array[i][FIELD_X], 
+			array[i][FIELD_Y],
+			array[i][FIELD_W],
+			array[i][FIELD_H]);
+	}
+}
+
+pprint = inlet_print;]]></code.krate>
+      </object>
+   </patchobj>
+   <patchobj type="patch/object" uuid="885eb1fc-8caa-45f5-9908-8d1fb2c59880" name="sketchy_texts" x="448" y="28">
+      <params/>
+      <attribs>
+         <text attributeName="init">
+            <sText><![CDATA[]]></sText>
+         </text>
+         <spinner attributeName="entries" value="1024"/>
+         <spinner attributeName="length" value="10"/>
+      </attribs>
+      <object id="patch/object" uuid="885eb1fc-8caa-45f5-9908-8d1fb2c59880">
+         <sDescription>Allocate table in RAM memory for texts to be displayed on an OLED screen. They can be drawn to the screen using the sketchy/renderer and also have to be defined as sketchy/table/objects.</sDescription>
+         <author>Karlo Sono</author>
+         <license>MIT</license>
+         <inlets>
+            <bool32 name="print"/>
+         </inlets>
+         <outlets/>
+         <displays/>
+         <params/>
+         <attribs>
+            <text name="init"/>
+            <spinner name="entries" description="Maximum amount of strings that fit in table" MinValue="0" MaxValue="1024" DefaultValue="32"/>
+            <spinner name="length" description="Maximum amount of characters in each string" MinValue="8" MaxValue="128" DefaultValue="32"/>
+         </attribs>
+         <includes/>
+         <code.declaration><![CDATA[static const uint32_t LENGTH = attr_entries;
+static const uint8_t STRING_LENGTH = attr_length;
+
+char (*array)[STRING_LENGTH];
+
+bool dirty;
+bool pprint = false;
+uint16_t next_free_slot;
+
+uint16_t registerEntry() {
+    if (next_free_slot >= LENGTH) {
+        LogTextMessage("WARNING: object table is full! Reusing last available slot!");
+        return LENGTH - 1;  
+    }
+
+    uint32_t slot = next_free_slot;
+    next_free_slot++;
+    return slot;
+}
+
+void itoa(char* str, int32_t num) {
+    char* ptr = str;
+    uint32_t unum;
+    
+    // Handle negative numbers
+    if (num < 0) {
+        *ptr++ = '-';
+        unum = -num;
+    } else {
+        unum = num;
+    }
+    
+    // Calculate digits in reverse order
+    char temp[11];  // Max 10 digits for 32-bit int + null
+    char* tp = temp;
+    
+    do {
+        // Use faster multiply/shift instead of division
+        uint32_t remainder = unum - ((unum * 0xCCCD) >> 19) * 10;
+        *tp++ = remainder + '0';
+        unum = (unum * 0xCCCD) >> 19;  // Divide by 10
+    } while (unum > 0);
+    
+    // Copy reversed digits to output
+    while (tp > temp) {
+        *ptr++ = *--tp;
+    }
+    *ptr = '\0';
+}]]></code.declaration>
+         <code.init><![CDATA[dirty = true;
+
+static char _array[LENGTH][STRING_LENGTH] __attribute__ ((section (".sdram")));
+array = _array;
+
+next_free_slot=0;
+
+attr_init;]]></code.init>
+         <code.krate><![CDATA[if (!pprint && inlet_print) {
+	for (uint16_t i = 0; i < next_free_slot; i++) {
+		LogTextMessage("text[%d]: %s", i, array[i]);
+	}
+}
+
+pprint = inlet_print;]]></code.krate>
+      </object>
+   </patchobj>
+   <patchobj type="patch/object" uuid="242fe5d4-66c6-4d46-94dd-fa4b24ba02d9" name="sketchy_params" x="560" y="28">
+      <params/>
+      <attribs>
+         <text attributeName="init">
+            <sText><![CDATA[]]></sText>
+         </text>
+         <spinner attributeName="pages" value="8"/>
+         <spinner attributeName="params" value="32"/>
+      </attribs>
+      <object id="patch/object" uuid="242fe5d4-66c6-4d46-94dd-fa4b24ba02d9">
+         <sDescription>Allocate table in RAM memory for visual objects. These objects can be drawn to a OLED screen using the sketchy/renderer.</sDescription>
+         <author>Karlo Sono</author>
+         <license>MIT</license>
+         <inlets>
+            <bool32 name="print"/>
+         </inlets>
+         <outlets/>
+         <displays/>
+         <params/>
+         <attribs>
+            <text name="init" description="Edit to pre-define some objects when patch starts"/>
+            <spinner name="pages" description="Number of pages" MinValue="1" MaxValue="128" DefaultValue="8"/>
+            <spinner name="params" description="Number of parameters per page" MinValue="1" MaxValue="128" DefaultValue="128"/>
+         </attribs>
+         <includes/>
+         <code.declaration><![CDATA[static const uint32_t NUM_PAGES = attr_pages;    // First dimension
+static const uint32_t NUM_PARAMS = attr_params;  // Second dimension
+static const uint32_t BITS = 32;
+static const uint32_t GAIN = 0;
+
+// 2D array with distinct dimensions
+//int32_t array[NUM_PAGES][NUM_PARAMS];
+int32_t (*array)[NUM_PARAMS];
+
+bool pprint = false;
+bool is_ready = false;]]></code.declaration>
+         <code.init><![CDATA[static int32_t _array[NUM_PAGES][NUM_PARAMS] __attribute__ ((section (".sdram")));
+array = _array;
+
+// Initialize all params with 0 on startup
+memset(array, 0, NUM_PAGES * NUM_PARAMS * sizeof(array[0][0]));
+
+attr_init;]]></code.init>
+         <code.krate><![CDATA[if (!pprint && inlet_print) {
+	for (uint16_t page = 0; page < NUM_PAGES; page++) {
+		for (uint16_t param = 0; param < NUM_PARAMS; param++) {
+			LogTextMessage("page[%d] param[%d] = %.2f", page, param, array[page][param]/(float)0x00200000);
+		}
+	}
+}
+
+pprint = inlet_print;]]></code.krate>
+      </object>
+   </patchobj>
+   <patchobj type="patch/object" uuid="931dc442-c049-4b81-a606-d7dd64a1d844" name="sketchy_font" x="686" y="28">
+      <params/>
+      <attribs/>
+      <object id="patch/object" uuid="931dc442-c049-4b81-a606-d7dd64a1d844">
+         <license>GPL</license>
+         <inlets/>
+         <outlets/>
+         <displays/>
+         <params/>
+         <attribs/>
+         <includes/>
+         <code.declaration><![CDATA[#define SKETCHY_FONT_HEIGHT 8
+#define SKETCHY_FONT_WIDTH 5
+#define SKETCHY_FONT_CHARACTERS 96
+
+#define SKETCHY_FONT_DATA_SIZE (SKETCHY_FONT_CHARACTERS * SKETCHY_FONT_WIDTH)
+
+const uint8_t height = SKETCHY_FONT_HEIGHT;
+const uint8_t width = SKETCHY_FONT_WIDTH;
+const uint8_t characters = SKETCHY_FONT_CHARACTERS;
+
+const uint8_t data[SKETCHY_FONT_DATA_SIZE] = {
+    //   32
+    0b00000000, //
+    0b00000000, //
+    0b00000000, //
+    0b00000000, //
+    0b00000000, //
+
+    // ! 33
+    0b00000000, //
+    0b01011110, // XX  XXXXXXXX
+    0b00000000, //
+    0b00000000, //
+    0b00000000, //
+
+    // " 34
+    0b00000000, //
+    0b00000110, //         XXXX
+    0b00000000, //
+    0b00000110, //         XXXX
+    0b00000000, //
+
+    // # 35
+    0b00100100, //   XX    XX
+    0b01111110, // XXXXXXXXXXXX
+    0b00100100, //   XX    XX
+    0b01111110, // XXXXXXXXXXXX
+    0b00100100, //   XX    XX
+
+    // $ 36                      <---------------------
+    0b01111111, // XXXXXXXXXXXXXXXX
+    0b00100110, //   XX    XXXX
+    0b00101000, //   XX  XX
+    0b00011000, //     XX
+    0b00000000, //
+
+    // % 37
+    0b01000100, // XX      XX
+    0b00100000, //   XX
+    0b00010000, //     XX
+    0b00001000, //       XX
+    0b01000100, // XX      XX
+
+    // & 38
+    0b00110100, //   XXXX  XX
+    0b01001010, // XX    XX  XX
+    0b01010100, // XX  XX  XX
+    0b00100000, //   XX
+    0b01010000, // XX  XX
+
+    // ' 39
+    0b00000000, //
+    0b00000000, //
+    0b00000100, //             XX
+    0b00000010, //               XX
+    0b00000000, //
+
+    // ( 40
+    0b00000000, //
+    0b00000000, //
+    0b00111100, //   XXXXXXXX
+    0b01000010, // XX        XX
+    0b00000000, //
+
+    // ) 41
+    0b00000000, //
+    0b01000010, // XX        XX
+    0b00111100, //   XXXXXXXX
+    0b00000000, //
+    0b00000000, //
+
+    // * 42
+    0b00010000, //     XX
+    0b01010100, // XX  XX  XX
+    0b00111000, //   XXXXXX
+    0b01010100, // XX  XX  XX
+    0b00010000, //     XX
+
+    // + 43
+    0b00010000, //     XX
+    0b00010000, //     XX
+    0b01111100, // XXXXXXXXXX
+    0b00010000, //     XX
+    0b00010000, //     XX
+
+    // , 44
+    0b01000000, // XX
+    0b00110000, //   XXXX
+    0b00000000, //
+    0b00000000, //
+    0b00000000, //
+
+    // - 45
+    0b00000000, //
+    0b00000000, //
+    0b00010000, //     XX
+    0b00010000, //     XX
+    0b00010000, //     XX
+
+    // . 46
+    0b00000000, //
+    0b01100000, // XXXX
+    0b01100000, // XXXX
+    0b00000000, //
+    0b00000000, //
+
+    // / 47
+    0b00100000, //   XX
+    0b00010000, //     XX
+    0b00001000, //       XX
+    0b00000100, //         XX
+    0b00000010, //           XX
+
+    // 0 48
+    0b00111100, //   XXXXXXXX
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+    0b00111100, //   XXXXXXXX
+
+    // 1 49
+    0b01000100, // XX      XX
+    0b01000010, // XX        XX
+    0b01111110, // XXXXXXXXXXXX
+    0b01000000, // XX
+    0b01000000, // XX
+
+    // 2 50
+    0b01100100, // XXXX    XX
+    0b01010010, // XX  XX    XX
+    0b01010010, // XX  XX    XX
+    0b01010010, // XX  XX    XX
+    0b01001100, // XX    XXXX
+
+    // 3 51
+    0b00100100, //   XX    XX
+    0b01000010, // XX        XX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b00110100, //   XXXX  XX
+
+    // 4 52
+    0b00011000, //    XXXX
+    0b00010100, //    XX  XX
+    0b01111110, // XXXXXXXXXXXX
+    0b00010000, //    XX
+    0b00010000, //    XX
+
+    // 5 53
+    0b00101110, //   XX  XXXXXX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b00110010, //   XXXX    XX
+
+    // 6 54
+    0b00111100, //   XXXXXXXX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b00110000, //   XXXX
+
+    // 7 55
+    0b00000010, //           XX
+    0b01100010, // XXXX      XX
+    0b00010010, //     XX    XX
+    0b00001010, //       XX  XX
+    0b00000110, //         XXXX
+
+    // 8 56
+    0b00110100, //   XXXX  XX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b00110100, //   XXXX  XX
+
+    // 9 57
+    0b00001100, //       XXXX
+    0b01010010, // XX  XX    XX
+    0b01010010, // XX  XX    XX
+    0b01010010, // XX  XX    XX
+    0b00111100, //   XXXXXXXX
+
+    // : 58
+    0b00000000, //
+    0b00000000, //
+    0b00100100, //   XX    XX
+    0b00000000, //
+    0b00000000, //
+
+    // ; 59
+    0b00000000, //
+    0b01000000, // XX
+    0b00110010, //   XXXX    XX
+    0b00000000, //
+    0b00000000, //
+
+    // < 60
+    0b00000000, //
+    0b00010000, //     XX
+    0b00101000, //   XX  XX
+    0b01000100, // XX      XX
+    0b00000000, //
+
+    // = 61
+    0b00101000, //   XX  XX
+    0b00101000, //   XX  XX
+    0b00101000, //   XX  XX
+    0b00101000, //   XX  XX
+    0b00000000, //
+
+    // > 62
+    0b00000000, //
+    0b01000100, // XX      XX
+    0b00101000, //   XX  XX
+    0b00010000, //     XX
+    0b00000000, //
+
+    // ? 63
+    0b00000100, //         XX
+    0b00000010, //           XX
+    0b01010010, // XX  XX    XX
+    0b00001010, //       XX  XX
+    0b00000100, //         XX
+
+    // @ 64
+    0b00111100, //   XXXXXXXX
+    0b01000010, // XX        XX
+    0b01010110, // XX  XX  XXXX
+    0b01011010, // XX  XXXX  XX
+    0b00011100, //     XXXXXX
+
+    // A 65
+    0b01111100, // XXXXXXXXXX
+    0b00010010, //     XX    XX
+    0b00010010, //     XX    XX
+    0b00010010, //     XX    XX
+    0b01111100, // XXXXXXXXXX
+
+    // B 66
+    0b01111110, // XXXXXXXXXXXX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b00110100, //   XXXX  XX
+
+    // C 67
+    0b00111100, //   XXXXXXXX
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+    0b00100100, //   XX    XX
+
+    // D 68
+    0b01111110, // XXXXXXXXXXXX
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+    0b00100100, //   XX    XX
+    0b00011000, //     XXXX
+
+    // E 69
+    0b01111110, // XXXXXXXXXXXX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b01000010, // XX        XX
+
+    // F 70
+    0b01111110, // XXXXXXXXXXXX
+    0b00001010, //       XX  XX
+    0b00001010, //       XX  XX
+    0b00001010, //       XX  XX
+    0b00000010, //           XX
+
+    // G 71
+    0b00111100, //   XXXXXXXX
+    0b01000010, // XX        XX
+    0b01010010, // XX  XX    XX
+    0b01010010, // XX  XX    XX
+    0b00110100, //   XXXX  XX
+
+    // H 72
+    0b01111110, // XXXXXXXXXXXX
+    0b00001000, //       XX
+    0b00001000, //       XX
+    0b00001000, //       XX
+    0b01111110, // XXXXXXXXXXXX
+
+    // I 73
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+    0b01111110, // XXXXXXXXXXXX
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+
+    // J 74
+    0b00110000, //   XXXX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b00111110, //   XXXXXXXXXX
+
+    // K 75
+    0b01111110, // XXXXXXXXXXXX
+    0b00001000, //       XX
+    0b00010100, //     XX  XX
+    0b00100010, //   XX      XX
+    0b01000000, // XX
+
+    // L 76
+    0b01111110, // XXXXXXXXXXXX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b01000000, // XX
+
+    // M 77
+    0b01111110, // XXXXXXXXXXXX
+    0b00000100, //         XX
+    0b00001000, //       XX
+    0b00000100, //         XX
+    0b01111110, // XXXXXXXXXXXX
+
+    // N 78
+    0b01111110, // XXXXXXXXXXXX
+    0b00000100, //         XX
+    0b00001000, //       XX
+    0b00010000, //     XX
+    0b01111110, // XXXXXXXXXXXX
+
+    // O 79
+    0b00111100, //   XXXXXXXX
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+    0b00111100, //   XXXXXXXX
+
+    // P 80
+    0b01111110, // XXXXXXXXXXXX
+    0b00010010, //     XX    XX
+    0b00010010, //     XX    XX
+    0b00010010, //     XX    XX
+    0b00001100, //       XXXX
+
+    // Q 81
+    0b00111100, //   XXXXXXXX
+    0b01000010, // XX        XX
+    0b01010010, // XX  XX    XX
+    0b01100010, // XXXX      XX
+    0b00111100, //   XXXXXXXX
+
+    // R 82
+    0b01111110, // XXXXXXXXXXXX
+    0b00010010, //     XX    XX
+    0b00010010, //     XX    XX
+    0b00110010, //   XXXX    XX
+    0b01001100, // XX    XXXX
+
+    // S 83
+    0b00100100, //   XX    XX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b00110000, //   XXXX
+
+    // T 84
+    0b00000010, //           XX
+    0b00000010, //           XX
+    0b01111110, // XXXXXXXXXXXX
+    0b00000010, //           XX
+    0b00000010, //           XX
+
+    // U 85
+    0b00111110, //   XXXXXXXXXX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b00111110, //   XXXXXXXXXX
+
+    // V 86
+    0b00011110, //     XXXXXXXX
+    0b00100000, //   XX
+    0b01000000, // XX
+    0b00100000, //   XX
+    0b00011110, //     XXXXXXXX
+
+    // W 87
+    0b00111110, //   XXXXXXXXXX
+    0b01000000, // XX
+    0b00110000, //   XXXX
+    0b01000000, // XX
+    0b00111110, //   XXXXXXXXXX
+
+    // X 88
+    0b01000010, // XX        XX
+    0b00100100, //   XX    XX
+    0b00011000, //     XXXX
+    0b00100100, //   XX    XX
+    0b01000010, // XX        XX
+
+    // Y 89
+    0b00000010, //           XX
+    0b00000100, //         XX
+    0b01111000, // XXXXXXXX
+    0b00000100, //         XX
+    0b00000010, //           XX
+
+    // Z 90
+    0b01100010, // XXXX      XX
+    0b01010010, // XX  XX    XX
+    0b01001010, // XX    XX  XX
+    0b01000110, // XX      XXXX
+    0b01000010, // XX        XX
+
+    // [ 91
+    0b00000000, //
+    0b00000000, //
+    0b01111110, // XXXXXXXXXXXX
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+
+    // \ 92
+    0b00000100, //         XX
+    0b00001000, //       XX
+    0b00010000, //     XX
+    0b00100000, //   XX
+    0b01000000, // XX
+
+    // ] 93
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+    0b01111110, // XXXXXXXXXXXX
+    0b00000000, //
+    0b00000000, //
+
+    // ^ 94   <---------------------------------------
+    0b00110000, //   XXXX
+    0b01111000, // XXXXXXXX
+    0b01111000, // XXXXXXXX
+    0b00111111, //   XXXXXXXXXXXXXX
+    0b00000000, //
+
+    // _ 95
+    0b01000000, // XX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b01000000, // XX
+
+    // ` 96
+    0b00000000, //
+    0b00000000, //
+    0b00000010, //             XX
+    0b00000100, //           XX
+    0b00000000, //
+
+    // a 97
+    0b00100000, //   XX
+    0b01010100, // XX  XX  XX
+    0b01010100, // XX  XX  XX
+    0b01010100, // XX  XX  XX
+    0b01111000, // XXXXXXXX
+
+    // b 98
+    0b01111110, // XXXXXXXXXXXX
+    0b01001000, // XX    XX
+    0b01001000, // XX    XX
+    0b01001000, // XX    XX
+    0b00110000, //   XXXX
+
+    // c 99
+    0b00000000, //
+    0b00111000, //   XXXXXX
+    0b01000100, // XX      XX
+    0b01000100, // XX      XX
+    0b01000100, // XX      XX
+
+    // d 100
+    0b00110000, //   XXXX
+    0b01001000, // XX    XX
+    0b01001000, // XX    XX
+    0b01001000, // XX    XX
+    0b01111110, // XXXXXXXXXXXX
+
+    // e 101
+    0b00111000, //   XXXXXX
+    0b01010100, // XX  XX  XX
+    0b01010100, // XX  XX  XX
+    0b01010100, // XX  XX  XX
+    0b01001000, // XX    XX
+
+    // f 102
+    0b00000000, //
+    0b01111100, // XXXXXXXXXX
+    0b00001010, //       XX  XX
+    0b00001010, //       XX  XX
+    0b00000010, //           XX
+
+    // g 103
+    0b00001100, //       XXXX
+    0b00010010, //     XX    XX
+    0b01010010, // XX  XX    XX
+    0b01010010, // XX  XX    XX
+    0b00111110, //   XXXXXXXXXX
+
+    // h 104
+    0b01111110, // XXXXXXXXXXXX
+    0b00001000, //       XX
+    0b00001000, //       XX
+    0b00001000, //       XX
+    0b01110000, // XXXXXX
+
+    // i 105
+    0b00000000, //
+    0b01001000, // XX    XX
+    0b01111010, // XXXXXXXX  XX
+    0b01000000, // XX
+    0b00000000, //
+
+    // j 106
+    0b00100000, //   XX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b00111010, //   XXXXXX  XX
+    0b00000000, //
+
+    // k 107
+    0b00000000, //
+    0b01111110, // XXXXXXXXXXXX
+    0b00011000, //     XXXX
+    0b00100100, //   XX    XX
+    0b01000000, // XX
+
+    // l 108
+    0b00000000, //
+    0b00111110, //   XXXXXXXXXX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b00000000, //
+
+    // m 109
+    0b01111100, // XXXXXXXXXX
+    0b00000100, //         XX
+    0b01111000, // XXXXXXXX
+    0b00000100, //         XX
+    0b01111000, // XXXXXXXX
+
+    // n 110
+    0b01111100, // XXXXXXXXXX
+    0b00000100, //         XX
+    0b00000100, //         XX
+    0b00000100, //         XX
+    0b01111000, // XXXXXXXX
+
+    // o 111
+    0b00111000, //   XXXXXX
+    0b01000100, // XX      XX
+    0b01000100, // XX      XX
+    0b01000100, // XX      XX
+    0b00111000, //   XXXXXX
+
+    // p 112
+    0b01111100, // XXXXXXXXXX
+    0b00100100, //   XX    XX
+    0b00100100, //   XX    XX
+    0b00100100, //   XX    XX
+    0b00011000, //     XXXX
+
+    // q 113
+    0b00011000, //     XXXX
+    0b00100100, //   XX    XX
+    0b00100100, //   XX    XX
+    0b00100100, //   XX    XX
+    0b01111100, // XXXXXXXXXX
+
+    // r 114
+    0b00000000, //
+    0b01111000, // XXXXXXXX
+    0b00000100, //         XX
+    0b00000100, //         XX
+    0b00000100, //         XX
+
+    // s 115
+    0b01001000, // XX    XX
+    0b01010100, // XX  XX  XX
+    0b01010100, // XX  XX  XX
+    0b01010100, // XX  XX  XX
+    0b00100000, //   XX
+
+    // t 116
+    0b00000000, //
+    0b00000100, //         XX
+    0b00111110, //   XXXXXXXXXX
+    0b01000100, // XX      XX
+    0b01000000, // XX
+
+    // u 117
+    0b00111100, //   XXXXXXXX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b00111100, //   XXXXXXXX
+
+    // v 118
+    0b00001100, //       XXXX
+    0b00110000, //   XXXX
+    0b01000000, // XX
+    0b00110000, //   XXXX
+    0b00001100, //       XXXX
+
+    // w 119
+    0b00111100, //   XXXXXXXX
+    0b01000000, // XX
+    0b00111000, //   XXXXXX
+    0b01000000, // XX
+    0b00111100, //   XXXXXXXX
+
+    // x 120
+    0b01000100, // XX      XX
+    0b00101000, //   XX  XX
+    0b00010000, //     XX
+    0b00101000, //   XX  XX
+    0b01000100, // XX      XX
+
+    // y 121
+    0b00001110, //       XXXXXX
+    0b01010000, // XX  XX
+    0b01010000, // XX  XX
+    0b01010000, // XX  XX
+    0b00111110, //   XXXXXXXXXX
+
+    // z 122
+    0b01000100, // XX      XX
+    0b01100100, // XXXX    XX
+    0b01010100, // XX  XX  XX
+    0b01001100, // XX    XXXX
+    0b01000100, // XX      XX
+
+    // { 123
+    0b00001000, //       XX
+    0b00001000, //       XX
+    0b00110110, //   XXXX  XXXX
+    0b01000001, // XX          XX
+    0b01000001, // XX          XX
+
+    // | 124
+    0b00000000, //
+    0b00000000, //
+    0b01111111, // XXXXXXXXXXXXXX
+    0b00000000, //
+    0b00000000, //
+
+    // } 125
+    0b01000001, // XX          XX
+    0b01000001, // XX          XX
+    0b00110110, //   XXXX  XXXX
+    0b00001000, //       XX
+    0b00001000, //       XX
+
+    // ~ 126
+    0b00000000, //
+    0b01001000, // XX    XX
+    0b01000100, // XX      XX
+    0b01001000, // XX    XX
+    0b01000100, // XX      XX
+
+    //  127
+    0b01010101, // XX  XX  XX  XX
+    0b00101010, //   XX  XX  XX
+    0b01010101, // XX  XX  XX  XX
+    0b00101010, //   XX  XX  XX
+    0b01010101  // XX  XX  XX  XX
+};]]></code.declaration>
+      </object>
+   </patchobj>
+   <patchobj type="patch/object" uuid="84cddf75-6d80-4bfa-865c-b14f3fd4737f" name="sketchy_render" x="742" y="154">
+      <params/>
+      <attribs>
+         <combo attributeName="type" selection="SSD1306"/>
+         <combo attributeName="I2CADDR" selection="0x3C"/>
+      </attribs>
+      <object id="patch/object" uuid="84cddf75-6d80-4bfa-865c-b14f3fd4737f">
+         <sDescription>Expanded renderer with 16-bit loop variables. Fixes object table iteration limits beyond 255 objects. Drop-in replacement for sketchy_render.</sDescription>
+         <author>Karlo Sono</author>
+         <license>MIT</license>
+         <inlets>
+            <int32.positive name="page" description="set current page"/>
+            <int32.positive name="layout" description="set layout page (always visible)"/>
+            <bool32.rising name="print" description="Will log the state of the object table to axoloti window"/>
+         </inlets>
+         <outlets>
+            <int32.positive name="sw" description="screen width"/>
+            <int32.positive name="sh" description="screen height"/>
+         </outlets>
+         <displays/>
+         <params/>
+         <attribs>
+            <combo name="type">
+               <MenuEntries>
+                  <string>SSD1306</string>
+                  <string>SH1106</string>
+               </MenuEntries>
+               <CEntries>
+                  <string>1306</string>
+                  <string>1106</string>
+               </CEntries>
+            </combo>
+            <combo name="I2CADDR">
+               <MenuEntries>
+                  <string>0x3C</string>
+                  <string>0x3D</string>
+               </MenuEntries>
+               <CEntries>
+                  <string>0x3C</string>
+                  <string>0x3D</string>
+               </CEntries>
+            </combo>
+         </attribs>
+         <includes/>
+         <depends>
+            <depend>SD1</depend>
+            <depend>I2CD1</depend>
+            <depend>SPID1</depend>
+         </depends>
+         <code.declaration><![CDATA[rootc::objectinstance_sketchy__objects* object_table;
+rootc::objectinstance_sketchy__texts* text_table;
+rootc::objectinstance_sketchy__params* param_table;
+rootc::objectinstance_sketchy__font* font;
+
+uint16_t page;
+uint16_t layout;
+
+// ================ VIRTUAL KNOB CONSTANTS ================
+#define CIRCLE_POINTS 38
+#define INDICATOR_POSITIONS 31
+
+// ================ SHARED RING SUPPORT ================
+// 8 shared ring objects for dial reuse optimization
+uint16_t shared_ring_ids[8];
+bool shared_rings_initialized = false;
+
+void init_shared_rings() {
+    if (shared_rings_initialized) return;
+    for (int i = 0; i < 8; i++) {
+        shared_ring_ids[i] = object_table->registerEntry();
+        // Set to hidden by default
+        object_table->array[shared_ring_ids[i]][object_table->FIELD_TYPE] = 0;
+        object_table->array[shared_ring_ids[i]][object_table->FIELD_PAGE] = 0xFFFF;
+    }
+    shared_rings_initialized = true;
+}
+
+void update_shared_rings(int page) {
+    for (int i = 0; i < 8; i++) {
+        // Check if this position should show a ring (dial mode)
+        // This will be set by the dials object
+        bool should_show_ring = false;
+        
+        // For now, show rings at all dial positions
+        // The dials object will control visibility by setting type to 0 or 101
+        should_show_ring = true;
+        
+        if (should_show_ring) {
+            // Calculate position for this dial slot
+            const uint8_t DIAL_WIDTH = 24;
+            const uint8_t DIAL_HEIGHT = 24;
+            const uint8_t ROW1_Y = 13;
+            const uint8_t ROW2_Y = 39;
+            const uint8_t COL_X[4] = {26, 52, 78, 104};
+            
+            int x = COL_X[i % 4];
+            int y = (i < 4) ? ROW1_Y : ROW2_Y;
+            bool is_second_row = (i >= 4);
+            int y_offset = is_second_row ? 1 : 0;
+            int cx = x + DIAL_WIDTH/2;
+            int cy = y + y_offset + DIAL_HEIGHT/2 - 6;
+            
+            object_table->array[shared_ring_ids[i]][object_table->FIELD_TYPE] = 101; // Shared ring type
+            object_table->array[shared_ring_ids[i]][object_table->FIELD_PAGE] = page;
+            object_table->array[shared_ring_ids[i]][object_table->FIELD_X] = cx;
+            object_table->array[shared_ring_ids[i]][object_table->FIELD_Y] = cy;
+        } else {
+            object_table->array[shared_ring_ids[i]][object_table->FIELD_TYPE] = 0;
+            object_table->array[shared_ring_ids[i]][object_table->FIELD_PAGE] = 0xFFFF;
+        }
+    }
+}
+
+enum SSD1306 {
+	LCDWIDTH            = 128,
+	LCDHEIGHT           = 64,
+	SETCONTRAST         = 0x81,
+	DISPLAYON           = 0xAF,
+	DISPLAYOFF          = 0xAE,
+	DISPLAYALLON_RESUME = 0xA4,
+	NORMALDISPLAY       = 0xA6,
+	DEACTIVATE_SCROLL   = 0x2E,
+	MEMORYMODE          = 0x20,
+	COLUMNADDR          = 0x21,
+	PAGEADDR            = 0x22,
+	SETSTARTLINE_0      = 0x40,
+	SEGREMAP            = 0xA0,
+	SETMULTIPLEX        = 0xA8,
+	COMSCANDEC          = 0xC8,
+	SETDISPLAYOFFSET    = 0xD3,
+	SETCOMPINS          = 0xDA,
+	SETDISPLAYCLOCKDIV  = 0xD5,
+	SETPRECHARGE        = 0xD9,
+	SETVCOMDETECT       = 0xDB,
+	CHARGEPUMP          = 0x8D,
+};
+
+uint8_t pixels[8][LCDWIDTH];
+uint8_t *txbuf;
+uint8_t *rxbuf;
+
+void cmd(uint8_t c) {
+	txbuf[0] = 0;
+	txbuf[1] = c;
+	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 2, rxbuf, 0, 30);
+}
+
+void clear() {
+	for (int page = 0; page < 8; page++) {
+		for (int i = 0; i < LCDWIDTH; i++) {
+			pixels[page][i] = 0;
+		}
+	}
+}
+
+void sendPage(int page) {
+	cmd(COLUMNADDR); cmd(0); cmd(127);
+	cmd(PAGEADDR); cmd(page); cmd(page);
+
+	if (attr_type == 1106) {
+		cmd(0xB0 + page);
+		cmd(2 & 0xf);
+		cmd(0x10 | (2 >> 4));
+	}
+
+	txbuf[0] = 0x40;
+	memcpy(txbuf + 1, pixels[page], LCDWIDTH);
+	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 129, rxbuf, 0, 30);
+}
+
+void init() {
+	cmd(DISPLAYOFF);
+	cmd(SETDISPLAYCLOCKDIV); cmd(0x80);
+	cmd(SETMULTIPLEX); cmd(LCDHEIGHT - 1);
+	cmd(SETDISPLAYOFFSET); cmd(attr_type == 1306 ? 0x00 : 0x01);
+	cmd(SETSTARTLINE_0);
+	cmd(CHARGEPUMP); cmd(0x14);
+	cmd(MEMORYMODE); cmd(0x00);
+	cmd(SEGREMAP | 0x1);
+	cmd(COMSCANDEC);
+	cmd(SETCOMPINS); cmd(0x12);
+	cmd(SETCONTRAST); cmd(0xCF);
+	cmd(SETPRECHARGE); cmd(0xF1);
+	cmd(SETVCOMDETECT); cmd(0x40);
+	cmd(DISPLAYALLON_RESUME);
+	cmd(NORMALDISPLAY);
+	cmd(DEACTIVATE_SCROLL);
+	cmd(DISPLAYON);
+}
+
+void setup() {
+	static uint8_t _txbuf[129] __attribute__ ((section (".sram2")));
+	static uint8_t _rxbuf[8] __attribute__ ((section (".sram2")));
+	txbuf = _txbuf;
+	rxbuf = _rxbuf;
+	init();
+}
+
+msg_t ThreadX2() {
+	setup();
+	while (!chThdShouldTerminate()) {
+		clear();
+		render();
+		uint8_t i; 
+		for (i = 0; i < 8; i++) {
+			sendPage(i);
+		}
+		chThdSleepMilliseconds(32);
+	}
+	chThdExit((msg_t)0);
+}
+
+static msg_t ThreadX(void *arg) {
+	((attr_parent *)arg)->ThreadX2();
+}
+
+WORKING_AREA(waThreadX, 2048);
+Thread *Thd;
+
+bool pprint;
+
+void draw_pixel(int16_t x, int16_t y, uint8_t color) __attribute__ ((noinline)) {
+	uint8_t page, bit;
+	if (x < 0 || y < 0 || x >= LCDWIDTH || y >= LCDHEIGHT - 1) {
+		return;
+	}
+	page = y / 8;
+	bit = 0x01;
+	bit <<= (y % 8);
+	if (color == 0) { 
+		pixels[page][x] |= bit;
+	} else if (color == 1) { 
+		pixels[page][x] &= ~bit;
+	} else if (color == 2) { 
+		pixels[page][x] ^= bit;
+	}
+}
+
+void draw_scaled_pixel(int16_t x, int16_t y, uint8_t color, uint8_t scale = 1) __attribute__ ((noinline)) {
+	if (scale == 0) {
+		scale = 1;
+	}
+	for (int i = 0; i < scale; i++) {
+		for (int j = 0; j < scale; j++) {
+			int16_t scaled_x = x * scale + i;
+			int16_t scaled_y = y * scale + j;
+			draw_pixel(scaled_x, scaled_y, color);
+		}
+	}
+}
+
+#ifndef _swap_int16_t
+#define _swap_int16_t(a, b) { int16_t t = a; a = b; b = t; }
+#endif
+
+void draw_line(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint8_t color, uint8_t scale = 1) __attribute__ ((noinline)) {
+	int16_t steep = abs(y1 - y0) > abs(x1 - x0);
+	if (steep) {    
+		_swap_int16_t(x0, y0);
+		_swap_int16_t(x1, y1);
+	}
+	if (x0 > x1) {
+		_swap_int16_t(x0, x1);
+		_swap_int16_t(y0, y1);
+	}
+	int16_t dx, dy;
+	dx = x1 - x0;
+	dy = abs(y1 - y0);
+	int16_t err = dx / 2;
+	int16_t ystep;
+	if (y0 < y1) {
+		ystep = 1;
+	} else {
+		ystep = -1;
+	}
+	for (; x0 <= x1; x0++) {
+		if (steep) {
+			draw_scaled_pixel(y0, x0, color, scale);
+		} else {
+			draw_scaled_pixel(x0, y0, color, scale);
+		}
+		err -= dy;
+		if (err < 0) {
+			y0 += ystep;
+			err += dx;
+		}
+	}
+}
+
+void draw_string_from_index(int text_id, int16_t x, int16_t y, int16_t w, int16_t h, uint8_t color, bool center, bool center_v = false, uint8_t scale = 1) __attribute__ ((noinline)) {
+    const char* str = text_table->array[text_id];
+    int16_t char_width = 5;
+    int16_t char_spacing = 1;
+    int16_t total_char_width = char_width + char_spacing;
+    int16_t char_height = font->height;
+    size_t max_length = text_table->STRING_LENGTH;
+
+    int total_lines = 0;
+    if (center_v) {
+        size_t i = 0;
+        while (i < max_length && str[i] != '\0') {
+            int line_width = 0;
+            size_t last_space = (size_t)-1;
+            while (i < max_length && str[i] != '\0' && str[i] != '\n') {
+                if (str[i] == ' ') {
+                    last_space = i;
+                }
+                if (line_width + total_char_width > w) {
+                    if (last_space != (size_t)-1) {
+                        i = last_space + 1;
+                        break;
+                    }
+                }
+                line_width += total_char_width;
+                i++;
+            }
+            total_lines++;
+            if (i < max_length && str[i] == '\n') i++;
+        }
+    }
+
+    int16_t total_height = total_lines * char_height;
+    int16_t start_y;
+    if (center_v) {
+        start_y = y + (h - total_height) / 2;
+        start_y = (start_y < y) ? y : start_y;
+    } else {
+        start_y = y;
+    }
+
+    size_t i = 0;
+    int16_t current_y = start_y;
+
+    while (i < max_length && str[i] != '\0' && current_y + char_height <= y + h) {
+        size_t line_start = i;
+        int16_t line_width = 0;
+        size_t last_space = (size_t)-1;
+        
+        while (i < max_length && str[i] != '\0' && str[i] != '\n') {
+            if (str[i] == ' ') {
+                last_space = i;
+            }
+            if (line_width + total_char_width > w) {
+                if (last_space != (size_t)-1) {
+                    i = last_space;
+                    line_width = (int16_t)(i - line_start) * total_char_width;
+                }
+                break;
+            }
+            line_width += total_char_width;
+            i++;
+        }
+        
+        while (i > line_start && str[i - 1] == ' ') {
+            i--;
+            line_width -= total_char_width;
+        }
+
+        int16_t x_offset = center ? (w - (line_width - char_spacing)) / 2 : 0;
+        
+        for (size_t j = line_start; j < i && j < max_length; j++) {
+            int16_t current_x = x + x_offset + (int16_t)(j - line_start) * total_char_width;
+            
+            if (current_x + char_width <= x + w && current_y + char_height <= y + h) {
+                draw_char_clipped(str[j], current_x, current_y, 0, 0, char_width, char_height, color, scale);
+            }
+        }
+
+        current_y += char_height;
+        if (i < max_length && (str[i] == '\n' || str[i] == ' ')) i++;
+    }
+}
+
+void draw_char_clipped(char c, int16_t x, int16_t y, int16_t clip_x, int16_t clip_y, int16_t clip_w, int16_t clip_h, uint8_t color, uint8_t scale = 1) __attribute__ ((noinline)) {
+	if (c < 32 || c > 127) {
+		return;
+	}
+	int index = (c - 32) * 5;
+	for (int col = clip_x; col < clip_x + clip_w && col < 5; col++) {
+		uint8_t column_data = font->data[index + col];
+		for (int row = clip_y; row < clip_y + clip_h && row < 8; row++) {
+			if (column_data & (1 << row)) {
+				draw_scaled_pixel(x + col - clip_x, y + row - clip_y, color, scale);
+			}
+		}
+	}
+}
+
+void draw_rect(int16_t x, int16_t y, int16_t w, int16_t h, uint8_t color, uint8_t scale = 1) __attribute__ ((noinline)) {
+	if (w == 0 || h == 0) return;
+	int16_t x_end = x + w - (w > 0 ? 1 : -1);
+	int16_t y_end = y + h - (h > 0 ? 1 : -1);
+	draw_line(x, y, x_end, y, color, scale);
+	if (h != 1 && h != -1) {
+		draw_line(x, y_end, x_end, y_end, color, scale);
+	}
+	if (w != 1 && w != -1) {
+		draw_line(x, y, x, y_end, color, scale);
+		draw_line(x_end, y, x_end, y_end, color, scale);
+	}
+}
+
+void draw_filled_rect(int16_t x, int16_t y, int16_t w, int16_t h, uint8_t color, uint8_t scale = 1) __attribute__ ((noinline)) {
+	if (w == 0 || h == 0) return;
+	int16_t x_start = (w > 0) ? x : x + w + 1;
+	int16_t x_end = (w > 0) ? x + w : x + 1;
+	int16_t y_start = (h > 0) ? y : y + h + 1;
+	int16_t y_end = (h > 0) ? y + h : y + 1;
+	for (int16_t i = x_start; i != x_end; i += (w > 0 ? 1 : -1)) {
+		draw_line(i, y_start, i, y_end - 1, color, scale);
+	}
+}
+
+void draw_rounded_rect(int16_t x, int16_t y, int16_t w, int16_t h, uint8_t color, uint8_t scale = 1) __attribute__ ((noinline)) {
+	if (abs(w) < 5 || abs(h) < 5) {
+		draw_rect(x, y, w, h, color, scale);
+		return;
+	}
+	int16_t x_end = x + w - (w > 0 ? 1 : -1);
+	int16_t y_end = y + h - (h > 0 ? 1 : -1);
+	draw_line(x + 2, y, x_end - 2, y, color, scale);
+	draw_line(x + 2, y_end, x_end - 2, y_end, color, scale);
+	draw_line(x, y + 2, x, y_end - 2, color, scale);
+	draw_line(x_end, y + 2, x_end, y_end - 2, color, scale);
+	draw_scaled_pixel(x + 1, y + 1, color, scale);
+	draw_scaled_pixel(x_end - 1, y + 1, color, scale);
+	draw_scaled_pixel(x + 1, y_end - 1, color, scale);
+	draw_scaled_pixel(x_end - 1, y_end - 1, color, scale);
+}
+
+void draw_filled_rounded_rect(int16_t x, int16_t y, int16_t w, int16_t h, uint8_t color, uint8_t scale = 1) __attribute__ ((noinline)) {
+	if (abs(w) < 5 || abs(h) < 5) {
+		draw_filled_rect(x, y, w, h, color, scale);
+		return;
+	}
+	int16_t x_start = (w > 0) ? x : x + w + 1;
+	int16_t x_end = (w > 0) ? x + w : x + 1;
+	int16_t y_start = (h > 0) ? y : y + h + 1;
+	int16_t y_end = (h > 0) ? y + h : y + 1;
+	for (int16_t i = x_start; i != x_end; i += (w > 0 ? 1 : -1)) {
+		int16_t start_y = y_start;
+		int16_t end_y = y_end - 1;
+		if (i == x_start || i == x_end - (w > 0 ? 1 : -1)) {
+			start_y += 2;
+			end_y -= 2;
+		} else if (i == x_start + (w > 0 ? 1 : -1) || i == x_end - (w > 0 ? 2 : -2)) {
+			start_y += 1;
+			end_y -= 1;
+		}
+		draw_line(i, start_y, i, end_y, color, scale);
+	}
+}
+
+void render() __attribute__ ((noinline)) {
+	for (uint16_t i = 0; i < object_table->LENGTH; i++) {
+		if (object_table->array[i][object_table->FIELD_TYPE] == object_table->TYPE_INVISIBLE) {
+			continue;
+		}
+		uint16_t current_object_page = object_table->array[i][object_table->FIELD_PAGE];
+		if (current_object_page != page && current_object_page != layout) {
+			continue;
+		}
+		
+		int16_t x = object_table->array[i][object_table->FIELD_X];
+		int16_t y = object_table->array[i][object_table->FIELD_Y];
+		int16_t w = object_table->array[i][object_table->FIELD_W];
+		int16_t h = object_table->array[i][object_table->FIELD_H];
+		uint8_t color = object_table->array[i][object_table->FIELD_COLOR];
+		uint8_t scale = object_table->array[i][object_table->FIELD_SCALE];
+
+		switch (object_table->array[i][object_table->FIELD_TYPE]) {
+			case object_table->TYPE_RECT:
+				draw_rect(x, y, w, h, color, scale);
+				break;
+			case parent->objectinstance_sketchy__objects_i.TYPE_FILLED_RECT:
+				draw_filled_rect(x, y, w, h, color, scale);
+				break;
+			case parent->objectinstance_sketchy__objects_i.TYPE_ROUNDED_RECT:
+				draw_rounded_rect(x, y, w, h, color, scale);
+				break;
+			case parent->objectinstance_sketchy__objects_i.TYPE_FILLED_ROUNDED_RECT:
+				draw_filled_rounded_rect(x, y, w, h, color, scale);
+				break;
+			case object_table->TYPE_LINE:
+				if (i > 0 && object_table->array[i - 1][object_table->FIELD_TYPE] == object_table->TYPE_LINE) {
+					int16_t prev_x = object_table->array[i - 1][object_table->FIELD_X];
+					int16_t prev_y = object_table->array[i - 1][object_table->FIELD_Y];
+					draw_line(prev_x, prev_y, x, y, color, scale);
+				}
+				break;
+			case object_table->TYPE_TEXT:
+				draw_string_from_index(object_table->array[i][object_table->FIELD_TEXT_ID], x, y, w, h, color, false, false, scale);
+				break;
+			case object_table->TYPE_TEXT_CENTER_X:
+				draw_string_from_index(object_table->array[i][object_table->FIELD_TEXT_ID], x, y, w, h, color, true, false, scale);
+				break;
+			case object_table->TYPE_TEXT_CENTER_Y:
+				draw_string_from_index(object_table->array[i][object_table->FIELD_TEXT_ID], x, y, w, h, color, false, true, scale);
+				break;
+			case object_table->TYPE_TEXT_CENTER_BOTH:
+				draw_string_from_index(object_table->array[i][object_table->FIELD_TEXT_ID], x, y, w, h, color, true, true, scale);
+				break;
+				
+			case 99: // VIRTUAL KNOB TYPE (unipolar)
+				{
+					// x, y = center coordinates
+					// w = indicator_index 
+					// h = dial width (for bounds checking)
+					
+					int cx = x;
+					int cy = y + 1;  // Move dial elements down by 1 pixel
+					int indicator_index = w;
+					
+					// Draw circle using our lookup table (gap already built in at bottom)
+					for (int ci = 0; ci < CIRCLE_POINTS; ci++) {
+						int circle_x = cx + circle_coords[ci][0];
+						int circle_y = cy + circle_coords[ci][1];
+						draw_pixel(circle_x, circle_y, color);
+					}
+					
+					// Draw indicator line from center to exact position using lookup table
+					draw_indicator_line(cx, cy, indicator_index);
+				}
+				break;
+				
+			case 100: // BIPOLAR VIRTUAL KNOB TYPE
+				{
+					// x, y = center coordinates
+					// w = indicator_index 
+					// h = dial width (for bounds checking)
+					
+					int cx = x;
+					int cy = y + 1;  // Move dial elements down by 1 pixel
+					int indicator_index = w;
+					
+					// Draw circle using our lookup table (gap already built in at bottom)
+					for (int ci = 0; ci < CIRCLE_POINTS; ci++) {
+						int circle_x = cx + circle_coords[ci][0];
+						int circle_y = cy + circle_coords[ci][1];
+						draw_pixel(circle_x, circle_y, color);
+					}
+					
+					// Draw bipolar indicators (- and + at edges)
+					draw_bipolar_indicators(cx, cy);
+					
+					// Draw indicator line from center to exact position using lookup table
+					draw_indicator_line(cx, cy, indicator_index);
+				}
+				break;
+				
+			case 101: // SHARED RING TYPE
+				{
+					// x, y = center coordinates
+					// Just draw the circle - no indicator or bipolar markers
+					int cx = x;
+					int cy = y + 1;  // Move dial elements down by 1 pixel
+					
+					// Draw circle using our lookup table (gap already built in at bottom)
+					for (int ci = 0; ci < CIRCLE_POINTS; ci++) {
+						int circle_x = cx + circle_coords[ci][0];
+						int circle_y = cy + circle_coords[ci][1];
+						draw_pixel(circle_x, circle_y, color);
+					}
+				}
+				break;
+		}
+	}
+}
+
+uint16_t getCurrentPage() __attribute__ ((noinline)) {
+	return page;
+}
+
+char* tokenize(char* str, const char* delim, char** saveptr) __attribute__ ((noinline)) {
+    char* current = str ? str : *saveptr;
+    if (current == NULL) {
+        return NULL;
+    }
+    while (*current && strchr(delim, *current)) {
+        current++;
+    }
+    if (*current == '\0') {
+        *saveptr = NULL;
+        return NULL;
+    }
+    char* start = current;
+    while (*current && !strchr(delim, *current)) {
+        current++;
+    }
+    if (*current) {
+        *current = '\0';
+        *saveptr = current + 1;
+    } else {
+        *saveptr = NULL;
+    }
+    return start;
+}
+
+char* get_token_at_index(const char* str, int desired_index) __attribute__ ((noinline)) {
+    char buffer[256];
+    char* saveptr = NULL;
+    strncpy(buffer, str, sizeof(buffer)-1);
+    buffer[sizeof(buffer)-1] = '\0';
+    char* token = tokenize(buffer, ",", &saveptr);
+    for (int i = 0; i < desired_index && token != NULL; i++) {
+        token = tokenize(NULL, ",", &saveptr);
+    }
+    return token;
+}
+
+int count_tokens(const char* str) __attribute__ ((noinline)) {
+    if (!str || *str == '\0') return 0;
+    int count = 1;
+    for (const char* p = str; *p != '\0'; p++) {
+        if (*p == ',' && *(p+1) != ',' && *(p+1) != '\0') {
+            count++;
+        }
+    }
+    return count;
+}
+
+// RENAMED: dial -> bar (vertical bar display)
+typedef struct {
+    uint16_t box_object_id;
+    uint16_t label_object_id;
+    uint16_t value_object_id;  // Separate object for value display when show_value is true
+    uint16_t label_text_id;
+    uint16_t value_text_id;    // Separate text for value
+    int32_t last_value;
+    int32_t page;
+    int32_t param;
+    bool is_bipolar;
+    int32_t x;
+    int32_t y;
+    int32_t width;
+    int32_t height;
+    const char* label;
+    bool show_value;
+    int32_t default_value;
+} bar_t;
+
+void bar_init(bar_t* bar) __attribute__ ((noinline)) { 
+   rootc::objectinstance_sketchy__objects* object_table = &parent->objectinstance_sketchy__objects_i;
+   rootc::objectinstance_sketchy__texts* text_table = &parent->objectinstance_sketchy__texts_i;
+   rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
+
+       // Calculate vertical offset for bars: positions 0-3 up 1px, positions 4-7 no offset
+    bool is_second_row = (bar->y >= 32);
+    int y_offset = is_second_row ? 0 : -1;  // No offset for second row, up 1px for first row
+
+   bar->box_object_id = object_table->registerEntry();
+   bar->label_object_id = object_table->registerEntry();
+   bar->label_text_id = text_table->registerEntry();
+
+   // Register value objects only if show_value is true
+   if (bar->show_value) {
+       bar->value_object_id = object_table->registerEntry();
+       bar->value_text_id = text_table->registerEntry();
+   }
+
+   object_table->array[bar->box_object_id][object_table->FIELD_TYPE] = 4;
+   object_table->array[bar->box_object_id][object_table->FIELD_X] = bar->x;
+   object_table->array[bar->box_object_id][object_table->FIELD_Y] = bar->y + y_offset;
+   object_table->array[bar->box_object_id][object_table->FIELD_W] = bar->width;
+   object_table->array[bar->box_object_id][object_table->FIELD_H] = 0;
+   object_table->array[bar->box_object_id][object_table->FIELD_COLOR] = 0;
+   object_table->array[bar->box_object_id][object_table->FIELD_SCALE] = 1;
+   object_table->array[bar->box_object_id][object_table->FIELD_TEXT_ID] = 0;
+   object_table->array[bar->box_object_id][object_table->FIELD_PAGE] = bar->page;
+
+   // Value object: positioned higher (near the bar center) when show_value is true
+   if (bar->show_value) {
+       object_table->array[bar->value_object_id][object_table->FIELD_TYPE] = 9;
+       object_table->array[bar->value_object_id][object_table->FIELD_X] = bar->x;
+       object_table->array[bar->value_object_id][object_table->FIELD_Y] = bar->y + y_offset + 2; // Show value down by 1 pixel
+       object_table->array[bar->value_object_id][object_table->FIELD_W] = bar->width;
+       object_table->array[bar->value_object_id][object_table->FIELD_H] = 8;
+       object_table->array[bar->value_object_id][object_table->FIELD_COLOR] = 2;
+       object_table->array[bar->value_object_id][object_table->FIELD_SCALE] = 1;
+       object_table->array[bar->value_object_id][object_table->FIELD_TEXT_ID] = bar->value_text_id;
+       object_table->array[bar->value_object_id][object_table->FIELD_PAGE] = bar->page;
+   }
+
+   // Label object: positioned at bottom like dial labels
+   object_table->array[bar->label_object_id][object_table->FIELD_TYPE] = 9;
+   object_table->array[bar->label_object_id][object_table->FIELD_X] = bar->x;
+   object_table->array[bar->label_object_id][object_table->FIELD_Y] = bar->y + y_offset + bar->height - 9; // Bar label up by 1 pixel
+   object_table->array[bar->label_object_id][object_table->FIELD_W] = bar->width;
+   object_table->array[bar->label_object_id][object_table->FIELD_H] = 8; // Text height like dial labels
+   object_table->array[bar->label_object_id][object_table->FIELD_COLOR] = 2;
+   object_table->array[bar->label_object_id][object_table->FIELD_SCALE] = 1;
+   object_table->array[bar->label_object_id][object_table->FIELD_TEXT_ID] = bar->label_text_id;
+   object_table->array[bar->label_object_id][object_table->FIELD_PAGE] = bar->page;
+
+   // Initialize text fields based on show_value setting
+   if (bar->show_value) {
+       // Set up separate value and label text
+       int32_t value = bar->default_value;
+       if (bar->is_bipolar) {
+           value = (value-(1<<26))<<1;
+       }
+       float frac_value = ((float)value / 0x00200000);
+       int rounded = (frac_value >= 0) ? (int)(frac_value + 0.5) : (int)(frac_value - 0.5);
+       char value_str[8] = "";
+       text_table->itoa(value_str, rounded);
+       
+       // Value goes in value text field (positioned higher)
+       strcpy(text_table->array[bar->value_text_id], value_str);
+       
+       // Label goes in label text field (positioned at bottom)
+       strcpy(text_table->array[bar->label_text_id], bar->label);
+   } else {
+       // Only show label when show_value is false
+       strcpy(text_table->array[bar->label_text_id], bar->label);
+   }
+   param_table->array[bar->page][bar->param] = bar->default_value;
+}
+
+void bar_update(bar_t* bar) __attribute__ ((noinline)) {
+   rootc::objectinstance_sketchy__objects* object_table = &parent->objectinstance_sketchy__objects_i;
+   rootc::objectinstance_sketchy__texts* text_table = &parent->objectinstance_sketchy__texts_i;
+   rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
+	
+   int32_t value = param_table->array[bar->page][bar->param];
+
+   if (value == bar->last_value) {
+       return;
+   }
+   bar->last_value = value;
+
+   if (bar->is_bipolar) {
+       value = (value-(1<<26))<<1;
+   }
+
+   float frac_value = ((float)value / 0x00200000);
+   float norm_value = frac_value / 64.0f;
+
+   // Apply same positioning offset as in bar_init
+   bool is_second_row = (bar->y >= 32);
+   int y_offset = is_second_row ? 0 : -1;  // No offset for second row, up 1px for first row
+
+   if (bar->is_bipolar) {
+       int8_t h = (bar->height/2.0f) * norm_value + 0.5f;
+       object_table->array[bar->box_object_id][object_table->FIELD_H] = h;
+       object_table->array[bar->box_object_id][object_table->FIELD_Y] = (bar->y + y_offset) + (bar->height-h) - bar->height/2;
+   } else {
+       uint8_t h = bar->height * norm_value + 0.5f;
+       object_table->array[bar->box_object_id][object_table->FIELD_H] = h;
+       object_table->array[bar->box_object_id][object_table->FIELD_Y] = (bar->y + y_offset) + (bar->height-h);
+   }
+
+   if (bar->show_value) {
+       // Update value text (positioned higher)
+       int rounded = (frac_value >= 0) ? (int)(frac_value + 0.5) : (int)(frac_value - 0.5);
+       char value_str[8] = "";
+       text_table->itoa(value_str, rounded);
+       strcpy(text_table->array[bar->value_text_id], value_str);
+       
+       // Label text doesn't need updating (it's static)
+       // strcpy(text_table->array[bar->label_text_id], bar->label); // Already set in init
+   } else {
+       // Label text doesn't need updating when show_value is false (static label)
+       // strcpy(text_table->array[bar->label_text_id], bar->label); // Already set in init  
+   }
+}
+
+typedef struct {
+    uint16_t box_object_id;
+    uint16_t value_object_id;  // Text object for the selected value inside box
+    uint16_t label_object_id;
+    uint16_t value_text_id;    // Text content for selected value
+    uint16_t label_text_id;
+    int32_t last_value;
+    int32_t page;
+    int32_t param;
+    int32_t x;
+    int32_t y;
+    int32_t width;
+    int32_t height;
+    const char* param_label;   // Parameter name (e.g., "WAV", "FLT")
+    const char* options;       // Options list (e.g., "Sin,Tri,Saw,Sqr,Nse")
+    uint8_t num_options;
+    bool is_int;
+} select_t;
+
+void select_init(select_t* select) __attribute__ ((noinline)) { 
+   rootc::objectinstance_sketchy__objects* object_table = &parent->objectinstance_sketchy__objects_i;
+   rootc::objectinstance_sketchy__texts* text_table = &parent->objectinstance_sketchy__texts_i;
+   rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
+
+   // Calculate vertical offset for alignment: positions 0-3 up 1px, positions 4-7 no offset
+   bool is_second_row = (select->y >= 32);
+   int y_offset = is_second_row ? 0 : -1;  // No offset for second row, up 1px for first row
+
+   select->box_object_id = object_table->registerEntry();
+   select->value_object_id = object_table->registerEntry();
+   select->label_object_id = object_table->registerEntry();
+   select->value_text_id = text_table->registerEntry();
+   select->label_text_id = text_table->registerEntry();
+
+   // Box object: Rounded rectangle around the selected value (like int control)
+   object_table->array[select->box_object_id][object_table->FIELD_TYPE] = 3;
+   object_table->array[select->box_object_id][object_table->FIELD_X] = select->x;
+   object_table->array[select->box_object_id][object_table->FIELD_Y] = select->y + y_offset;
+   object_table->array[select->box_object_id][object_table->FIELD_W] = select->width;
+   object_table->array[select->box_object_id][object_table->FIELD_H] = select->height - 10; // Same as int control
+   object_table->array[select->box_object_id][object_table->FIELD_COLOR] = 0;
+   object_table->array[select->box_object_id][object_table->FIELD_SCALE] = 1;
+   object_table->array[select->box_object_id][object_table->FIELD_TEXT_ID] = 0;
+   object_table->array[select->box_object_id][object_table->FIELD_PAGE] = select->page;
+
+   // Value object: Selected value text inside the rectangle (centered)
+   object_table->array[select->value_object_id][object_table->FIELD_TYPE] = 9; // Centered text
+   object_table->array[select->value_object_id][object_table->FIELD_X] = select->x;
+   object_table->array[select->value_object_id][object_table->FIELD_Y] = select->y + y_offset - 1; // Same as int value positioning
+   object_table->array[select->value_object_id][object_table->FIELD_W] = select->width;
+   object_table->array[select->value_object_id][object_table->FIELD_H] = select->height - 10; // Same height as rectangle
+   object_table->array[select->value_object_id][object_table->FIELD_COLOR] = 2;
+   object_table->array[select->value_object_id][object_table->FIELD_SCALE] = 1;
+   object_table->array[select->value_object_id][object_table->FIELD_TEXT_ID] = select->value_text_id;
+   object_table->array[select->value_object_id][object_table->FIELD_PAGE] = select->page;
+
+   // Label object: Parameter name below at same height as dial labels
+   object_table->array[select->label_object_id][object_table->FIELD_TYPE] = 9;
+   object_table->array[select->label_object_id][object_table->FIELD_X] = select->x;
+   object_table->array[select->label_object_id][object_table->FIELD_Y] = select->y + y_offset + select->height - 9; // Same as int label positioning
+   object_table->array[select->label_object_id][object_table->FIELD_W] = select->width;
+   object_table->array[select->label_object_id][object_table->FIELD_H] = 8; // Text height
+   object_table->array[select->label_object_id][object_table->FIELD_COLOR] = 2;
+   object_table->array[select->label_object_id][object_table->FIELD_SCALE] = 1;
+   object_table->array[select->label_object_id][object_table->FIELD_TEXT_ID] = select->label_text_id;
+   object_table->array[select->label_object_id][object_table->FIELD_PAGE] = select->page;
+
+   select->num_options = count_tokens(select->options);
+   
+   // Set parameter name in label text (at bottom) - just like other controls
+   strcpy(text_table->array[select->label_text_id], select->param_label);
+   
+   // Set initial selected value in value text (in rectangle)
+   char* initial_token = get_token_at_index(select->options, 0);
+   if (initial_token) {
+       strcpy(text_table->array[select->value_text_id], initial_token);
+   }
+   
+   select->last_value = 0xFFFFFFFF;
+}
+
+void select_update(select_t* select) __attribute__ ((noinline)) {
+   rootc::objectinstance_sketchy__objects* object_table = &parent->objectinstance_sketchy__objects_i;
+   rootc::objectinstance_sketchy__texts* text_table = &parent->objectinstance_sketchy__texts_i;
+   rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
+	
+   int32_t value = param_table->array[select->page][select->param];
+   int option_index = 0;
+
+   if (value == select->last_value) {
+       return;
+   }
+   select->last_value = value;
+
+   if (select->is_int) {
+      option_index = value;
+   } else {
+      float frac_value = ((float)value / 0x00200000);
+      float option_range = 64.0f / select->num_options;
+      option_index = (int)(frac_value / option_range);
+   }
+	
+   option_index = (option_index >= select->num_options) ? select->num_options-1 : option_index;
+   char* token = get_token_at_index(select->options, option_index);
+   
+   // Put selected value in the value text (inside rectangle)
+   if (token) {
+       strcpy(text_table->array[select->value_text_id], token);
+   }
+   
+   // Label text remains static (parameter name at bottom)
+}
+
+typedef struct {
+    uint16_t box_object_id;
+    uint16_t value_object_id;  // Text object for the numeric value inside box
+    uint16_t label_object_id;
+    uint16_t value_text_id;    // Text content for numeric value
+    uint16_t label_text_id;
+    int32_t last_value;
+    int32_t page;
+    int32_t param;
+    int32_t x;
+    int32_t y;
+    int32_t width;
+    int32_t height;
+    const char* label;
+} intdisplay_t;
+
+void intdisplay_init(intdisplay_t* disp) __attribute__ ((noinline)) {
+    rootc::objectinstance_sketchy__objects* object_table = &parent->objectinstance_sketchy__objects_i;
+    rootc::objectinstance_sketchy__texts* text_table = &parent->objectinstance_sketchy__texts_i;
+    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
+
+    // Calculate vertical offset for alignment: positions 0-3 up 1px, positions 4-7 no offset
+    bool is_second_row = (disp->y >= 32);
+    int y_offset = is_second_row ? 0 : -1;  // No offset for second row, up 1px for first row
+
+    disp->box_object_id = object_table->registerEntry();
+    disp->value_object_id = object_table->registerEntry();
+    disp->label_object_id = object_table->registerEntry();
+    disp->value_text_id = text_table->registerEntry();
+    disp->label_text_id = text_table->registerEntry();
+
+    // Box object: Rounded rectangle around the numeric value only (Elektron style) - extended down 2px
+    object_table->array[disp->box_object_id][object_table->FIELD_TYPE] = 3;
+    object_table->array[disp->box_object_id][object_table->FIELD_X] = disp->x;
+    object_table->array[disp->box_object_id][object_table->FIELD_Y] = disp->y + y_offset;
+    object_table->array[disp->box_object_id][object_table->FIELD_W] = disp->width;
+    object_table->array[disp->box_object_id][object_table->FIELD_H] = disp->height - 10; // Rectangle bottom border up 1 pixel
+    object_table->array[disp->box_object_id][object_table->FIELD_COLOR] = 0;
+    object_table->array[disp->box_object_id][object_table->FIELD_SCALE] = 1;
+    object_table->array[disp->box_object_id][object_table->FIELD_TEXT_ID] = 0;
+    object_table->array[disp->box_object_id][object_table->FIELD_PAGE] = disp->page;
+
+    // Value object: Numeric value text inside the rectangle (centered)
+    object_table->array[disp->value_object_id][object_table->FIELD_TYPE] = 9; // Centered text
+    object_table->array[disp->value_object_id][object_table->FIELD_X] = disp->x;
+    object_table->array[disp->value_object_id][object_table->FIELD_Y] = disp->y + y_offset - 1; // Int value down by 1 pixel
+    object_table->array[disp->value_object_id][object_table->FIELD_W] = disp->width;
+    object_table->array[disp->value_object_id][object_table->FIELD_H] = disp->height - 10; // Same height as rectangle
+    object_table->array[disp->value_object_id][object_table->FIELD_COLOR] = 2;
+    object_table->array[disp->value_object_id][object_table->FIELD_SCALE] = 1;
+    object_table->array[disp->value_object_id][object_table->FIELD_TEXT_ID] = disp->value_text_id;
+    object_table->array[disp->value_object_id][object_table->FIELD_PAGE] = disp->page;
+
+    // Label object: Text below moved down 2px more (Elektron style)
+    object_table->array[disp->label_object_id][object_table->FIELD_TYPE] = 9;
+    object_table->array[disp->label_object_id][object_table->FIELD_X] = disp->x;
+    object_table->array[disp->label_object_id][object_table->FIELD_Y] = disp->y + y_offset + disp->height - 9; // Int label up by 1 pixel
+    object_table->array[disp->label_object_id][object_table->FIELD_W] = disp->width;
+    object_table->array[disp->label_object_id][object_table->FIELD_H] = 8; // Text height
+    object_table->array[disp->label_object_id][object_table->FIELD_COLOR] = 2;
+    object_table->array[disp->label_object_id][object_table->FIELD_SCALE] = 1;
+    object_table->array[disp->label_object_id][object_table->FIELD_TEXT_ID] = disp->label_text_id;
+    object_table->array[disp->label_object_id][object_table->FIELD_PAGE] = disp->page;
+
+    // Set initial label text (just the label, not the value)
+    strcpy(text_table->array[disp->label_text_id], disp->label);
+    disp->last_value = 0xFFFFFFFF;
+}
+
+void intdisplay_update(intdisplay_t* disp) __attribute__ ((noinline)) {
+    rootc::objectinstance_sketchy__objects* object_table = &parent->objectinstance_sketchy__objects_i;
+    rootc::objectinstance_sketchy__texts* text_table = &parent->objectinstance_sketchy__texts_i;
+    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
+
+    int32_t value = param_table->array[disp->page][disp->param];
+    if (value == disp->last_value) {
+        return;
+    }
+    disp->last_value = value;
+
+    // Put numeric value in the value text field (inside rectangle) 
+    char value_str[12] = "";
+    text_table->itoa(value_str, value);
+    strcpy(text_table->array[disp->value_text_id], value_str);
+    
+    // Keep the label text separate (already set in init, no need to update unless it changes)
+}
+
+// ======================== VIRTUAL KNOB FUNCTIONALITY ========================
+
+// Original coordinate lookup tables (back in SRAM for testing)
+const int8_t circle_coords[38][2] = {
+    // Circle coordinates - 38 points with gap at bottom for labels
+    { 0, -8}, { 1, -8}, { 2, -8}, { 3, -7}, { 4, -7}, { 5, -6}, { 6, -5}, { 7, -4},
+    { 7, -3}, { 8, -2}, { 8, -1}, { 8,  0}, { 8,  1}, { 8,  2}, { 7,  3}, { 7,  4},
+    { 6,  5}, // Right to bottom (removed Y=+6 and Y=+7 pixels)
+    // BOTTOM GAP HERE for labels
+    {-6,  5}, {-7,  4}, {-7,  3}, {-8,  2}, {-8,  1},
+    {-8,  0}, {-8, -1}, {-8, -2}, {-7, -3}, {-7, -4}, {-6, -5}, {-5, -6}, {-4, -7},
+    {-3, -7}, {-2, -8}, {-1, -8}, // Left to top
+    // FILL remaining positions to complete the circle
+    { 0, -8}, { 1, -8}, { 2, -8}, { 3, -7}, { 4, -7}
+};
+
+const int8_t indicator_coords[31][2] = {
+    // Indicator coordinates - updated coordinates with center at I9
+    {-5,  5}, {-6,  4}, {-6,  3}, {-7,  2}, {-7,  1}, {-7,  0}, {-7, -1}, {-7, -2},
+    {-6, -3}, {-6, -4}, {-5, -5}, {-4, -6}, {-3, -6}, {-2, -7}, {-1, -7}, { 0, -7},
+    { 1, -7}, { 2, -7}, { 3, -6}, { 4, -6}, { 5, -5}, { 6, -4}, { 6, -3}, { 7, -2},
+    { 7, -1}, { 7,  0}, { 7,  1}, { 7,  2}, { 6,  3}, { 6,  4}, { 5,  5}
+};
+
+// Draw indicator line from center to exact position using lookup table
+void draw_indicator_line(int cx, int cy, int indicator_index) __attribute__ ((noinline)) {
+    if (indicator_index < 0 || indicator_index >= INDICATOR_POSITIONS) return;
+    
+    // Get exact end position from lookup table
+    int end_x = cx + indicator_coords[indicator_index][0];
+    int end_y = cy + indicator_coords[indicator_index][1];
+    
+    // Draw line from center to exact position (NO TRIGONOMETRY!)
+    draw_line(cx, cy, end_x, end_y, 0, 1);  // Use original draw_line function
+}
+
+// Draw bipolar indicators (- and + at circle edges)
+void draw_bipolar_indicators(int cx, int cy) __attribute__ ((noinline)) {
+    // Draw "-" on the left side - moved one up and two to the left
+    int minus_x = cx - 10; // Two to the left (was -8)
+    int minus_y = cy + 5;  // One up (was +6)
+    draw_line(minus_x - 1, minus_y, minus_x + 1, minus_y, 0, 1);  // Horizontal line for "-"
+    
+    // Draw "+" on the right side - moved one up and one to the right
+    int plus_x = cx + 10;  // One to the right (was +9)
+    int plus_y = cy + 5;   // One up (was +6)
+    draw_line(plus_x - 1, plus_y, plus_x + 1, plus_y, 0, 1);     // Horizontal line
+    draw_line(plus_x, plus_y - 1, plus_x, plus_y + 1, 0, 1);     // Vertical line for "+"
+}
+
+// NEW DIAL FUNCTIONALITY: Virtual knobs with round indicators
+typedef struct {
+    uint16_t box_object_id;
+    uint16_t label_object_id;
+    uint16_t label_text_id;
+    int32_t last_value;
+    int32_t page;
+    int32_t param;
+    bool is_bipolar;
+    int32_t x;
+    int32_t y;
+    int32_t width;
+    int32_t height;
+    const char* label;
+    bool show_value;
+    int32_t default_value;
+} dial_t;
+
+void dial_init(dial_t* dial) __attribute__ ((noinline)) { 
+    // Get table pointers
+    rootc::objectinstance_sketchy__objects* object_table = &parent->objectinstance_sketchy__objects_i;
+    rootc::objectinstance_sketchy__texts* text_table = &parent->objectinstance_sketchy__texts_i;
+    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
+
+    // Register and get ids
+    dial->box_object_id = object_table->registerEntry();
+    dial->label_object_id = object_table->registerEntry();
+    dial->label_text_id = text_table->registerEntry();
+
+    // Detect if this is a second row dial (dials 4-7 typically have Y >= 32)
+    bool is_second_row = (dial->y >= 32);
+    int y_offset = is_second_row ? 2 : 1;  // Move second row down by 2 pixel, first row down by 1 pixel
+
+    // Setup box object for storing dial data
+    object_table->array[dial->box_object_id][object_table->FIELD_TYPE] = 2;  // Will be overridden in update
+    object_table->array[dial->box_object_id][object_table->FIELD_X] = dial->x;
+    object_table->array[dial->box_object_id][object_table->FIELD_Y] = dial->y + y_offset;
+    object_table->array[dial->box_object_id][object_table->FIELD_W] = dial->width;
+    object_table->array[dial->box_object_id][object_table->FIELD_H] = 0;
+    object_table->array[dial->box_object_id][object_table->FIELD_COLOR] = 0;
+    object_table->array[dial->box_object_id][object_table->FIELD_SCALE] = 1;
+    object_table->array[dial->box_object_id][object_table->FIELD_TEXT_ID] = 0;
+    object_table->array[dial->box_object_id][object_table->FIELD_PAGE] = dial->page;
+
+    // Setup label object - positioned for text below knob
+    object_table->array[dial->label_object_id][object_table->FIELD_TYPE] = 9;
+    object_table->array[dial->label_object_id][object_table->FIELD_X] = dial->x;
+    object_table->array[dial->label_object_id][object_table->FIELD_Y] = dial->y + y_offset + dial->height - 11; // Dial label up by 1 pixel
+    object_table->array[dial->label_object_id][object_table->FIELD_W] = dial->width;
+    object_table->array[dial->label_object_id][object_table->FIELD_H] = 8;
+    object_table->array[dial->label_object_id][object_table->FIELD_COLOR] = 2;
+    object_table->array[dial->label_object_id][object_table->FIELD_SCALE] = 1;
+    object_table->array[dial->label_object_id][object_table->FIELD_TEXT_ID] = dial->label_text_id;
+    object_table->array[dial->label_object_id][object_table->FIELD_PAGE] = dial->page;
+
+    // Setup label text
+    strcpy(text_table->array[dial->label_text_id], dial->label);
+    
+    // Set default value and initialize change detection
+    param_table->array[dial->page][dial->param] = dial->default_value;
+    dial->last_value = -999999;  // Force first update
+}
+
+void dial_update(dial_t* dial) __attribute__ ((noinline)) {
+    // Get table pointers 
+    rootc::objectinstance_sketchy__objects* object_table = &parent->objectinstance_sketchy__objects_i;
+    rootc::objectinstance_sketchy__texts* text_table = &parent->objectinstance_sketchy__texts_i;
+    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
+
+    int32_t value = param_table->array[dial->page][dial->param];
+
+    // Abort if value is the same (change detection for performance)
+    if (value == dial->last_value) {
+        return;
+    }
+
+    dial->last_value = value;
+
+    // Calculate dial center (accounting for second row offset)
+    bool is_second_row = (dial->y >= 32);
+    int y_offset = is_second_row ? 1 : 0;
+    int cx = dial->x + dial->width/2;
+    int cy = dial->y + y_offset + dial->height/2 - 6;
+    
+    // Process value differently for bipolar vs unipolar
+    float lookup_pos;
+    
+    if (dial->is_bipolar) {
+        // Bipolar: transform value and map to -1/+1 range, then convert to 0/1 for lookup
+        value = (value-(1<<26))<<1;
+        float frac_value = ((float)value / 0x00200000);
+        float norm_value = frac_value / 64.0f;
+        
+        // Clamp to -1.0 to 1.0 range
+        if (norm_value < -1.0f) norm_value = -1.0f;
+        if (norm_value > 1.0f) norm_value = 1.0f;
+        
+        // Convert from -1/+1 to 0/1 range for lookup
+        lookup_pos = (norm_value + 1.0f) / 2.0f;
+    } else {
+        // Unipolar: map 0 to max_value directly to 0/1 range for full circle coverage
+        float max_value = (1<<27);  // 134217728
+        lookup_pos = (float)value / max_value;
+        
+        // Clamp to 0.0 to 1.0 range
+        if (lookup_pos < 0.0f) lookup_pos = 0.0f;
+        if (lookup_pos > 1.0f) lookup_pos = 1.0f;
+    }
+    
+    // Map to indicator positions
+    int indicator_index = (int)(lookup_pos * (INDICATOR_POSITIONS - 1) + 0.5f);
+    if (indicator_index < 0) indicator_index = 0;
+    if (indicator_index >= INDICATOR_POSITIONS) indicator_index = INDICATOR_POSITIONS - 1;
+    
+    // Store knob data in object table for rendering
+    // Type 99 = regular knob, Type 100 = bipolar knob with +/- indicators
+    int knob_type = dial->is_bipolar ? 100 : 99;
+    object_table->array[dial->box_object_id][object_table->FIELD_TYPE] = knob_type;
+    object_table->array[dial->box_object_id][object_table->FIELD_X] = cx;    // Center X
+    object_table->array[dial->box_object_id][object_table->FIELD_Y] = cy;    // Center Y
+    object_table->array[dial->box_object_id][object_table->FIELD_W] = indicator_index; // Store indicator position
+    object_table->array[dial->box_object_id][object_table->FIELD_H] = dial->width;     // Store dial width for bounds
+
+    // Update label text
+    strcpy(text_table->array[dial->label_text_id], dial->label);
+}]]></code.declaration>
+         <code.init><![CDATA[object_table = &parent->objectinstance_sketchy__objects_i;
+text_table = &parent->objectinstance_sketchy__texts_i;
+param_table = &parent->objectinstance_sketchy__params_i;
+font = &parent->objectinstance_sketchy__font_i;
+
+palSetPadMode(GPIOB, 8, PAL_MODE_ALTERNATE(4)|PAL_STM32_PUDR_PULLUP|PAL_STM32_OTYPE_OPENDRAIN);
+palSetPadMode(GPIOB, 9, PAL_MODE_ALTERNATE(4)|PAL_STM32_PUDR_PULLUP|PAL_STM32_OTYPE_OPENDRAIN);
+static const I2CConfig i2cfg = {
+    OPMODE_I2C,
+    400000,
+    FAST_DUTY_CYCLE_2,
+};
+i2cStart(&I2CD1, &i2cfg);
+Thd = chThdCreateStatic(waThreadX, sizeof(waThreadX), NORMALPRIO, ThreadX, (void *)this);
+
+clear();
+
+// Initialize shared rings
+init_shared_rings();
+
+pprint = false;
+page = 0;
+layout = 0xFFFF;]]></code.init>
+         <code.dispose><![CDATA[chThdTerminate( Thd );
+chThdWait( Thd );
+i2cStop(&I2CD1);
+palSetPadMode(GPIOB, 8, PAL_MODE_INPUT_ANALOG);
+palSetPadMode(GPIOB, 9, PAL_MODE_INPUT_ANALOG);]]></code.dispose>
+         <code.krate><![CDATA[if (inlet_print && !pprint) {
+	pprint = true;
+	for (uint16_t i = 0; i < object_table->LENGTH; i++) {
+		LogTextMessage(
+			"i: %3d, type: %3d, x: %3d, y: %3d, w: %3d, h: %3d, color: %3d, text_id: %3d",
+			i,
+			object_table->array[i][object_table->FIELD_TYPE],
+			object_table->array[i][object_table->FIELD_X], 
+			object_table->array[i][object_table->FIELD_Y], 
+			object_table->array[i][object_table->FIELD_W],
+			object_table->array[i][object_table->FIELD_H], 
+			object_table->array[i][object_table->FIELD_COLOR],
+			object_table->array[i][object_table->FIELD_TEXT_ID]
+		);
+	}
+	LogTextMessage("");
+}
+
+if (!inlet_print && pprint) {
+	pprint = false;
+}
+
+if (page != inlet_page) {
+	page = inlet_page;
+}
+if (layout != inlet_layout) {
+	layout = inlet_layout;
+}
+
+outlet_sw = LCDWIDTH;
+outlet_sh = LCDHEIGHT;]]></code.krate>
+      </object>
+   </patchobj>
+   <obj type="const/i" uuid="e202f44b2df17ae0b3e663b98ea6b14c8ff00408" name="layout page" x="644" y="168">
+      <params/>
+      <attribs>
+         <spinner attributeName="value" value="-1"/>
+      </attribs>
+   </obj>
+   <patchobj type="patch/object" uuid="13324361-bbda-45f3-b070-656fe0acdfaa" name="pager_fixed" x="882" y="168">
+      <params/>
+      <attribs>
+         <spinner attributeName="page" value="0"/>
+         <spinner attributeName="firstpage" value="0"/>
+         <table attributeName="list" table="Main,1 SEQ, 2 SEQ"/>
+      </attribs>
+      <object id="patch/object" uuid="13324361-bbda-45f3-b070-656fe0acdfaa">
+         <sDescription>Page display - fixed object references</sDescription>
+         <author>AI Assistant</author>
+         <license>GPL</license>
+         <inlets/>
+         <outlets/>
+         <displays/>
+         <params/>
+         <attribs>
+            <spinner name="page" description="page on which to render" MinValue="-127" MaxValue="127" DefaultValue="0"/>
+            <spinner name="firstpage" description="first page that corresponds to first pagename in the list" MinValue="-127" MaxValue="127" DefaultValue="0"/>
+            <table name="list" description="comma separated list of page names"/>
+         </attribs>
+         <includes/>
+         <code.declaration><![CDATA[rootc::objectinstance_sketchy__objects* object_table;
+rootc::objectinstance_sketchy__texts* text_table;
+rootc::objectinstance_sketchy__params* param_table;
+rootc::objectinstance_sketchy__render* renderer;
+
+uint16_t label_object_id;
+uint16_t label2_object_id;
+
+uint16_t label_text_id;
+uint16_t label2_text_id;
+
+uint16_t page = 0xFFFF;
+uint16_t num_pagenames = 1;]]></code.declaration>
+         <code.init><![CDATA[object_table = &parent->objectinstance_sketchy__objects_i;
+text_table = &parent->objectinstance_sketchy__texts_i;
+param_table = &parent->objectinstance_sketchy__params_i;
+renderer = &parent->objectinstance_sketchy__render_i;
+
+// Register and get ids - NO divider line
+label_object_id = object_table->registerEntry();
+label2_object_id = object_table->registerEntry();
+
+label_text_id = text_table->registerEntry();
+label2_text_id = text_table->registerEntry();
+
+// Setup label object
+object_table->array[label_object_id][object_table->FIELD_TYPE] = 6;
+object_table->array[label_object_id][object_table->FIELD_X] =  2;
+object_table->array[label_object_id][object_table->FIELD_Y] = 2;
+object_table->array[label_object_id][object_table->FIELD_W] = 100;
+object_table->array[label_object_id][object_table->FIELD_H] = 25;
+object_table->array[label_object_id][object_table->FIELD_COLOR] = 2;
+object_table->array[label_object_id][object_table->FIELD_SCALE] = 1;
+object_table->array[label_object_id][object_table->FIELD_TEXT_ID] = label_text_id;
+object_table->array[label_object_id][object_table->FIELD_PAGE] = -1; // Show on all pages
+
+// Setup label2 object [8/10]
+object_table->array[label2_object_id][object_table->FIELD_TYPE] = 6;
+object_table->array[label2_object_id][object_table->FIELD_X] = 60;
+object_table->array[label2_object_id][object_table->FIELD_Y] = 2;
+object_table->array[label2_object_id][object_table->FIELD_W] = 100;
+object_table->array[label2_object_id][object_table->FIELD_H] = 25;
+object_table->array[label2_object_id][object_table->FIELD_COLOR] = 2;
+object_table->array[label2_object_id][object_table->FIELD_SCALE] = 1;
+object_table->array[label2_object_id][object_table->FIELD_TEXT_ID] = label2_text_id;
+object_table->array[label2_object_id][object_table->FIELD_PAGE] = -1; // Show on all pages
+
+// Setup label text
+strcpy(text_table->array[label_text_id], "attr_label");
+
+num_pagenames = renderer->count_tokens("attr_list");]]></code.init>
+         <code.krate><![CDATA[if (page != renderer->getCurrentPage()) {
+	
+	page = renderer->getCurrentPage();
+	int desired_index = page - attr_firstpage;
+	
+	char str[] = "attr_list";
+	const char* pagename = renderer->get_token_at_index(str, desired_index);
+	
+	// copy page name to label
+	strcpy(text_table->array[label_text_id], pagename);
+	
+	// set pager string [7/8]
+	char pager_str[16] = "";
+	char page_str[4] = "";
+	char num_pagenames_str[4] = "";
+
+	text_table->itoa(page_str, page+1);
+	text_table->itoa(num_pagenames_str, num_pagenames);
+	
+	strcat(pager_str, "[");
+	strcat(pager_str, page_str);
+	strcat(pager_str, "/");
+	strcat(pager_str, num_pagenames_str);
+	strcat(pager_str, "]");
+	strcpy(text_table->array[label2_text_id], pager_str);
+	
+	uint16_t pager_str_w = strlen(pager_str) * 6;
+	object_table->array[label2_object_id][object_table->FIELD_X] = 128 - pager_str_w;
+}]]></code.krate>
+      </object>
+   </patchobj>
+   <patchobj type="patch/object" uuid="1596853e-ecc7-4ea5-811f-56bf5e66c107" name="sketchy_dials" x="504" y="224">
+      <params/>
+      <attribs>
+         <spinner attributeName="maxpages" value="8"/>
+      </attribs>
+      <object id="patch/object" uuid="1596853e-ecc7-4ea5-811f-56bf5e66c107">
+         <sDescription>Dial configuration with configurable page count. Drop-in replacement for sketchy_dials with attribute to set maximum pages (8-64).</sDescription>
+         <author>AI Assistant</author>
+         <license>BSD</license>
+         <helpPatch>logic.axh</helpPatch>
+         <inlets>
+            <int32 name="page"/>
+         </inlets>
+         <outlets/>
+         <displays/>
+         <params/>
+         <attribs>
+            <spinner name="maxpages" description="Maximum number of pages (8-64)" MinValue="8" MaxValue="64" DefaultValue="8"/>
+         </attribs>
+         <includes/>
+         <depends>
+            <depend>sketchy_font</depend>
+            <depend>sketchy_params</depend>
+            <depend>sketchy_render</depend>
+            <depend>sketchy_objects</depend>
+            <depend>sketchy_texts</depend>
+         </depends>
+         <code.declaration><![CDATA[// Dial configuration structure
+typedef struct {
+    uint8_t mode;           // 0=frac unipolar, 1=frac bipolar, 2=int, 3=list, 4=bar unipolar, 5=bar bipolar, 6=duplicate
+    bool show_value;        // Show/hide value (for fractional modes)
+    const char* label;      // Label text
+    const char* options;    // List options (for mode 3) OR duplicate reference "page,dial" (for mode 6)
+    float default_value;    // Default value
+    int16_t int_min;        // Minimum value (for int/list modes)
+    int16_t int_max;        // Maximum value (for int/list modes)
+} encoder_dial_config_t;
+
+// Configuration storage - MOVED TO SDRAM to save SRAM
+encoder_dial_config_t (*configs)[8];
+
+// Mode constants
+#define MODE_FRAC_UNIPOLAR 0  // 0.0 to 1.0, positive only
+#define MODE_FRAC_BIPOLAR  1  // -1.0 to 1.0, bipolar
+#define MODE_INT           2  // min to max, integer
+#define MODE_LIST          3  // selector mode
+#define MODE_BAR_UNIPOLAR  4  // 0.0 to 1.0, vertical bar
+#define MODE_BAR_BIPOLAR   5  // -1.0 to 1.0, vertical bar
+#define MODE_DUPLICATE     6  // duplicate another parameter
+#define MODE_EMPTY         255 // empty/unconfigured - no display object created
+
+// Display structures for each type - variable total (pages x 8 dials)
+// Using SDRAM to save precious SRAM
+rootc::objectinstance_sketchy__render::dial_t *dials;
+rootc::objectinstance_sketchy__render::intdisplay_t *intdisplays;
+rootc::objectinstance_sketchy__render::select_t *selects;
+rootc::objectinstance_sketchy__render::bar_t *bars;
+
+// Fixed layout positions
+const uint8_t DIAL_WIDTH = 24;
+const uint8_t DIAL_HEIGHT = 24;
+const uint8_t ROW1_Y = 13;
+const uint8_t ROW2_Y = 39;
+const uint8_t COL_X[4] = {26, 52, 78, 104};
+
+// Initialize configuration data in SDRAM - MOVED TO INIT CODE
+// This function now populates the SDRAM shadow array directly
+
+// Convert from display value to encoder position (0-1)
+float displayToEncoderValue(float displayValue, int mode) {
+    switch(mode) {
+        case MODE_FRAC_UNIPOLAR:
+        case MODE_BAR_UNIPOLAR:
+            // 0-64 display maps to 0-1 encoder
+            return displayValue / 64.0f;
+        case MODE_FRAC_BIPOLAR:
+        case MODE_BAR_BIPOLAR:
+            // -64 to +64 display maps to 0-1 encoder (-64 = 0.0, 0 = 0.5, +64 = 1.0)
+            return (displayValue + 64.0f) / 128.0f;
+        case MODE_INT:
+        case MODE_LIST:
+            // Not used for these modes
+            return 0.0f;
+        default:
+            return displayValue;
+    }
+}
+
+// Parse duplicate reference "page,dial" into page and dial indices
+void parse_duplicate_reference(const char* options, uint8_t* ref_page, uint8_t* ref_dial) {
+    *ref_page = 0;
+    *ref_dial = 0;
+    
+    // Simple parsing: expect "page,dial" format
+    if (options && strlen(options) >= 3) {
+        *ref_page = options[0] - '0';  // Convert first char to number
+        if (options[1] == ',' && options[2] >= '0' && options[2] <= '7') {
+            *ref_dial = options[2] - '0';  // Convert third char to number
+        }
+    }
+}
+
+// Initialize a single dial based on its configuration
+void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* config) {
+    uint8_t array_index = page * 8 + dial_index;
+    
+    // Bounds check to prevent buffer overflow
+    if (array_index >= (attr_maxpages * 8)) {
+        return;  // Skip if out of bounds
+    }
+    
+    float encoder_pos;  // Declare variable outside switch
+    
+    switch (config->mode) {
+        case MODE_EMPTY:
+            // Skip creating any display objects for empty/unconfigured elements
+            return;
+            
+        case MODE_FRAC_UNIPOLAR:
+        case MODE_FRAC_BIPOLAR:
+            dials[array_index].page = page;
+            dials[array_index].param = dial_index;
+            dials[array_index].is_bipolar = (config->mode == MODE_FRAC_BIPOLAR);
+            dials[array_index].x = COL_X[dial_index % 4];
+            dials[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+            dials[array_index].width = DIAL_WIDTH;
+            dials[array_index].height = DIAL_HEIGHT;
+            dials[array_index].label = config->label;
+            dials[array_index].show_value = config->show_value;
+            // Convert config default to encoder position (0-1), then to display format for renderer
+            encoder_pos = displayToEncoderValue(config->default_value, config->mode);
+            if (encoder_pos < 0.0f) encoder_pos = 0.0f;
+            if (encoder_pos > 1.0f) encoder_pos = 1.0f;
+            dials[array_index].default_value = (int32_t)(encoder_pos * (float)(1 << 27));
+            parent->objectinstance_sketchy__render_i.dial_init(&dials[array_index]);
+            break;
+            
+        case MODE_BAR_UNIPOLAR:
+        case MODE_BAR_BIPOLAR:
+            bars[array_index].page = page;
+            bars[array_index].param = dial_index;
+            bars[array_index].is_bipolar = (config->mode == MODE_BAR_BIPOLAR);
+            bars[array_index].x = COL_X[dial_index % 4];
+            bars[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+            bars[array_index].width = DIAL_WIDTH;
+            bars[array_index].height = DIAL_HEIGHT;
+            bars[array_index].label = config->label;
+            bars[array_index].show_value = config->show_value;
+            // Convert config default to encoder position (0-1), then to display format for renderer
+            encoder_pos = displayToEncoderValue(config->default_value, config->mode);
+            if (encoder_pos < 0.0f) encoder_pos = 0.0f;
+            if (encoder_pos > 1.0f) encoder_pos = 1.0f;
+            bars[array_index].default_value = (int32_t)(encoder_pos * (float)(1 << 27));
+            parent->objectinstance_sketchy__render_i.bar_init(&bars[array_index]);
+            break;
+            
+        case MODE_INT:
+            intdisplays[array_index].page = page;
+            intdisplays[array_index].param = dial_index;
+            intdisplays[array_index].x = COL_X[dial_index % 4];
+            intdisplays[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+            intdisplays[array_index].width = DIAL_WIDTH;
+            intdisplays[array_index].height = DIAL_HEIGHT;
+            intdisplays[array_index].label = config->label;
+            parent->objectinstance_sketchy__render_i.intdisplay_init(&intdisplays[array_index]);
+            break;
+            
+        case MODE_LIST:
+            selects[array_index].page = page;
+            selects[array_index].param = dial_index;
+            selects[array_index].x = COL_X[dial_index % 4];
+            selects[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+            selects[array_index].width = DIAL_WIDTH;
+            selects[array_index].height = DIAL_HEIGHT;
+            selects[array_index].is_int = true;
+            selects[array_index].param_label = config->label;  // Parameter name
+            selects[array_index].options = config->options;    // Options list
+            parent->objectinstance_sketchy__render_i.select_init(&selects[array_index]);
+            break;
+            
+        case MODE_DUPLICATE:
+            // Parse the duplicate reference from options field: "page,dial"
+            uint8_t ref_page, ref_dial;
+            parse_duplicate_reference(config->options, &ref_page, &ref_dial);
+            
+            // Get the referenced configuration and initialize with it
+            if (ref_page < attr_maxpages && ref_dial < 8) {
+                const encoder_dial_config_t* ref_config = &configs[ref_page][ref_dial];
+                
+                // Avoid infinite recursion - don't duplicate another duplicate
+                if (ref_config->mode != MODE_DUPLICATE) {
+                    // Initialize this dial with the referenced config's mode
+                    encoder_dial_config_t temp_config = *ref_config;
+                    init_dial(page, dial_index, &temp_config);
+                    
+                    // Override the param and page to point to the same parameter as the original
+                    switch (temp_config.mode) {
+                        case MODE_FRAC_UNIPOLAR:
+                        case MODE_FRAC_BIPOLAR:
+                            dials[array_index].param = ref_dial;  // Point to original param
+                            dials[array_index].page = ref_page;   // Point to original page
+                            break;
+                        case MODE_BAR_UNIPOLAR:
+                        case MODE_BAR_BIPOLAR:
+                            bars[array_index].param = ref_dial;   // Point to original param
+                            bars[array_index].page = ref_page;    // Point to original page
+                            break;
+                        case MODE_INT:
+                            intdisplays[array_index].param = ref_dial;  // Point to original param
+                            intdisplays[array_index].page = ref_page;   // Point to original page
+                            break;
+                        case MODE_LIST:
+                            selects[array_index].param = ref_dial;     // Point to original param
+                            selects[array_index].page = ref_page;      // Point to original page
+                            break;
+                    }
+                }
+            }
+            break;
+    }
+}
+
+// Update a single dial based on its configuration
+void update_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* config) {
+    uint8_t array_index = page * 8 + dial_index;
+    
+    // Bounds check to prevent buffer overflow
+    if (array_index >= (attr_maxpages * 8)) {
+        return;  // Skip if out of bounds
+    }
+    
+    switch (config->mode) {
+        case MODE_EMPTY:
+            // Skip updating empty/unconfigured elements
+            return;
+            
+        case MODE_FRAC_UNIPOLAR:
+        case MODE_FRAC_BIPOLAR:
+            parent->objectinstance_sketchy__render_i.dial_update(&dials[array_index]);
+            break;
+            
+        case MODE_BAR_UNIPOLAR:
+        case MODE_BAR_BIPOLAR:
+            parent->objectinstance_sketchy__render_i.bar_update(&bars[array_index]);
+            break;
+            
+        case MODE_INT:
+            parent->objectinstance_sketchy__render_i.intdisplay_update(&intdisplays[array_index]);
+            break;
+            
+        case MODE_LIST:
+            parent->objectinstance_sketchy__render_i.select_update(&selects[array_index]);
+            break;
+            
+        case MODE_DUPLICATE:
+            // Parse the duplicate reference and update with the referenced config
+            uint8_t ref_page, ref_dial;
+            parse_duplicate_reference(config->options, &ref_page, &ref_dial);
+            
+            if (ref_page < attr_maxpages && ref_dial < 8) {
+                const encoder_dial_config_t* ref_config = &configs[ref_page][ref_dial];
+                
+                // Avoid infinite recursion - don't duplicate another duplicate
+                if (ref_config->mode != MODE_DUPLICATE) {
+                    // Update this dial with the referenced config's mode
+                    switch (ref_config->mode) {
+                        case MODE_FRAC_UNIPOLAR:
+                        case MODE_FRAC_BIPOLAR:
+                            parent->objectinstance_sketchy__render_i.dial_update(&dials[array_index]);
+                            break;
+                        case MODE_BAR_UNIPOLAR:
+                        case MODE_BAR_BIPOLAR:
+                            parent->objectinstance_sketchy__render_i.bar_update(&bars[array_index]);
+                            break;
+                        case MODE_INT:
+                            parent->objectinstance_sketchy__render_i.intdisplay_update(&intdisplays[array_index]);
+                            break;
+                        case MODE_LIST:
+                            parent->objectinstance_sketchy__render_i.select_update(&selects[array_index]);
+                            break;
+                    }
+                }
+            }
+            break;
+    }
+}
+
+// Initialize param table with default values
+void init_param_table() {
+    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
+    
+    for (int page = 0; page < attr_maxpages; page++) {
+        for (int enc = 0; enc < 8; enc++) {
+            const encoder_dial_config_t* config = &configs[page][enc];
+            
+            if (config->mode == MODE_EMPTY) {
+                // Initialize empty/unconfigured elements to 0
+                param_table->array[page][enc] = 0;
+            } else if (config->mode == MODE_INT || config->mode == MODE_LIST) {
+                // Initialize integer/list modes to their default values (clamped to range)
+                int default_int = (int)config->default_value;
+                if (default_int < config->int_min) default_int = config->int_min;
+                if (default_int > config->int_max) default_int = config->int_max;
+                param_table->array[page][enc] = default_int;
+            } else {
+                // Initialize fractional modes (knobs): store encoder position (0-1) directly
+                float encoder_pos = displayToEncoderValue(config->default_value, config->mode);
+                if (encoder_pos < 0.0f) encoder_pos = 0.0f;
+                if (encoder_pos > 1.0f) encoder_pos = 1.0f;
+                param_table->array[page][enc] = (int32_t)(encoder_pos * (float)(1 << 27));
+            }
+        }
+    }
+}
+
+]]></code.declaration>
+         <code.init><![CDATA[// Create SDRAM shadow arrays for display structures - use maximum size (64 pages * 8 = 512 dials)
+static rootc::objectinstance_sketchy__render::dial_t _dials[512] __attribute__ ((section (".sdram")));
+static rootc::objectinstance_sketchy__render::intdisplay_t _intdisplays[512] __attribute__ ((section (".sdram")));
+static rootc::objectinstance_sketchy__render::select_t _selects[512] __attribute__ ((section (".sdram")));
+static rootc::objectinstance_sketchy__render::bar_t _bars[512] __attribute__ ((section (".sdram")));
+
+// SDRAM STRATEGY: Create shadow array for configuration data - use maximum size
+static encoder_dial_config_t _configs[64][8] __attribute__ ((section (".sdram")));
+
+// Point pointers to SDRAM arrays
+dials = &_dials[0];
+intdisplays = &_intdisplays[0];
+selects = &_selects[0];
+bars = &_bars[0];
+configs = _configs;  // Point configs to SDRAM array
+
+// Initialize configuration data directly in SDRAM shadow array
+// PAGE 0 - Oscillator controls
+configs[0][0] = (encoder_dial_config_t){1, true,  "FIN", "", 0.0f, 0, 127};
+configs[0][1] = (encoder_dial_config_t){1, true,  "WAV", "", 32.0f, 0, 127};
+configs[0][2] = (encoder_dial_config_t){3, false, "SEL", "Sin,Tri,Saw,Sqr,Nse", 2.0f, 0, 4};
+configs[0][3] = (encoder_dial_config_t){5, true,  "DOT", "", 32.0f, 0, 127};
+configs[0][4] = (encoder_dial_config_t){0, false, "DET", "", 0.0f, 0, 127};
+configs[0][5] = (encoder_dial_config_t){0, false, "SUB", "", 0.0f, 0, 127};
+configs[0][6] = (encoder_dial_config_t){2, false, "OCT", "", 0.0f, -4, 4};
+configs[0][7] = (encoder_dial_config_t){4, false, "DOWN", "", 0.0f, 0, 127};
+
+// PAGE 1 - Filter controls
+configs[1][0] = (encoder_dial_config_t){0, true,  "CUT", "", 32.0f, 0, 127};
+configs[1][1] = (encoder_dial_config_t){1, true,  "RES", "", 0.0f, 0, 127};
+configs[1][2] = (encoder_dial_config_t){1, false, "ENV", "", 0.0f, -64, 64};
+configs[1][3] = (encoder_dial_config_t){3, false, "TYP", "LP,HP,BP,BR", 0.0f, 0, 3};
+configs[1][4] = (encoder_dial_config_t){0, false, "KBD", "", 16.0f, 0, 127};
+configs[1][5] = (encoder_dial_config_t){0, false, "VEL", "", 0.0f, 0, 127};
+configs[1][6] = (encoder_dial_config_t){0, false, "LFO", "", 0.0f, 0, 127};
+configs[1][7] = (encoder_dial_config_t){2, false, "DRV", "", 8.0f, 0, 100};
+
+// PAGE 2 - Envelope controls
+configs[2][0] = (encoder_dial_config_t){0, false, "ATK", "", 8.0f, 0, 127};
+configs[2][1] = (encoder_dial_config_t){0, false, "DEC", "", 16.0f, 0, 127};
+configs[2][2] = (encoder_dial_config_t){0, false, "SUS", "", 48.0f, 0, 127};
+configs[2][3] = (encoder_dial_config_t){0, false, "REL", "", 24.0f, 0, 127};
+configs[2][4] = (encoder_dial_config_t){1, false, "VEL", "", 0.0f, -100, 100};
+configs[2][5] = (encoder_dial_config_t){1, false, "CRV", "", 0.0f, -50, 50};
+configs[2][6] = (encoder_dial_config_t){0, false, "TIM", "", 32.0f, 0, 127};
+configs[2][7] = (encoder_dial_config_t){3, false, "TYP", "Lin,Exp,Log", 1.0f, 0, 2};
+
+// PAGE 3 - LFO controls
+configs[3][0] = (encoder_dial_config_t){0, true,  "RAT", "", 16.0f, 0, 127};
+configs[3][1] = (encoder_dial_config_t){1, false, "DEP", "", 0.0f, -127, 127};
+configs[3][2] = (encoder_dial_config_t){1, false, "PHS", "", 0.0f, -127, 127};
+configs[3][3] = (encoder_dial_config_t){3, false, "SHP", "Sin,Tri,Saw,Sqr,S&H", 1.0f, 0, 4};
+configs[3][4] = (encoder_dial_config_t){0, false, "SYN", "", 0.0f, 0, 127};
+configs[3][5] = (encoder_dial_config_t){0, false, "DEL", "", 0.0f, 0, 127};
+configs[3][6] = (encoder_dial_config_t){0, false, "FAD", "", 0.0f, 0, 127};
+configs[3][7] = (encoder_dial_config_t){2, false, "DIV", "", 8.0f, 1, 32};
+
+// PAGE 4 - Effects controls
+configs[4][0] = (encoder_dial_config_t){0, false, "REV", "", 16.0f, 0, 127};
+configs[4][1] = (encoder_dial_config_t){0, false, "DEL", "", 0.0f, 0, 127};
+configs[4][2] = (encoder_dial_config_t){0, false, "CHO", "", 0.0f, 0, 127};
+configs[4][3] = (encoder_dial_config_t){0, false, "DIS", "", 0.0f, 0, 127};
+configs[4][4] = (encoder_dial_config_t){1, false, "TIM", "", 0.0f, -64, 64};
+configs[4][5] = (encoder_dial_config_t){1, false, "FBK", "", 0.0f, -100, 100};
+configs[4][6] = (encoder_dial_config_t){0, false, "MIX", "", 32.0f, 0, 127};
+configs[4][7] = (encoder_dial_config_t){3, false, "TYP", "Off,Hall,Room,Plate", 2.0f, 0, 3};
+
+// PAGE 5 - Sequencer controls
+configs[5][0] = (encoder_dial_config_t){2, true,  "STP", "", 8.0f, 1, 64};
+configs[5][1] = (encoder_dial_config_t){0, true,  "SPD", "", 32.0f, 0, 127};
+configs[5][2] = (encoder_dial_config_t){1, false, "SWG", "", 0.0f, -50, 50};
+configs[5][3] = (encoder_dial_config_t){3, false, "DIR", "Fwd,Rev,P-P,Rnd", 0.0f, 0, 3};
+configs[5][4] = (encoder_dial_config_t){0, false, "GAT", "", 48.0f, 0, 127};
+configs[5][5] = (encoder_dial_config_t){1, false, "ACC", "", 0.0f, -127, 127};
+configs[5][6] = (encoder_dial_config_t){0, false, "SLD", "", 0.0f, 0, 127};
+configs[5][7] = (encoder_dial_config_t){2, false, "RST", "", 0.0f, 0, 1};
+
+// PAGE 6 - Modulation controls
+configs[6][0] = (encoder_dial_config_t){1, false, "M1A", "", 0.0f, -127, 127};
+configs[6][1] = (encoder_dial_config_t){1, false, "M2A", "", 0.0f, -127, 127};
+configs[6][2] = (encoder_dial_config_t){1, false, "M3A", "", 0.0f, -127, 127};
+configs[6][3] = (encoder_dial_config_t){3, false, "SRC", "LFO,ENV,VEL,RND", 0.0f, 0, 3};
+configs[6][4] = (encoder_dial_config_t){3, false, "DS1", "Cut,Res,Amp,Pan", 0.0f, 0, 3};
+configs[6][5] = (encoder_dial_config_t){3, false, "DS2", "Pit,Phs,PWM,FM", 0.0f, 0, 3};
+configs[6][6] = (encoder_dial_config_t){0, false, "ATN", "", 64.0f, 0, 127};
+configs[6][7] = (encoder_dial_config_t){2, false, "LAG", "", 0.0f, 0, 100};
+
+// PAGE 7 - Global controls
+configs[7][0] = (encoder_dial_config_t){0, true,  "VOL", "", 48.0f, 0, 127};
+configs[7][1] = (encoder_dial_config_t){1, false, "PAN", "", 0.0f, -64, 64};
+configs[7][2] = (encoder_dial_config_t){0, false, "TUN", "", 32.0f, 0, 127};
+configs[7][3] = (encoder_dial_config_t){2, true,  "TRS", "", 0.0f, -24, 24};
+configs[7][4] = (encoder_dial_config_t){0, false, "VEL", "", 48.0f, 0, 127};
+configs[7][5] = (encoder_dial_config_t){0, false, "POR", "", 0.0f, 0, 127};
+configs[7][6] = (encoder_dial_config_t){2, false, "CHN", "", 1.0f, 1, 16};
+configs[7][7] = (encoder_dial_config_t){3, false, "PLY", "Poly,Mono,Leg", 0.0f, 0, 2};
+
+// PAGE 8 - Custom page (example from your patch)
+configs[8][0] = (encoder_dial_config_t){0, true,  "BOL", "", 48.0f, 0, 127};
+configs[8][1] = (encoder_dial_config_t){1, false, "AAN", "", 0.0f, -64, 64};
+configs[8][2] = (encoder_dial_config_t){0, false, "TUN", "", 32.0f, 0, 127};
+configs[8][3] = (encoder_dial_config_t){2, true,  "TRS", "", 0.0f, -24, 24};
+configs[8][4] = (encoder_dial_config_t){0, false, "VEL", "", 48.0f, 0, 127};
+configs[8][5] = (encoder_dial_config_t){0, false, "POR", "", 0.0f, 0, 127};
+configs[8][6] = (encoder_dial_config_t){2, false, "CHN", "", 1.0f, 1, 16};
+configs[8][7] = (encoder_dial_config_t){3, false, "PLY", "Poly,Mono,Leg", 0.0f, 0, 2};
+
+// PAGE 9 - Modulation Matrix
+configs[9][0] = (encoder_dial_config_t){3, false, "SRC", "LFO1,LFO2,ENV1,ENV2", 0.0f, 0, 3};
+configs[9][1] = (encoder_dial_config_t){3, false, "DST", "Pitch,Filter,Amp,Pan", 0.0f, 0, 3};
+configs[9][2] = (encoder_dial_config_t){1, true,  "AMT", "", 0.0f, -64, 64};
+configs[9][3] = (encoder_dial_config_t){0, false, "CRV", "", 32.0f, 0, 127};
+configs[9][4] = (encoder_dial_config_t){4, true,  "DEP", "", 0.0f, 0, 127};
+configs[9][5] = (encoder_dial_config_t){5, true,  "MIX", "", 0.0f, -64, 64};
+configs[9][6] = (encoder_dial_config_t){2, false, "LAG", "", 0.0f, 0, 127};
+configs[9][7] = (encoder_dial_config_t){0, true,  "GAI", "", 64.0f, 0, 127};
+
+// PAGE 10 - Sequencer Controls
+configs[10][0] = (encoder_dial_config_t){2, false, "STP", "", 16.0f, 1, 32};
+configs[10][1] = (encoder_dial_config_t){0, true,  "SPD", "", 32.0f, 0, 127};
+configs[10][2] = (encoder_dial_config_t){3, false, "DIR", "Fwd,Rev,PnP,Rnd", 0.0f, 0, 3};
+configs[10][3] = (encoder_dial_config_t){2, true,  "SWG", "", 0.0f, -12, 12};
+configs[10][4] = (encoder_dial_config_t){4, false, "GAT", "", 75.0f, 0, 127};
+configs[10][5] = (encoder_dial_config_t){5, true,  "SLD", "", 0.0f, -64, 64};
+configs[10][6] = (encoder_dial_config_t){0, false, "ACC", "", 0.0f, 0, 127};
+configs[10][7] = (encoder_dial_config_t){2, false, "RST", "", 0.0f, 0, 16};
+
+// PAGE 11 - Effects Send/Return
+configs[11][0] = (encoder_dial_config_t){0, true,  "SND", "", 0.0f, 0, 127};
+configs[11][1] = (encoder_dial_config_t){0, true,  "RTN", "", 32.0f, 0, 127};
+configs[11][2] = (encoder_dial_config_t){1, true,  "FBK", "", 0.0f, -64, 64};
+configs[11][3] = (encoder_dial_config_t){3, false, "TYP", "Rev,Del,Cho,Fla", 0.0f, 0, 3};
+configs[11][4] = (encoder_dial_config_t){4, true,  "WET", "", 25.0f, 0, 127};
+configs[11][5] = (encoder_dial_config_t){5, true,  "DRY", "", 100.0f, 0, 127};
+configs[11][6] = (encoder_dial_config_t){0, false, "PRE", "", 0.0f, 0, 127};
+configs[11][7] = (encoder_dial_config_t){2, false, "PST", "", 127.0f, 0, 127};
+
+// PAGE 12 - Arpeggiator
+configs[12][0] = (encoder_dial_config_t){3, false, "MOD", "Up,Dn,UpDn,Rnd", 0.0f, 0, 3};
+configs[12][1] = (encoder_dial_config_t){2, false, "OCT", "", 1.0f, 1, 4};
+configs[12][2] = (encoder_dial_config_t){0, true,  "RAT", "", 64.0f, 0, 127};
+configs[12][3] = (encoder_dial_config_t){2, false, "GAT", "", 75.0f, 0, 100};
+configs[12][4] = (encoder_dial_config_t){4, true,  "SWG", "", 0.0f, 0, 127};
+configs[12][5] = (encoder_dial_config_t){5, true,  "VEL", "", 0.0f, -64, 64};
+configs[12][6] = (encoder_dial_config_t){0, false, "LAT", "", 0.0f, 0, 127};
+configs[12][7] = (encoder_dial_config_t){2, true,  "TRA", "", 0.0f, -24, 24};
+
+// PAGE 13 - Performance Controls
+configs[13][0] = (encoder_dial_config_t){0, true,  "X", "", 64.0f, 0, 127};
+configs[13][1] = (encoder_dial_config_t){0, true,  "Y", "", 64.0f, 0, 127};
+configs[13][2] = (encoder_dial_config_t){1, true,  "Z", "", 0.0f, -64, 64};
+configs[13][3] = (encoder_dial_config_t){0, true,  "W", "", 0.0f, 0, 127};
+configs[13][4] = (encoder_dial_config_t){4, true,  "XY", "", 64.0f, 0, 127};
+configs[13][5] = (encoder_dial_config_t){5, true,  "ZW", "", 0.0f, -64, 64};
+configs[13][6] = (encoder_dial_config_t){0, false, "LCK", "", 0.0f, 0, 1};
+configs[13][7] = (encoder_dial_config_t){3, false, "SCL", "Lin,Log,Exp,S", 0.0f, 0, 3};
+
+// PAGE 14 - MIDI/CV Controls
+configs[14][0] = (encoder_dial_config_t){2, false, "CHN", "", 1.0f, 1, 16};
+configs[14][1] = (encoder_dial_config_t){2, false, "VEL", "", 127.0f, 0, 127};
+configs[14][2] = (encoder_dial_config_t){2, true,  "PIT", "", 0.0f, -8192, 8191};
+configs[14][3] = (encoder_dial_config_t){2, false, "CC1", "", 0.0f, 0, 127};
+configs[14][4] = (encoder_dial_config_t){4, true,  "CV1", "", 0.0f, 0, 127};
+configs[14][5] = (encoder_dial_config_t){5, true,  "CV2", "", 0.0f, -64, 64};
+configs[14][6] = (encoder_dial_config_t){0, false, "CLK", "", 96.0f, 1, 192};
+configs[14][7] = (encoder_dial_config_t){3, false, "SYN", "Int,Ext,USB,DIN", 0.0f, 0, 3};
+
+// PAGE 15 - System Settings
+configs[15][0] = (encoder_dial_config_t){2, false, "BPM", "", 120.0f, 60, 200};
+configs[15][1] = (encoder_dial_config_t){2, false, "TUN", "", 440.0f, 415, 465};
+configs[15][2] = (encoder_dial_config_t){3, false, "SCL", "Chr,Maj,Min,Dor", 0.0f, 0, 3};
+configs[15][3] = (encoder_dial_config_t){2, false, "KEY", "", 0.0f, 0, 11};
+configs[15][4] = (encoder_dial_config_t){4, true,  "MST", "", 100.0f, 0, 127};
+configs[15][5] = (encoder_dial_config_t){5, true,  "BAL", "", 0.0f, -64, 64};
+configs[15][6] = (encoder_dial_config_t){0, false, "SAV", "", 0.0f, 0, 1};
+configs[15][7] = (encoder_dial_config_t){0, false, "LOD", "", 0.0f, 0, 1};
+
+// Initialize remaining pages/elements as empty (no display objects created)
+// Pages 16+ and any unconfigured elements will remain empty on render
+for (int page = 16; page < attr_maxpages; page++) {
+    for (int dial = 0; dial < 8; dial++) {
+        configs[page][dial] = (encoder_dial_config_t){255, false, "", "", 0.0f, 0, 127}; // mode 255 = empty/unconfigured
+    }
+}
+
+// Initialize param table with default values
+init_param_table();
+
+// Initialize all dials for all pages (like the working sketchy_dials.axo does)
+for (uint8_t page = 0; page < attr_maxpages; page++) {
+    for (uint8_t dial = 0; dial < 8; dial++) {
+        init_dial(page, dial, &configs[page][dial]);
+    }
+}]]></code.init>
+         <code.krate><![CDATA[int page = inlet_page;
+
+// Update displays for current page only
+// All encoder processing is now handled by 8encoder_input
+if (page >= 0 && page < attr_maxpages) {
+    for (uint8_t dial = 0; dial < 8; dial++) {
+        uint8_t array_index = page * 8 + dial;
+        // Bounds check to prevent buffer overflow
+        if (array_index < (attr_maxpages * 8)) {
+            const encoder_dial_config_t* config = &configs[page][dial];
+            update_dial(page, dial, config);
+        }
+    }
+}]]></code.krate>
+      </object>
+   </patchobj>
+   <obj type="lfo/sine" uuid="75f7330c26a13953215dccc3b7b9008545c9daa9" name="sine_1" x="238" y="266">
+      <params>
+         <frac32.s.map name="pitch" value="0.0"/>
+      </params>
+      <attribs/>
+   </obj>
+   <patchobj type="patch/object" uuid="1e32af85-dd01-42e6-b03d-f30d8282f404" name="set_1" x="602" y="350">
+      <params/>
+      <attribs>
+         <spinner attributeName="firstparam" value="0"/>
+      </attribs>
+      <object id="patch/object" uuid="1e32af85-dd01-42e6-b03d-f30d8282f404">
+         <license>GPL</license>
+         <inlets>
+            <frac32.positive name="value1"/>
+            <frac32.positive name="value2"/>
+            <frac32.positive name="value3"/>
+            <frac32.positive name="value4"/>
+            <frac32.positive name="value5"/>
+            <frac32.positive name="value6"/>
+            <frac32.positive name="value7"/>
+            <frac32.positive name="value8"/>
+            <frac32.positive name="value9"/>
+            <frac32.positive name="value10"/>
+         </inlets>
+         <outlets/>
+         <displays/>
+         <params/>
+         <attribs>
+            <spinner name="firstparam" MinValue="0" MaxValue="118" DefaultValue="0"/>
+         </attribs>
+         <includes/>
+         <code.declaration><![CDATA[rootc::objectinstance_sketchy__params* param_table;
+rootc::objectinstance_sketchy__render* renderer;
+
+int32_t prev_values[10] = {0};]]></code.declaration>
+         <code.init><![CDATA[param_table = &parent->objectinstance_sketchy__params_i;
+renderer = &parent->objectinstance_sketchy__render_i;]]></code.init>
+         <code.krate><![CDATA[int32_t current_values[10] = {inlet_value1, inlet_value2, inlet_value3, inlet_value4, inlet_value5,
+                           inlet_value6, inlet_value7, inlet_value8, inlet_value9, inlet_value10};
+
+for(int i=0; i<10; i++) {
+    if (prev_values[i] != current_values[i]) {
+        param_table->array[renderer->getCurrentPage()][attr_firstparam + i] = current_values[i];
+        prev_values[i] = current_values[i];
+    }
+}]]></code.krate>
+      </object>
+   </patchobj>
+   <obj type="ctrl/dial p" uuid="cc5d2846c3d50e425f450c4b9851371b54f4d674" name="dial_1" x="238" y="364">
+      <params>
+         <frac32.u.map name="value" value="7.5"/>
+      </params>
+      <attribs/>
+   </obj>
+   <nets>
+      <net>
+         <source obj="layout page" outlet="out"/>
+         <dest obj="sketchy_render" inlet="layout"/>
+      </net>
+      <net>
+         <source obj="dial_1" outlet="out"/>
+         <dest obj="set_1" inlet="value2"/>
+      </net>
+      <net>
+         <source obj="sine_1" outlet="wave"/>
+         <dest obj="set_1" inlet="value1"/>
+      </net>
+   </nets>
+   <settings>
+      <subpatchmode>no</subpatchmode>
+      <MidiChannel>1</MidiChannel>
+      <NPresets>8</NPresets>
+      <NPresetEntries>32</NPresetEntries>
+      <NModulationSources>8</NModulationSources>
+      <NModulationTargetsPerSource>8</NModulationTargetsPerSource>
+   </settings>
+   <notes><![CDATA[]]></notes>
+   <windowPos>
+      <x>0</x>
+      <y>25</y>
+      <width>1440</width>
+      <height>875</height>
+   </windowPos>
+</patch-1.0>

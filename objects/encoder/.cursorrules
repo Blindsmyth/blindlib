@@ -1,0 +1,119 @@
+# Cursor Rules for Axoloti Sketchy Objects Project
+
+## UUID Management
+- ALWAYS check for UUID conflicts before creating new objects
+- Use the base pattern: 5224773f-18de-4231-8f92-b1f22bb9537X where X is unique
+- Current UUID registry:
+  * sketchy_render.axo: 5224773f-18de-4231-8f92-b1f22bb95372
+  * sketchy_render_exp.axo: 5224773f-18de-4231-8f92-b1f22bb95373
+  * sketchy_render_optimized.axo: 5224773f-18de-4231-8f92-b1f22bb95375
+  * sketchy_render_shared.axo: 5224773f-18de-4231-8f92-b1f22bb95376
+  * sketchy_dials_simple.axo: 5224773f-18de-4231-8f92-b1f22bb95377
+- Generate new UUIDs by incrementing the last digit
+- Document all new UUIDs in this file
+
+## Naming Conventions (from Strategy Paper)
+
+### Object Names
+- Use descriptive names that indicate function: `sketchy_render_optimized`, `sketchy_dials_fused`
+- Follow the pattern: `sketchy_[type]_[variant]`
+- Examples: `sketchy_render`, `sketchy_dials`, `sketchy_objects`, `sketchy_texts`, `sketchy_params`, `sketchy_font`
+
+### Instance Names (for compatibility)
+- Renderer instances: `sketchy__render` (original), `sketchy__render_optimized`, `sketchy__render_shared`
+- Table instances: `sketchy__objects`, `sketchy__texts`, `sketchy__params`, `sketchy__font`
+- Dial instances: `sketchy__dials`
+- Pager instances: `pager__fixed`
+
+### Type Namespaces
+- Use `rootc::instance[objectname]` for type references
+- Examples: `rootc::instancesketchy__render`, `rootc::instancesketchy__objects`
+- Maintain backward compatibility with existing instance names
+
+### Function Names
+- Dial functions: `dial_init()`, `dial_update()`
+- Other object functions: `intdisplay_init()`, `select_init()`, `bar_init()`
+- Helper functions: `count_tokens()`, `get_token_at_index()`, `getCurrentPage()`
+
+## Code Structure Guidelines
+
+### Object Dependencies
+- Always include proper `<depends>` sections
+- Required dependencies: `SD1`, `I2CD1`, `SPID1` for renderers
+- Include parent objects: `sketchy_objects`, `sketchy_texts`, `sketchy_params`, `sketchy_font`
+
+### Thread Safety
+- Use `static THD_WORKING_AREA(waThreadX, 512);` for thread declarations
+- Include proper thread function: `static msg_t ThreadX(void *arg)`
+- Initialize threads in `code.init` section
+
+### Memory Management
+- Use SDRAM for large arrays: `__attribute__ ((section (".sdram")))`
+- Use SRAM2 for buffers: `__attribute__ ((section (".sram2")))`
+- Prefer object reuse over creating new objects for memory efficiency
+
+## Error Prevention
+
+### Compilation Issues
+- Always check function signatures match between renderer and dials objects
+- Ensure all required struct types are defined: `dial_t`, `intdisplay_t`, `select_t`, `bar_t`
+- Include all required functions: `init()`, `update()`, helper functions
+- Check for missing includes and dependencies
+
+### Runtime Issues
+- Test minimal changes first before complex optimizations
+- Keep working versions as backups
+- When crashes occur, revert to last known working version
+- Use the original `sketchy_render.axo` as base for optimizations
+
+## Development Workflow
+
+### Before Creating New Objects
+1. Check UUID registry for conflicts
+2. Verify naming follows conventions
+3. Ensure all dependencies are included
+4. Test with minimal functionality first
+
+### When Making Changes
+1. Start with the original working object as base
+2. Make minimal, incremental changes
+3. Test compilation after each change
+4. Document changes in comments
+
+### When Issues Arise
+1. Identify the specific error
+2. Check for UUID conflicts first
+3. Verify function signatures match
+4. Revert to last working version if needed
+5. Make smaller, more targeted changes
+
+## Object-Specific Guidelines
+
+### Renderer Objects
+- Must include all object types: `dial_t`, `intdisplay_t`, `select_t`, `bar_t`
+- Must provide all init/update functions
+- Must include helper functions for pager compatibility
+- Use object reuse for memory optimization when possible
+
+### Dial Objects
+- Must be compatible with renderer's function signatures
+- Use shared objects when available for memory efficiency
+- Follow position mapping conventions (8 dials, 4x2 grid)
+
+### Table Objects
+- Maintain consistent field definitions
+- Use proper registration methods
+- Include proper initialization in parent objects
+
+## Testing Guidelines
+- Always test compilation before complex changes
+- Test with minimal patches first
+- Verify object loading and function calls work
+- Check for memory usage and performance
+- Test with actual hardware when possible
+
+## Documentation
+- Add comments explaining complex optimizations
+- Document UUID assignments
+- Note compatibility requirements
+- Include usage examples in descriptions 

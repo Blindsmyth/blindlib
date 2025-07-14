@@ -1,9 +1,8 @@
 <objdefs appVersion="1.0.12">
-   <obj.normal id="sketchy_render_optimized" uuid="3b4c5d6e-7f8a-9b0c-1d2e-3f4a5b6c7d8e">
-      <sDescription>Optimized OLED renderer with lookup tables - Elektron-style dials</sDescription>
+   <obj.normal id="sketchy_render_optimized" uuid="5224773f-18de-4231-8f92-b1f22bb95375">
+      <sDescription>The optimized renderer object with object reuse for memory efficiency. Based on the original sketchy_render with minimal changes.</sDescription>
       <author>AI Assistant</author>
-      <license>BSD</license>
-      <helpPatch>logic.axh</helpPatch>
+      <license>MIT</license>
       <inlets>
          <int32.positive name="page" description="set current page"/>
          <int32.positive name="layout" description="set layout page (always visible)"/>
@@ -37,15 +36,346 @@
             </CEntries>
          </combo>
       </attribs>
-      <includes>
-         <include>math.h</include>
-      </includes>
+      <includes/>
       <depends>
          <depend>SD1</depend>
          <depend>I2CD1</depend>
          <depend>SPID1</depend>
       </depends>
-      <code.declaration><![CDATA[// Essential display structures - VIRTUAL KNOB ONLY
+      <code.declaration><![CDATA[rootc::instancesketchy__objects* object_table;
+rootc::instancesketchy__texts* text_table;
+rootc::instancesketchy__params* param_table;
+rootc::instancesketchy__font* font;
+
+uint16_t page;
+uint16_t layout;
+bool pprint;
+
+// ================ OBJECT REUSE OPTIMIZATION ================
+// Pre-allocated objects for reuse
+uint16_t shared_dial_objects[8];  // 8 dial objects (one per position)
+uint16_t shared_label_objects[8]; // 8 label objects (one per position)
+uint16_t shared_label_texts[8];   // 8 label text objects (one per position)
+bool shared_objects_initialized = false;
+
+void init_shared_objects() {
+    if (shared_objects_initialized) return;
+    
+    for (int i = 0; i < 8; i++) {
+        // Register shared objects
+        shared_dial_objects[i] = object_table->registerEntry();
+        shared_label_objects[i] = object_table->registerEntry();
+        shared_label_texts[i] = text_table->registerEntry();
+        
+        // Set to hidden by default
+        object_table->array[shared_dial_objects[i]][object_table->FIELD_TYPE] = 0;
+        object_table->array[shared_label_objects[i]][object_table->FIELD_TYPE] = 0;
+    }
+    shared_objects_initialized = true;
+}
+
+enum SSD1306 {
+	LCDWIDTH            = 128,
+	LCDHEIGHT           = 64,
+	SETCONTRAST         = 0x81,
+	DISPLAYON           = 0xAF,
+	DISPLAYOFF          = 0xAE,
+	DISPLAYALLON_RESUME = 0xA4,
+	NORMALDISPLAY       = 0xA6,
+	DEACTIVATE_SCROLL   = 0x2E,
+	MEMORYMODE          = 0x20,
+	COLUMNADDR          = 0x21,
+	PAGEADDR            = 0x22,
+	SETSTARTLINE_0      = 0x40,
+	SEGREMAP            = 0xA0,
+	SETMULTIPLEX        = 0xA8,
+	COMSCANDEC          = 0xC8,
+	SETDISPLAYOFFSET    = 0xD3,
+	SETCOMPINS          = 0xDA,
+	SETDISPLAYCLOCKDIV  = 0xD5,
+	SETPRECHARGE        = 0xD9,
+	SETVCOMDETECT       = 0xDB,
+	CHARGEPUMP          = 0x8D,
+};
+
+uint8_t pixels[8][LCDWIDTH];
+uint8_t *txbuf;
+uint8_t *rxbuf;
+
+void cmd(uint8_t c) {
+	txbuf[0] = 0;
+	txbuf[1] = c;
+	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 2, rxbuf, 0, 30);
+}
+
+void clear() {
+	for (int page = 0; page < 8; page++) {
+		for (int i = 0; i < LCDWIDTH; i++) {
+			pixels[page][i] = 0;
+		}
+	}
+}
+
+void sendPage(int page) {
+	cmd(COLUMNADDR); cmd(0); cmd(127);
+	cmd(PAGEADDR); cmd(page); cmd(page);
+
+	if (attr_type == 1106) {
+		cmd(0xB0 + page);
+		cmd(2 & 0xf);
+		cmd(0x10 | (2 >> 4));
+	}
+
+	txbuf[0] = 0x40;
+	memcpy(txbuf + 1, pixels[page], LCDWIDTH);
+	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 129, rxbuf, 0, 30);
+}
+
+void init() {
+	cmd(DISPLAYOFF);
+	cmd(SETDISPLAYCLOCKDIV); cmd(0x80);
+	cmd(SETMULTIPLEX); cmd(LCDHEIGHT - 1);
+	cmd(SETDISPLAYOFFSET); cmd(attr_type == 1306 ? 0x00 : 0x01);
+	cmd(SETSTARTLINE_0);
+	cmd(CHARGEPUMP); cmd(0x14);
+	cmd(MEMORYMODE); cmd(0x00);
+	cmd(SEGREMAP | 0x1);
+	cmd(COMSCANDEC);
+	cmd(SETCOMPINS); cmd(0x12);
+	cmd(SETCONTRAST); cmd(0xCF);
+	cmd(SETPRECHARGE); cmd(0xF1);
+	cmd(SETVCOMDETECT); cmd(0x40);
+	cmd(DISPLAYALLON_RESUME);
+	cmd(NORMALDISPLAY);
+	cmd(DEACTIVATE_SCROLL);
+	cmd(DISPLAYON);
+}
+
+void setup() {
+	static uint8_t _txbuf[129] __attribute__ ((section (".sram2")));
+	static uint8_t _rxbuf[8] __attribute__ ((section (".sram2")));
+	txbuf = _txbuf;
+	rxbuf = _rxbuf;
+	init();
+}
+
+msg_t ThreadX2() {
+	setup();
+	while (!chThdShouldTerminate()) {
+		clear();
+		render();
+		uint8_t i; 
+		for (i = 0; i < 8; i++) {
+			sendPage(i);
+		}
+		chThdSleepMilliseconds(16);
+	}
+	return 0;
+}
+
+void draw_pixel(int x, int y, uint8_t color) {
+	if (x < 0 || x >= LCDWIDTH || y < 0 || y >= LCDHEIGHT) return;
+	
+	int page = y / 8;
+	int bit = y % 8;
+	
+	if (color) {
+		pixels[page][x] |= (1 << bit);
+	} else {
+		pixels[page][x] &= ~(1 << bit);
+	}
+}
+
+void draw_line(int x0, int y0, int x1, int y1, uint8_t color, uint8_t thickness) {
+	int dx = abs(x1 - x0);
+	int dy = abs(y1 - y0);
+	int sx = x0 < x1 ? 1 : -1;
+	int sy = y0 < y1 ? 1 : -1;
+	int err = dx - dy;
+	
+	while (true) {
+		for (int t = 0; t < thickness; t++) {
+			draw_pixel(x0 + (t - thickness/2), y0, color);
+		}
+		
+		if (x0 == x1 && y0 == y1) break;
+		int e2 = 2 * err;
+		if (e2 > -dy) {
+			err -= dy;
+			x0 += sx;
+		}
+		if (e2 < dx) {
+			err += dx;
+			y0 += sy;
+		}
+	}
+}
+
+void draw_circle(int cx, int cy, int radius, uint8_t color, uint8_t thickness) {
+	for (int i = 0; i < 38; i++) {
+		float angle = (2.0f * M_PI * i) / 38;
+		int x = cx + (int)(radius * cos(angle));
+		int y = cy + (int)(radius * sin(angle));
+		
+		for (int t = 0; t < thickness; t++) {
+			draw_pixel(x + (t - thickness/2), y, color);
+		}
+	}
+}
+
+void draw_filled_circle(int cx, int cy, int radius, uint8_t color) {
+	for (int y = -radius; y <= radius; y++) {
+		for (int x = -radius; x <= radius; x++) {
+			if (x*x + y*y <= radius*radius) {
+				draw_pixel(cx + x, cy + y, color);
+			}
+		}
+	}
+}
+
+void draw_rect(int x, int y, int w, int h, uint8_t color, uint8_t thickness) {
+	for (int t = 0; t < thickness; t++) {
+		// Top and bottom lines
+		for (int i = x; i < x + w; i++) {
+			draw_pixel(i, y + t, color);
+			draw_pixel(i, y + h - 1 - t, color);
+		}
+		// Left and right lines
+		for (int i = y; i < y + h; i++) {
+			draw_pixel(x + t, i, color);
+			draw_pixel(x + w - 1 - t, i, color);
+		}
+	}
+}
+
+void draw_filled_rect(int x, int y, int w, int h, uint8_t color) {
+	for (int j = y; j < y + h; j++) {
+		for (int i = x; i < x + w; i++) {
+			draw_pixel(i, j, color);
+		}
+	}
+}
+
+void draw_text(int x, int y, const char* text, uint8_t color, uint8_t scale) {
+	int char_x = x;
+	while (*text) {
+		if (*text >= 32 && *text <= 126) {
+			int char_index = *text - 32;
+			for (int row = 0; row < 8; row++) {
+				for (int col = 0; col < 6; col++) {
+					int index = char_index * 48 + row * 6 + col;
+					uint8_t pixel_data = font->data[index];
+					if (pixel_data) {
+						for (int sy = 0; sy < scale; sy++) {
+							for (int sx = 0; sx < scale; sx++) {
+								draw_pixel(char_x + col * scale + sx, y + row * scale + sy, color);
+							}
+						}
+					}
+				}
+			}
+		}
+		char_x += 6 * scale;
+		text++;
+	}
+}
+
+void draw_text_center(int x, int y, int w, int h, const char* text, uint8_t color, uint8_t scale) {
+	// Calculate text width
+	int text_width = 0;
+	const char* temp = text;
+	while (*temp) {
+		if (*temp >= 32 && *temp <= 126) {
+			text_width += 6 * scale;
+		}
+		temp++;
+	}
+	
+	// Center text
+	int text_x = x + (w - text_width) / 2;
+	int text_y = y + (h - 8 * scale) / 2;
+	
+	draw_text(text_x, text_y, text, color, scale);
+}
+
+void render() __attribute__ ((noinline)) {
+	// Render all objects in the object table
+	for (uint16_t i = 0; i < object_table->LENGTH; i++) {
+		int16_t* obj = object_table->array[i];
+		uint8_t type = obj[object_table->FIELD_TYPE];
+		uint16_t page = obj[object_table->FIELD_PAGE];
+		
+		// Only render objects for current page or layout page
+		if (page != this->page && page != this->layout) continue;
+		
+		int16_t x = obj[object_table->FIELD_X];
+		int16_t y = obj[object_table->FIELD_Y];
+		int16_t w = obj[object_table->FIELD_W];
+		int16_t h = obj[object_table->FIELD_H];
+		uint8_t color = obj[object_table->FIELD_COLOR];
+		uint8_t scale = obj[object_table->FIELD_SCALE];
+		uint16_t text_id = obj[object_table->FIELD_TEXT_ID];
+		
+		switch (type) {
+			case 1: // Rect
+				draw_rect(x, y, w, h, color, 1);
+				break;
+			case 2: // Filled rect
+				draw_filled_rect(x, y, w, h, color);
+				break;
+			case 3: // Rounded rect
+				draw_rect(x, y, w, h, color, 1); // Simplified
+				break;
+			case 4: // Filled rounded rect
+				draw_filled_rect(x, y, w, h, color); // Simplified
+				break;
+			case 5: // Line
+				draw_line(x, y, w, h, color, 1);
+				break;
+			case 6: // Text
+				draw_text(x, y, text_table->array[text_id], color, scale);
+				break;
+			case 7: // Text center X
+				draw_text_center(x, y, w, h, text_table->array[text_id], color, scale);
+				break;
+			case 8: // Text center Y
+				draw_text_center(x, y, w, h, text_table->array[text_id], color, scale);
+				break;
+			case 9: // Text center XY
+				draw_text_center(x, y, w, h, text_table->array[text_id], color, scale);
+				break;
+			case 99: // Virtual knob (unipolar)
+				draw_circle(x, y, h/2, color, 1);
+				if (w > 0) {
+					float angle = (2.0f * M_PI * w) / 31;
+					int indicator_x = x + (int)((h/2 - 2) * cos(angle));
+					int indicator_y = y + (int)((h/2 - 2) * sin(angle));
+					draw_filled_circle(indicator_x, indicator_y, 2, color);
+				}
+				break;
+			case 100: // Virtual knob (bipolar)
+				draw_circle(x, y, h/2, color, 1);
+				if (w > 0) {
+					float angle = (2.0f * M_PI * w) / 31;
+					int indicator_x = x + (int)((h/2 - 2) * cos(angle));
+					int indicator_y = y + (int)((h/2 - 2) * sin(angle));
+					draw_filled_circle(indicator_x, indicator_y, 2, color);
+				}
+				// Draw "-" on the left side
+				int minus_x = x - 10;
+				int minus_y = y + 5;
+				draw_line(minus_x - 1, minus_y, minus_x + 1, minus_y, 0, 1);
+				// Draw "+" on the right side
+				int plus_x = x + 10;
+				int plus_y = y + 5;
+				draw_line(plus_x - 1, plus_y, plus_x + 1, plus_y, 0, 1);
+				draw_line(plus_x, plus_y - 1, plus_x, plus_y + 1, 0, 1);
+				break;
+		}
+	}
+}
+
+// Original dial structure for compatibility
 typedef struct {
     uint16_t box_object_id;
     uint16_t label_object_id;
@@ -63,6 +393,7 @@ typedef struct {
     int32_t default_value;
 } dial_t;
 
+// Other object types for compatibility
 typedef struct {
     uint16_t box_object_id;
     uint16_t label_object_id;
@@ -92,272 +423,69 @@ typedef struct {
     const char* label;
 } select_t;
 
-// Display constants
-enum SSD1306 {
-    LCDWIDTH            = 128,
-    LCDHEIGHT           = 64,
-    SETCONTRAST         = 0x81,
-    DISPLAYON           = 0xAF,
-    DISPLAYOFF          = 0xAE,
-    DISPLAYALLON_RESUME = 0xA4,
-    NORMALDISPLAY       = 0xA6,
-    DEACTIVATE_SCROLL   = 0x2E,
-    MEMORYMODE          = 0x20,
-    COLUMNADDR          = 0x21,
-    PAGEADDR            = 0x22,
-    SETSTARTLINE_0      = 0x40,
-    SEGREMAP            = 0xA0,
-    SETMULTIPLEX        = 0xA8,
-    COMSCANDEC          = 0xC8,
-    SETDISPLAYOFFSET    = 0xD3,
-    SETCOMPINS          = 0xDA,
-    SETDISPLAYCLOCKDIV  = 0xD5,
-    SETPRECHARGE        = 0xD9,
-    SETVCOMDETECT       = 0xDB,
-    CHARGEPUMP          = 0x8D,
-    EXTERNALVCC         = 0x1,
-    SWITCHCAPVCC        = 0x2,
-};
+typedef struct {
+    uint16_t box_object_id;
+    uint16_t label_object_id;
+    uint16_t label_text_id;
+    int32_t last_value;
+    int32_t page;
+    int32_t param;
+    bool is_bipolar;
+    int32_t x;
+    int32_t y;
+    int32_t width;
+    int32_t height;
+    const char* label;
+} bar_t;
 
-// Complete circle coordinates - gap at BOTTOM for labels
-// Starting from top and going around, skipping bottom section
-const int8_t circle_coords[44][2] = {
-    // Starting from top (270°) going clockwise, skipping bottom gap
-    { 0, -8}, { 1, -8}, { 2, -8}, { 3, -7}, { 4, -7}, { 5, -6}, { 6, -5}, { 7, -4}, // Top to right
-    { 7, -3}, { 8, -2}, { 8, -1}, { 8,  0}, { 8,  1}, { 8,  2}, { 7,  3}, { 7,  4}, // Right side
-    { 6,  5}, { 5,  6}, { 4,  7}, { 3,  7},                                          // Right to bottom (stop before gap)
-    // BOTTOM GAP HERE for labels - skip: { 2,  8}, { 1,  8}, { 0,  8}, {-1,  8}, {-2,  8}
-    {-3,  7}, {-4,  7}, {-5,  6}, {-6,  5}, {-7,  4}, {-7,  3}, {-8,  2}, {-8,  1}, // Bottom to left (after gap)
-    {-8,  0}, {-8, -1}, {-8, -2}, {-7, -3}, {-7, -4}, {-6, -5}, {-5, -6}, {-4, -7}, // Left side
-    {-3, -7}, {-2, -8}, {-1, -8}                                                     // Left to top
-};
-
-// Updated coordinates from your new list with center at I9
-const int8_t indicator_coords[31][2] = {
-    {-5,  5},  // 0: Position 1 (D14) = D14 - I9 = (-5, +5)
-    {-6,  4},  // 1: Position 2 (C13) = C13 - I9 = (-6, +4)
-    {-6,  3},  // 2: Position 3 (C12) = C12 - I9 = (-6, +3)
-    {-7,  2},  // 3: Position 4 (B11) = B11 - I9 = (-7, +2)
-    {-7,  1},  // 4: Position 5 (B10) = B10 - I9 = (-7, +1)
-    {-7,  0},  // 5: Position 6 (B9)  = B9  - I9 = (-7,  0)
-    {-7, -1},  // 6: Position 7 (B8)  = B8  - I9 = (-7, -1)
-    {-7, -2},  // 7: Position 8 (B7)  = B7  - I9 = (-7, -2)
-    {-6, -3},  // 8: Position 9 (C6)  = C6  - I9 = (-6, -3)
-    {-6, -4},  // 9: Position 10 (C5) = C5  - I9 = (-6, -4)
-    {-5, -5},  //10: Position 11 (D4) = D4  - I9 = (-5, -5)
-    {-4, -6},  //11: Position 12 (E3) = E3  - I9 = (-4, -6)
-    {-3, -6},  //12: Position 13 (F3) = F3  - I9 = (-3, -6)
-    {-2, -7},  //13: Position 14 (G2) = G2  - I9 = (-2, -7)
-    {-1, -7},  //14: Position 15 (H2) = H2  - I9 = (-1, -7)
-    { 0, -7},  //15: Position 16 (I2) = I2  - I9 = ( 0, -7)
-    { 1, -7},  //16: Position 17 (J2) = J2  - I9 = (+1, -7)
-    { 2, -7},  //17: Position 18 (K2) = K2  - I9 = (+2, -7)
-    { 3, -6},  //18: Position 19 (L3) = L3  - I9 = (+3, -6)
-    { 4, -6},  //19: Position 20 (M3) = M3  - I9 = (+4, -6)
-    { 5, -5},  //20: Position 21 (N4) = N4  - I9 = (+5, -5)
-    { 6, -4},  //21: Position 22 (O5) = O5  - I9 = (+6, -4)
-    { 6, -3},  //22: Position 23 (O6) = O6  - I9 = (+6, -3)
-    { 7, -2},  //23: Position 24 (P7) = P7  - I9 = (+7, -2)
-    { 7, -1},  //24: Position 25 (P8) = P8  - I9 = (+7, -1)
-    { 7,  0},  //25: Position 26 (P9) = P9  - I9 = (+7,  0)
-    { 7,  1},  //26: Position 27 (P10)= P10 - I9 = (+7, +1)
-    { 7,  2},  //27: Position 28 (P11)= P11 - I9 = (+7, +2)
-    { 6,  3},  //28: Position 29 (O12)= O12 - I9 = (+6, +3)
-    { 6,  4},  //29: Position 30 (O13)= O13 - I9 = (+6, +4)
-    { 5,  5},  //30: Position 31 (N14)= N14 - I9 = (+5, +5)
-};
-
-#define CIRCLE_POINTS (sizeof(circle_coords) / sizeof(circle_coords[0]))
-#define INDICATOR_POSITIONS 31  // Changed from 32 to 31 to match your numbered sequence
-
-// Display buffer - moved to SDRAM to save SRAM
-uint8_t *display_buffer;
-uint8_t *txbuf;
-uint8_t *rxbuf;
-
-uint16_t page;
-uint16_t layout;
-bool pprint;
-
-// Reference to font object
-rootc::instancesketchy__font* font;
-
-// Basic OLED communication
-void cmd(uint8_t c) {
-    txbuf[0] = 0;
-    txbuf[1] = c;
-    i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 2, rxbuf, 0, 30);
-}
-
-void clear_display() {
-    for (int page = 0; page < 8; page++) {
-        for (int i = 0; i < LCDWIDTH; i++) {
-            display_buffer[page * LCDWIDTH + i] = 0;
+// Optimized dial functions using shared objects
+void dial_init(dial_t* dial) __attribute__ ((noinline)) { 
+    // Calculate dial index from position
+    uint8_t dial_index = 0;
+    const uint8_t COL_X[4] = {26, 52, 78, 104};
+    const uint8_t ROW1_Y = 13;
+    const uint8_t ROW2_Y = 39;
+    
+    for (int i = 0; i < 4; i++) {
+        if (dial->x == COL_X[i]) {
+            dial_index = i;
+            break;
         }
     }
-}
-
-void sendPage(int page_num) {
-    cmd(COLUMNADDR); cmd(0); cmd(127);
-    cmd(PAGEADDR); cmd(page_num); cmd(page_num);
-
-    if (attr_type == 1106) {
-        cmd(0xB0 + page_num);
-        cmd(2 & 0xf);
-        cmd(0x10 | (2 >> 4));
+    if (dial->y >= ROW2_Y) {
+        dial_index += 4; // Second row
     }
-
-    txbuf[0] = 0x40;
-    memcpy(txbuf + 1, display_buffer + (page_num * LCDWIDTH), LCDWIDTH);
-    i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 129, rxbuf, 0, 30);
-}
-
-void oled_init() {
-    cmd(DISPLAYOFF);
-    cmd(SETDISPLAYCLOCKDIV); cmd(0x80);
-    cmd(SETMULTIPLEX); cmd(LCDHEIGHT - 1);
-    cmd(SETDISPLAYOFFSET); cmd(attr_type == 1306 ? 0x00 : 0x01);
-    cmd(SETSTARTLINE_0);
-    cmd(CHARGEPUMP); cmd(0x14);
-    cmd(MEMORYMODE); cmd(0x00);
-    cmd(SEGREMAP | 0x1);
-    cmd(COMSCANDEC);
-    cmd(SETCOMPINS); cmd(0x12);
-    cmd(SETCONTRAST); cmd(0xCF);
-    cmd(SETPRECHARGE); cmd(0xF1);
-    cmd(SETVCOMDETECT); cmd(0x40);
-    cmd(DISPLAYALLON_RESUME);
-    cmd(NORMALDISPLAY);
-    cmd(DEACTIVATE_SCROLL);
-    cmd(DISPLAYON);
-}
-
-// Fast pixel drawing
-void set_pixel(int x, int y, bool on) {
-    if (x < 0 || x >= LCDWIDTH || y < 0 || y >= LCDHEIGHT) return;
     
-    int page = y / 8;
-    int bit = y % 8;
-    int index = page * LCDWIDTH + x;
+    // Use shared objects
+    dial->box_object_id = shared_dial_objects[dial_index];
+    dial->label_object_id = shared_label_objects[dial_index];
+    dial->label_text_id = shared_label_texts[dial_index];
     
-    if (on) {
-        display_buffer[index] |= (1 << bit);
-    } else {
-        display_buffer[index] &= ~(1 << bit);
-    }
-}
-
-// Fast line drawing
-void draw_line(int x0, int y0, int x1, int y1) {
-    int dx = abs(x1 - x0);
-    int dy = abs(y1 - y0);
-    int sx = (x0 < x1) ? 1 : -1;
-    int sy = (y0 < y1) ? 1 : -1;
-    int err = dx - dy;
-    
-    while (true) {
-        set_pixel(x0, y0, true);
-        
-        if (x0 == x1 && y0 == y1) break;
-        
-        int e2 = 2 * err;
-        if (e2 > -dy) {
-            err -= dy;
-            x0 += sx;
-        }
-        if (e2 < dx) {
-            err += dx;
-            y0 += sy;
-        }
-    }
-}
-
-// Font rendering using sketchy font object
-void draw_char(int x, int y, char c) {
-    if (c < ' ' || c > '~') return;  // Only printable ASCII
-    if (!font) return;  // Safety check
-    
-    // Get character data from font object
-    int index = (c - ' ') * font->width;
-    
-    for (int col = 0; col < font->width; col++) {
-        uint8_t byte = font->data[index + col];
-        for (int row = 0; row < font->height; row++) {
-            if (byte & (1 << row)) {
-                set_pixel(x + col, y + row, true);
-            }
-        }
-    }
-}
-
-void draw_text(int x, int y, const char* text) {
-    if (!text || !font) return;
-    
-    int pos_x = x;
-    while (*text && pos_x < LCDWIDTH - font->width) {
-        draw_char(pos_x, y, *text);
-        pos_x += font->width + 1;  // Character width + 1 pixel spacing
-        text++;
-    }
-}
-
-void init(dial_t* dial) __attribute__ ((noinline)) { 
-    // Get table pointers
-    rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
-    rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
-    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
-
-    // Register and get ids
-    dial->box_object_id = object_table->registerEntry();
-    dial->label_object_id = object_table->registerEntry();
-    dial->label_text_id = text_table->registerEntry();
-
-    // Detect if this is a second row dial (dials 4-7 typically have Y >= 32)
-    bool is_second_row = (dial->y >= 32);
-    int y_offset = is_second_row ? 1 : 0;  // Move second row down by 1 pixel
-
-    // Setup box object
-    object_table->array[dial->box_object_id][object_table->FIELD_TYPE] = 2;
-    object_table->array[dial->box_object_id][object_table->FIELD_X] = dial->x;
-    object_table->array[dial->box_object_id][object_table->FIELD_Y] = dial->y + y_offset;
-    object_table->array[dial->box_object_id][object_table->FIELD_W] = dial->width;
-    object_table->array[dial->box_object_id][object_table->FIELD_H] = 0;
-    object_table->array[dial->box_object_id][object_table->FIELD_COLOR] = 0;
-    object_table->array[dial->box_object_id][object_table->FIELD_SCALE] = 1;
-    object_table->array[dial->box_object_id][object_table->FIELD_TEXT_ID] = 0;
-    object_table->array[dial->box_object_id][object_table->FIELD_PAGE] = dial->page;
-
-    // Setup label object - positioned like second text line within the same knob row
-    object_table->array[dial->label_object_id][object_table->FIELD_TYPE] = 9;
+    // Set up label object
+    object_table->array[dial->label_object_id][object_table->FIELD_TYPE] = 9; // Text center
     object_table->array[dial->label_object_id][object_table->FIELD_X] = dial->x;
-    object_table->array[dial->label_object_id][object_table->FIELD_Y] = dial->y + y_offset + dial->height - 9; // Like second text line in same row (moved 1px down)
+    object_table->array[dial->label_object_id][object_table->FIELD_Y] = dial->y + dial->height - 11;
     object_table->array[dial->label_object_id][object_table->FIELD_W] = dial->width;
-    object_table->array[dial->label_object_id][object_table->FIELD_H] = 8; // Text height
+    object_table->array[dial->label_object_id][object_table->FIELD_H] = 8;
     object_table->array[dial->label_object_id][object_table->FIELD_COLOR] = 2;
-    object_table->array[dial->label_object_id][object_table->FIELD_SCALE] = 1;
     object_table->array[dial->label_object_id][object_table->FIELD_TEXT_ID] = dial->label_text_id;
     object_table->array[dial->label_object_id][object_table->FIELD_PAGE] = dial->page;
 
-    // Setup label text
+    // Set up label text
     strcpy(text_table->array[dial->label_text_id], dial->label);
     
-    // Initialize change detection
+    // Set default value and initialize change detection
+    param_table->array[dial->page][dial->param] = dial->default_value;
     dial->last_value = -999999;  // Force first update
 }
 
-// OPTIMIZED dial update using lookup tables instead of trigonometry!
-// This is compatible with Karlo Sono's table-based architecture
-void update(dial_t* dial, bool test = false) __attribute__ ((noinline)) {
+void dial_update(dial_t* dial) __attribute__ ((noinline)) {
     // Get table pointers
     rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
     rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
     rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
 
     int32_t value = param_table->array[dial->page][dial->param];
-
-    if (test) {
-        LogTextMessage("value: %d", value);
-    }
 
     // Abort if value is the same (change detection for performance)
     if (value == dial->last_value) {
@@ -368,7 +496,7 @@ void update(dial_t* dial, bool test = false) __attribute__ ((noinline)) {
 
     // Calculate dial center (accounting for second row offset)
     bool is_second_row = (dial->y >= 32);
-    int y_offset = is_second_row ? 1 : 0;  // Move second row down by 1 pixel
+    int y_offset = is_second_row ? 1 : 0;
     int cx = dial->x + dial->width/2;
     int cy = dial->y + y_offset + dial->height/2 - 6;
     
@@ -387,239 +515,132 @@ void update(dial_t* dial, bool test = false) __attribute__ ((noinline)) {
         
         // Convert from -1/+1 to 0/1 range for lookup
         lookup_pos = (norm_value + 1.0f) / 2.0f;
-        
-        if (test) {
-            LogTextMessage("bipolar frac value: %d, norm: %d", (int)frac_value, (int)(norm_value * 100));
-        }
     } else {
         // Unipolar: map 0 to max_value directly to 0/1 range for full circle coverage
-        // Axoloti parameters typically range from 0 to (1<<27) = 134217728
         float max_value = (1<<27);  // 134217728
         lookup_pos = (float)value / max_value;
         
         // Clamp to 0.0 to 1.0 range
         if (lookup_pos < 0.0f) lookup_pos = 0.0f;
         if (lookup_pos > 1.0f) lookup_pos = 1.0f;
-        
-        if (test) {
-            LogTextMessage("unipolar value: %d, lookup_pos: %d", value, (int)(lookup_pos * 100));
-        }
     }
     
-    // Map directly to your sequence: min param → position 1, max param → position 31
-    int indicator_index = (int)(lookup_pos * (INDICATOR_POSITIONS - 1) + 0.5f);
+    // Map to indicator positions
+    int indicator_index = (int)(lookup_pos * 30 + 0.5f);
     if (indicator_index < 0) indicator_index = 0;
-    if (indicator_index >= INDICATOR_POSITIONS) indicator_index = INDICATOR_POSITIONS - 1;
+    if (indicator_index >= 31) indicator_index = 30;
     
-    // Get indicator end position from lookup table (NO TRIGONOMETRY!)
-    int end_x = cx + indicator_coords[indicator_index][0];
-    int end_y = cy + indicator_coords[indicator_index][1];
-    
-    // *** STORE KNOB DATA IN OBJECT TABLE FOR RENDERING ***
-    
-    // Instead of drawing directly (which gets cleared), we'll use a custom object type
-    // Store the knob data in the object table so it gets rendered every frame
-    
-    // Use a custom type that we'll handle in the render() function
+    // Store knob data in object table for rendering
     // Type 99 = regular knob, Type 100 = bipolar knob with +/- indicators
     int knob_type = dial->is_bipolar ? 100 : 99;
     object_table->array[dial->box_object_id][object_table->FIELD_TYPE] = knob_type;
-    
-    if (test) {
-        LogTextMessage("Dial bipolar: %s, knob_type: %d", dial->is_bipolar ? "true" : "false", knob_type);
-    }
     object_table->array[dial->box_object_id][object_table->FIELD_X] = cx;    // Center X
     object_table->array[dial->box_object_id][object_table->FIELD_Y] = cy;    // Center Y
     object_table->array[dial->box_object_id][object_table->FIELD_W] = indicator_index; // Store indicator position
     object_table->array[dial->box_object_id][object_table->FIELD_H] = dial->width;     // Store dial width for bounds
+    object_table->array[dial->box_object_id][object_table->FIELD_PAGE] = dial->page;
 
-    // Update label text - just show the basic label for now
+    // Update label text
     strcpy(text_table->array[dial->label_text_id], dial->label);
 }
 
-void init(intdisplay_t* display) __attribute__ ((noinline)) {
-    // Get table pointers
-    rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
-    rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
-    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
-
-    // Detect if this is a second row display (Y >= 32)
-    bool is_second_row = (display->y >= 32);
-    int y_offset = is_second_row ? 1 : 0;  // Move second row down by 1 pixel
-
-    // Register and get ids
+// Compatibility functions for other object types
+void intdisplay_init(intdisplay_t* display) __attribute__ ((noinline)) {
+    // Simple initialization - just set up basic properties
     display->box_object_id = object_table->registerEntry();
     display->label_object_id = object_table->registerEntry();
     display->label_text_id = text_table->registerEntry();
 
-    // Setup box object (invisible for int display)
-    object_table->array[display->box_object_id][object_table->FIELD_TYPE] = object_table->TYPE_INVISIBLE;
-    object_table->array[display->box_object_id][object_table->FIELD_X] = display->x;
-    object_table->array[display->box_object_id][object_table->FIELD_Y] = display->y + y_offset;
-    object_table->array[display->box_object_id][object_table->FIELD_W] = display->width;
-    object_table->array[display->box_object_id][object_table->FIELD_H] = display->height;
-    object_table->array[display->box_object_id][object_table->FIELD_COLOR] = 0;
-    object_table->array[display->box_object_id][object_table->FIELD_SCALE] = 1;
-    object_table->array[display->box_object_id][object_table->FIELD_TEXT_ID] = 0;
-    object_table->array[display->box_object_id][object_table->FIELD_PAGE] = display->page;
-
-    // Setup label object for displaying the integer value
-    object_table->array[display->label_object_id][object_table->FIELD_TYPE] = object_table->TYPE_TEXT_CENTER_BOTH; // Text centered
+    // Set up label object
+    object_table->array[display->label_object_id][object_table->FIELD_TYPE] = 9; // Text center
     object_table->array[display->label_object_id][object_table->FIELD_X] = display->x;
-    object_table->array[display->label_object_id][object_table->FIELD_Y] = display->y + y_offset;
+    object_table->array[display->label_object_id][object_table->FIELD_Y] = display->y;
     object_table->array[display->label_object_id][object_table->FIELD_W] = display->width;
     object_table->array[display->label_object_id][object_table->FIELD_H] = display->height;
     object_table->array[display->label_object_id][object_table->FIELD_COLOR] = 2;
-    object_table->array[display->label_object_id][object_table->FIELD_SCALE] = 1;
     object_table->array[display->label_object_id][object_table->FIELD_TEXT_ID] = display->label_text_id;
     object_table->array[display->label_object_id][object_table->FIELD_PAGE] = display->page;
 
-    // Setup initial label text
+    // Set up label text
     strcpy(text_table->array[display->label_text_id], display->label);
     
-    // Initialize change detection
-    display->last_value = -999999;  // Force first update
+    display->last_value = -999999;
 }
 
-void update(intdisplay_t* display) __attribute__ ((noinline)) {
-    // Get table pointers
-    rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
-    rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
-    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
-
+void intdisplay_update(intdisplay_t* display) __attribute__ ((noinline)) {
     int32_t value = param_table->array[display->page][display->param];
 
-    // Abort if value is the same (change detection for performance)
-    if (value == display->last_value) {
-        return;
-    }
-
+    if (value == display->last_value) return;
     display->last_value = value;
 
-    // Convert value to integer for display - exactly like original renderer
+    // Convert to integer and display
     float frac_value = ((float)value / 0x00200000);
-    int rounded = (frac_value >= 0) ? (int)(frac_value + 0.5) : (int)(frac_value - 0.5);
-
-    // Use the text table's itoa function like the original
-    char value_str[8] = "";
-    text_table->itoa(value_str, rounded);
+    int rounded = (int)(frac_value + 0.5f);
     
-    // Show label + value like original when show_value is true
-    strcpy(text_table->array[display->label_text_id], display->label);
-    strcat(text_table->array[display->label_text_id], " ");
-    strcat(text_table->array[display->label_text_id], value_str);
+    char value_str[16];
+    sprintf(value_str, "%d", rounded);
+    strcpy(text_table->array[display->label_text_id], value_str);
 }
 
-void init(select_t* select) __attribute__ ((noinline)) {
-    // Get table pointers
-    rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
-    rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
-    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
-
-    // Detect if this is a second row select (Y >= 32)
-    bool is_second_row = (select->y >= 32);
-    int y_offset = is_second_row ? 1 : 0;  // Move second row down by 1 pixel
-
-    // Register and get ids
+void select_init(select_t* select) __attribute__ ((noinline)) {
     select->box_object_id = object_table->registerEntry();
     select->label_object_id = object_table->registerEntry();
     select->label_text_id = text_table->registerEntry();
 
-    // Setup box object (invisible for select)
-    object_table->array[select->box_object_id][object_table->FIELD_TYPE] = object_table->TYPE_INVISIBLE;
-    object_table->array[select->box_object_id][object_table->FIELD_X] = select->x;
-    object_table->array[select->box_object_id][object_table->FIELD_Y] = select->y + y_offset;
-    object_table->array[select->box_object_id][object_table->FIELD_W] = select->width;
-    object_table->array[select->box_object_id][object_table->FIELD_H] = select->height;
-    object_table->array[select->box_object_id][object_table->FIELD_COLOR] = 0;
-    object_table->array[select->box_object_id][object_table->FIELD_SCALE] = 1;
-    object_table->array[select->box_object_id][object_table->FIELD_TEXT_ID] = 0;
-    object_table->array[select->box_object_id][object_table->FIELD_PAGE] = select->page;
-
-    // Setup label object for displaying the selected item
-    object_table->array[select->label_object_id][object_table->FIELD_TYPE] = object_table->TYPE_TEXT_CENTER_BOTH; // Text centered
+    // Set up label object
+    object_table->array[select->label_object_id][object_table->FIELD_TYPE] = 9; // Text center
     object_table->array[select->label_object_id][object_table->FIELD_X] = select->x;
-    object_table->array[select->label_object_id][object_table->FIELD_Y] = select->y + y_offset;
+    object_table->array[select->label_object_id][object_table->FIELD_Y] = select->y;
     object_table->array[select->label_object_id][object_table->FIELD_W] = select->width;
     object_table->array[select->label_object_id][object_table->FIELD_H] = select->height;
     object_table->array[select->label_object_id][object_table->FIELD_COLOR] = 2;
-    object_table->array[select->label_object_id][object_table->FIELD_SCALE] = 1;
     object_table->array[select->label_object_id][object_table->FIELD_TEXT_ID] = select->label_text_id;
     object_table->array[select->label_object_id][object_table->FIELD_PAGE] = select->page;
 
-    // Setup initial label text
     strcpy(text_table->array[select->label_text_id], select->label);
-    
-    // Initialize change detection
-    select->last_value = -999999;  // Force first update
-}
-
-void update(select_t* select) __attribute__ ((noinline)) {
-    // Get table pointers
-    rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
-    rootc::instancesketchy__texts* text_table = &parent->instancesketchy__texts_i;
-    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
-
-    int32_t value = param_table->array[select->page][select->param];
-
-    // Abort if value is the same (change detection for performance)
-    if (value == select->last_value) {
-        return;
-    }
-
-    select->last_value = value;
-
-    // Convert parameter value to selection index - simplified like original
-    float frac_value = ((float)value / 0x00200000);
-    float norm_value = frac_value / 64.0f;
-    
-    // Map to selection index (assuming reasonable number of items)
-    int num_items = count_tokens(select->label, ',');
-    if (num_items <= 1) num_items = 8; // Default
-    
-    int selection_index = (int)((norm_value + 1.0f) / 2.0f * num_items + 0.5f);
-    if (selection_index < 0) selection_index = 0;
-    if (selection_index >= num_items) selection_index = num_items - 1;
-    
-    // Simply show the selected token or index
-    if (strchr(select->label, ',')) {
-        // Get token from comma-separated list
-        const char* selected_token = get_token_at_index(select->label, selection_index);
-        strcpy(text_table->array[select->label_text_id], selected_token);
-    } else {
-        // Show index as integer using itoa like original
-        char index_str[8] = "";
-        text_table->itoa(index_str, selection_index);
-        strcpy(text_table->array[select->label_text_id], index_str);
-    }
-}
-
-// Function name aliases that sketchy_dials expects
-void dial_init(dial_t* dial) __attribute__ ((noinline)) {
-    init(dial);
-}
-
-void dial_update(dial_t* dial) __attribute__ ((noinline)) {
-    update(dial, false);
-}
-
-void intdisplay_init(intdisplay_t* display) __attribute__ ((noinline)) {
-    init(display);
-}
-
-void intdisplay_update(intdisplay_t* display) __attribute__ ((noinline)) {
-    update(display);
-}
-
-void select_init(select_t* select) __attribute__ ((noinline)) {
-    init(select);
+    select->last_value = -999999;
 }
 
 void select_update(select_t* select) __attribute__ ((noinline)) {
-    update(select);
+    int32_t value = param_table->array[select->page][select->param];
+
+    if (value == select->last_value) return;
+    select->last_value = value;
+
+    // Simple display - just show the label
+    strcpy(text_table->array[select->label_text_id], select->label);
 }
 
-// Compatibility functions
+void bar_init(bar_t* bar) __attribute__ ((noinline)) {
+    bar->box_object_id = object_table->registerEntry();
+    bar->label_object_id = object_table->registerEntry();
+    bar->label_text_id = text_table->registerEntry();
+    
+    // Set up label object
+    object_table->array[bar->label_object_id][object_table->FIELD_TYPE] = 9; // Text center
+    object_table->array[bar->label_object_id][object_table->FIELD_X] = bar->x;
+    object_table->array[bar->label_object_id][object_table->FIELD_Y] = bar->y;
+    object_table->array[bar->label_object_id][object_table->FIELD_W] = bar->width;
+    object_table->array[bar->label_object_id][object_table->FIELD_H] = bar->height;
+    object_table->array[bar->label_object_id][object_table->FIELD_COLOR] = 2;
+    object_table->array[bar->label_object_id][object_table->FIELD_TEXT_ID] = bar->label_text_id;
+    object_table->array[bar->label_object_id][object_table->FIELD_PAGE] = bar->page;
+    
+    strcpy(text_table->array[bar->label_text_id], bar->label);
+    bar->last_value = -999999;
+}
+
+void bar_update(bar_t* bar) __attribute__ ((noinline)) {
+    int32_t value = param_table->array[bar->page][bar->param];
+    
+    if (value == bar->last_value) return;
+    bar->last_value = value;
+    
+    // Simple display - just show the label
+    strcpy(text_table->array[bar->label_text_id], bar->label);
+}
+
+// Helper functions for pager compatibility
 int count_tokens(const char* str, char delimiter) {
     if (!str) return 0;
     int count = 1;
@@ -630,38 +651,30 @@ int count_tokens(const char* str, char delimiter) {
     return count;
 }
 
-int count_tokens(const char* str) {
-    return count_tokens(str, ',');
-}
-
-void get_token_at_index(const char* str, char delimiter, int index, char* output, int max_len) {
-    if (!str || !output || max_len <= 0) return;
+const char* get_token_at_index(const char* str, int index) {
+    static char token_buffer[32];
+    if (!str) return "";
     
     int current_index = 0;
     const char* start = str;
     const char* end = str;
     
     while (*end && current_index < index) {
-        if (*end == delimiter) {
+        if (*end == ',') {
             current_index++;
             start = end + 1;
         }
         end++;
     }
     
-    while (*end && *end != delimiter) {
+    while (*end && *end != ',') {
         end++;
     }
     
     int len = end - start;
-    if (len >= max_len) len = max_len - 1;
-    strncpy(output, start, len);
-    output[len] = '\0';
-}
-
-const char* get_token_at_index(const char* str, int index) {
-    static char token_buffer[32];
-    get_token_at_index(str, ',', index, token_buffer, sizeof(token_buffer));
+    if (len >= 31) len = 30;
+    strncpy(token_buffer, start, len);
+    token_buffer[len] = '\0';
     return token_buffer;
 }
 
@@ -669,219 +682,56 @@ int getCurrentPage() {
     return page;
 }
 
-// Draw indicator line from center to exact position using lookup table
-void draw_indicator_line(int cx, int cy, int indicator_index) {
-    if (indicator_index < 0 || indicator_index >= INDICATOR_POSITIONS) return;
-    
-    // Get exact end position from lookup table
-    int end_x = cx + indicator_coords[indicator_index][0];
-    int end_y = cy + indicator_coords[indicator_index][1];
-    
-    // Draw line from center to exact position (NO TRIGONOMETRY!)
-    draw_line(cx, cy, end_x, end_y);
-}
-
-// Draw bipolar indicators (- and + at circle edges)
-void draw_bipolar_indicators(int cx, int cy) {
-    // Position them 6 pixels down from center
-    // "-" moves one pixel to the right, "+" moves one pixel to the left
-    
-    // Draw "-" on the left side (moved 2 pixels left)
-    int minus_x = cx - 9;  // 2 pixels further left
-    int minus_y = cy + 6;  // 6 pixels down
-    draw_line(minus_x - 1, minus_y, minus_x + 1, minus_y);  // Horizontal line for "-"
-    
-    // Draw "+" on the right side (moved 2 pixels right)
-    int plus_x = cx + 9;   // 2 pixels further right
-    int plus_y = cy + 6;   // 6 pixels down
-    draw_line(plus_x - 1, plus_y, plus_x + 1, plus_y);     // Horizontal line
-    draw_line(plus_x, plus_y - 1, plus_x, plus_y + 1);     // Vertical line for "+"
-}
-
-// Karlo Sono's render function with graphics optimizations
-void render() __attribute__ ((noinline)) {
-    for (uint8_t i = 0; i < parent->instancesketchy__objects_i.LENGTH; i++) {
-        if (parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE] == parent->instancesketchy__objects_i.TYPE_INVISIBLE) {
-            continue;
-        }
-        uint16_t current_object_page = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_PAGE];
-        if (current_object_page != page && current_object_page != layout) {
-            continue;
-        }
-        
-        int16_t x = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_X];
-        int16_t y = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_Y];
-        int16_t w = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_W];
-        int16_t h = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_H];
-
-        switch (parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE]) {
-            case parent->instancesketchy__objects_i.TYPE_RECT:
-                // Draw rectangle outline
-                draw_line(x, y, x + w - 1, y);           // Top
-                draw_line(x, y + h - 1, x + w - 1, y + h - 1); // Bottom
-                draw_line(x, y, x, y + h - 1);           // Left
-                draw_line(x + w - 1, y, x + w - 1, y + h - 1); // Right
-                break;
-
-            case parent->instancesketchy__objects_i.TYPE_FILLED_RECT:
-                // Draw filled rectangle
-                for (int row = 0; row < h; row++) {
-                    draw_line(x, y + row, x + w - 1, y + row);
-                }
-                break;
-
-            case parent->instancesketchy__objects_i.TYPE_LINE:
-                if (i > 0 && parent->instancesketchy__objects_i.array[i - 1][parent->instancesketchy__objects_i.FIELD_TYPE] == parent->instancesketchy__objects_i.TYPE_LINE) {
-                    int16_t prev_x = parent->instancesketchy__objects_i.array[i - 1][parent->instancesketchy__objects_i.FIELD_X];
-                    int16_t prev_y = parent->instancesketchy__objects_i.array[i - 1][parent->instancesketchy__objects_i.FIELD_Y];
-                    draw_line(prev_x, prev_y, x, y);
-                }
-                break;
-
-            case parent->instancesketchy__objects_i.TYPE_TEXT:
-            case parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_X:
-            case parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_Y:
-            case parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_BOTH:
-                {
-                    int text_id = parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TEXT_ID];
-                    const char* str = parent->instancesketchy__texts_i.array[text_id];
-                    
-                    int text_x = x;
-                    int text_y = y;
-                    
-                    // Simple centering (for compatibility)
-                    if (parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE] == parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_X ||
-                        parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE] == parent->instancesketchy__objects_i.TYPE_TEXT_CENTER_BOTH) {
-                        int text_width = strlen(str) * (font ? font->width + 1 : 6);
-                        text_x = x + (w - text_width) / 2;
-                    }
-                    
-                    draw_text(text_x, text_y, str);
-                }
-                break;
-                
-            case 99: // CUSTOM VIRTUAL KNOB TYPE
-                {
-                    // x, y = center coordinates
-                    // w = indicator_index 
-                    // h = dial width (for bounds checking)
-                    
-                    int cx = x;
-                    int cy = y;
-                    int indicator_index = w;
-                    
-                    // Draw circle using our lookup table (gap already built in at bottom)
-                    for (int ci = 0; ci < CIRCLE_POINTS; ci++) {
-                        int circle_x = cx + circle_coords[ci][0];
-                        int circle_y = cy + circle_coords[ci][1];
-                        set_pixel(circle_x, circle_y, true);
-                    }
-                    
-                    // Draw indicator line from center to exact position using lookup table
-                    draw_indicator_line(cx, cy, indicator_index);
-                }
-                break;
-                
-            case 100: // CUSTOM BIPOLAR VIRTUAL KNOB TYPE
-                {
-                    // x, y = center coordinates
-                    // w = indicator_index 
-                    // h = dial width (for bounds checking)
-                    
-                    int cx = x;
-                    int cy = y;
-                    int indicator_index = w;
-                    
-                    // Draw circle using our lookup table (gap already built in at bottom)
-                    for (int ci = 0; ci < CIRCLE_POINTS; ci++) {
-                        int circle_x = cx + circle_coords[ci][0];
-                        int circle_y = cy + circle_coords[ci][1];
-                        set_pixel(circle_x, circle_y, true);
-                    }
-                    
-                    // Draw bipolar indicators (- and + at edges)
-                    draw_bipolar_indicators(cx, cy);
-                    
-                    // Draw indicator line from center to exact position using lookup table
-                    draw_indicator_line(cx, cy, indicator_index);
-                }
-                break;
-        }
-    }
-
-    parent->instancesketchy__objects_i.dirty = false;
-}
-
-// Optimized render thread
-msg_t ThreadX2() {
-    chRegSetThreadName("sketchy_render_optimized");
-    
-    // Setup I2C and OLED (moved from init for thread safety)
-    static uint8_t _txbuf[129] __attribute__ ((section (".sdram")));
-    static uint8_t _rxbuf[8] __attribute__ ((section (".sdram")));
-    txbuf = _txbuf;
-    rxbuf = _rxbuf;
-    oled_init();
-    
-    while (!chThdShouldTerminate()) {
-        clear_display();
-        render();  // Use Karlo's table-based rendering
-        
-        for (uint8_t i = 0; i < 8; i++) {
-            sendPage(i);
-        }
-        
-        chThdSleepMilliseconds(50); // ~20 FPS - lower CPU usage
-    }
-    
-    chThdExit((msg_t)0);
-}
-
 static msg_t ThreadX(void *arg) {
     ((attr_parent *)arg)->ThreadX2();
 }
 
-WORKING_AREA(waThreadX, 512);
+static THD_WORKING_AREA(waThreadX, 512);
 Thread *Thd;]]></code.declaration>
-      <code.init><![CDATA[// Create SDRAM shadow arrays for display buffers
-static uint8_t _display_buffer[8 * LCDWIDTH] __attribute__ ((section (".sdram")));
-static uint8_t _txbuf[129] __attribute__ ((section (".sdram")));
-static uint8_t _rxbuf[8] __attribute__ ((section (".sdram")));
+      <code.init><![CDATA[object_table = &parent->instancesketchy__objects_i;
+text_table = &parent->instancesketchy__texts_i;
+param_table = &parent->instancesketchy__params_i;
+font = &parent->instancesketchy__font_i;
 
-display_buffer = &_display_buffer[0];
-txbuf = &_txbuf[0];
-rxbuf = &_rxbuf[0];
-
-// Setup I2C pins
-palSetPadMode(GPIOB, 8, PAL_MODE_ALTERNATE(4)|PAL_STM32_PUDR_PULLUP|PAL_STM32_OTYPE_OPENDRAIN);// SCL
-palSetPadMode(GPIOB, 9, PAL_MODE_ALTERNATE(4)|PAL_STM32_PUDR_PULLUP|PAL_STM32_OTYPE_OPENDRAIN);// SDA
+palSetPadMode(GPIOB, 8, PAL_MODE_ALTERNATE(4)|PAL_STM32_PUDR_PULLUP|PAL_STM32_OTYPE_OPENDRAIN);
+palSetPadMode(GPIOB, 9, PAL_MODE_ALTERNATE(4)|PAL_STM32_PUDR_PULLUP|PAL_STM32_OTYPE_OPENDRAIN);
 static const I2CConfig i2cfg = {
     OPMODE_I2C,
     400000,
     FAST_DUTY_CYCLE_2,
 };
 i2cStart(&I2CD1, &i2cfg);
+Thd = chThdCreateStatic(waThreadX, sizeof(waThreadX), NORMALPRIO, ThreadX, (void *)this);
 
-// Initialize variables
+clear();
+
+// Initialize shared objects
+init_shared_objects();
+
 pprint = false;
 page = 0;
-layout = 0xFFFF;
-
-// Get reference to font object
-font = &parent->instancesketchy__font_i;
-
-// Start render thread (OLED init happens in thread for safety)
-Thd = chThdCreateStatic(waThreadX, sizeof(waThreadX), NORMALPRIO, ThreadX, (void *)this);]]></code.init>
-      <code.dispose><![CDATA[if (Thd) {
-    chThdTerminate(Thd);
-    chThdWait(Thd);
-}
+layout = 0xFFFF;]]></code.init>
+      <code.dispose><![CDATA[chThdTerminate( Thd );
+chThdWait( Thd );
 i2cStop(&I2CD1);
 palSetPadMode(GPIOB, 8, PAL_MODE_INPUT_ANALOG);
 palSetPadMode(GPIOB, 9, PAL_MODE_INPUT_ANALOG);]]></code.dispose>
       <code.krate><![CDATA[if (inlet_print && !pprint) {
     pprint = true;
-    LogTextMessage("sketchy_render_optimized: print triggered");
+	for (uint8_t i = 0; i < parent->instancesketchy__objects_i.LENGTH; i++) {
+		LogTextMessage(
+			"i: %3d, type: %3d, x: %3d, y: %3d, w: %3d, h: %3d, color: %3d, text_id: %3d",
+			i,
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TYPE],
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_X], 
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_Y], 
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_W],
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_H], 
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_COLOR],
+			parent->instancesketchy__objects_i.array[i][parent->instancesketchy__objects_i.FIELD_TEXT_ID]
+		);
+	}
+	LogTextMessage("");
 }
 
 if (!inlet_print && pprint) {

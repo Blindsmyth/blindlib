@@ -1,0 +1,119 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="euclidean 4track" uuid="d4c7ec24-e946-4aed-ac1b-6acd1092a846">
+      <sDescription>4-track Euclidean pattern generator that writes to table (32 steps per track)</sDescription>
+      <author>Blindsmyth</author>
+      <license>BSD</license>
+      <inlets>
+         <int32 name="steps1" description="track 1 steps"/>
+         <int32 name="hits1" description="track 1 hits"/>
+         <int32 name="offset1" description="track 1 offset"/>
+         <int32 name="steps2" description="track 2 steps"/>
+         <int32 name="hits2" description="track 2 hits"/>
+         <int32 name="offset2" description="track 2 offset"/>
+         <int32 name="steps3" description="track 3 steps"/>
+         <int32 name="hits3" description="track 3 hits"/>
+         <int32 name="offset3" description="track 3 offset"/>
+         <int32 name="steps4" description="track 4 steps"/>
+         <int32 name="hits4" description="track 4 hits"/>
+         <int32 name="offset4" description="track 4 offset"/>
+         <int32 name="index"/>
+      </inlets>
+      <outlets>
+         <bool32.pulse name="changed" description="pulse when any parameter changes"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <objref name="table"/>
+      </attribs>
+      <code.declaration><![CDATA[bool pattern[4][32]; // 4 tracks, 32 steps each
+int lastSteps[4];
+int lastHits[4];
+int lastOffset[4];
+bool anyChanged;]]></code.declaration>
+      <code.init><![CDATA[// Initialize tracking variables
+for(int track = 0; track < 4; track++) {
+    lastSteps[track] = -1;
+    lastHits[track] = -1;
+    lastOffset[track] = -1;
+    for(int i = 0; i < 32; i++) {
+        pattern[track][i] = false;
+    }
+}
+anyChanged = false;]]></code.init>
+      <code.krate><![CDATA[// Get current parameter values for each track
+int currentSteps[4] = {
+    inlet_steps1,
+    inlet_steps2,
+    inlet_steps3,
+    inlet_steps4
+};
+int currentHits[4] = {
+    inlet_hits1,
+    inlet_hits2,
+    inlet_hits3,
+    inlet_hits4
+};
+int currentOffset[4] = {
+    inlet_offset1,
+    inlet_offset2,
+    inlet_offset3,
+    inlet_offset4
+};
+
+// Clamp values to valid ranges
+for(int track = 0; track < 4; track++) {
+    if(currentSteps[track] < 1) currentSteps[track] = 1;
+    if(currentSteps[track] > 32) currentSteps[track] = 32;
+    if(currentHits[track] < 0) currentHits[track] = 0;
+    if(currentHits[track] > currentSteps[track]) currentHits[track] = currentSteps[track];
+    if(currentOffset[track] < 0) currentOffset[track] = 0;
+    if(currentOffset[track] >= currentSteps[track]) currentOffset[track] = currentSteps[track] - 1;
+}
+
+// Check if any parameters changed
+anyChanged = false;
+
+// Generate patterns for each track if parameters changed
+for(int track = 0; track < 4; track++) {
+    if (currentSteps[track] != lastSteps[track] || 
+        currentHits[track] != lastHits[track] || 
+        currentOffset[track] != lastOffset[track]) {
+        
+        anyChanged = true;
+        
+        // Clear pattern first
+        for(int i = 0; i < 32; i++) {
+            pattern[track][i] = false;
+        }
+        
+        // Generate euclidean rhythm using Bresenham-like algorithm
+        if (currentHits[track] > 0 && currentSteps[track] > 0) {
+            int bucket = 0;
+            for(int i = 0; i < currentSteps[track]; i++) {
+                bucket += currentHits[track];
+                if(bucket >= currentSteps[track]) {
+                    bucket -= currentSteps[track];
+                    // Apply offset with +1 correction for expected behavior
+                    pattern[track][(i + currentOffset[track] + 1) % currentSteps[track]] = true;
+                }
+            }
+        }
+        
+        // Write pattern to table (each track gets 32 slots)
+        int tableOffset = track * 32 + inlet_index;
+        for(int i = 0; i < 32 && (tableOffset + i) < attr_table.LENGTH; i++) {
+            int value = (i < currentSteps[track] && pattern[track][i]) ? (1 << 27) : 0;
+            attr_table.array[tableOffset + i] = __SSAT(value, 28) >> attr_table.GAIN;
+        }
+        
+        lastSteps[track] = currentSteps[track];
+        lastHits[track] = currentHits[track];
+        lastOffset[track] = currentOffset[track];
+    }
+}
+
+// Output change pulse
+outlet_changed = anyChanged ? (1<<27) : 0;]]></code.krate>
+   </obj.normal>
+</objdefs>

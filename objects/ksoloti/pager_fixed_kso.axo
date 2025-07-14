@@ -1,6 +1,6 @@
 <objdefs appVersion="1.0.12">
-   <obj.normal id="pager_inverted" uuid="fd96a716-58e0-4d97-893b-53ac4f17a523">
-      <sDescription>Page display with inverted colors - minimal change from original</sDescription>
+   <obj.normal id="pager_fixed" uuid="f37dc6ca-a806-4abe-841a-78535bdbb49c">
+      <sDescription>Page display - fixed object references</sDescription>
       <author>AI Assistant</author>
       <license>GPL</license>
       <inlets/>
@@ -13,10 +13,10 @@
          <table name="list" description="comma separated list of page names"/>
       </attribs>
       <includes/>
-      <code.declaration><![CDATA[rootc::instancesketchy__objects* object_table;
-rootc::instancesketchy__texts* text_table;
-rootc::instancesketchy__params* param_table;
-rootc::instancesketchy__render* renderer;
+      <code.declaration><![CDATA[rootc::objectinstance_sketchy__objects* object_table;
+rootc::objectinstance_sketchy__texts* text_table;
+rootc::objectinstance_sketchy__params* param_table;
+rootc::objectinstance_sketchy__render* renderer;
 
 uint16_t label_object_id;
 uint16_t label2_object_id;
@@ -26,10 +26,10 @@ uint16_t label2_text_id;
 
 uint16_t page = 0xFFFF;
 uint16_t num_pagenames = 1;]]></code.declaration>
-      <code.init><![CDATA[object_table = &parent->instancesketchy__objects_i;
-text_table = &parent->instancesketchy__texts_i;
-param_table = &parent->instancesketchy__params_i;
-renderer = &parent->instancesketchy__render_i;
+      <code.init><![CDATA[object_table = &parent->objectinstance_sketchy__objects_i;
+text_table = &parent->objectinstance_sketchy__texts_i;
+param_table = &parent->objectinstance_sketchy__params_i;
+renderer = &parent->objectinstance_sketchy__render_i;
 
 // Register and get ids - NO divider line
 label_object_id = object_table->registerEntry();
@@ -38,24 +38,24 @@ label2_object_id = object_table->registerEntry();
 label_text_id = text_table->registerEntry();
 label2_text_id = text_table->registerEntry();
 
-// Setup label object - ONLY CHANGE: color from 2 to 1 (white text)
+// Setup label object
 object_table->array[label_object_id][object_table->FIELD_TYPE] = 6;
 object_table->array[label_object_id][object_table->FIELD_X] =  2;
 object_table->array[label_object_id][object_table->FIELD_Y] = 2;
 object_table->array[label_object_id][object_table->FIELD_W] = 100;
 object_table->array[label_object_id][object_table->FIELD_H] = 25;
-object_table->array[label_object_id][object_table->FIELD_COLOR] = 1; // Changed from 2 to 1
+object_table->array[label_object_id][object_table->FIELD_COLOR] = 2;
 object_table->array[label_object_id][object_table->FIELD_SCALE] = 1;
 object_table->array[label_object_id][object_table->FIELD_TEXT_ID] = label_text_id;
 object_table->array[label_object_id][object_table->FIELD_PAGE] = -1; // Show on all pages
 
-// Setup label2 object - ONLY CHANGE: color from 2 to 1 (white text)
+// Setup label2 object [8/10]
 object_table->array[label2_object_id][object_table->FIELD_TYPE] = 6;
 object_table->array[label2_object_id][object_table->FIELD_X] = 60;
 object_table->array[label2_object_id][object_table->FIELD_Y] = 2;
 object_table->array[label2_object_id][object_table->FIELD_W] = 100;
 object_table->array[label2_object_id][object_table->FIELD_H] = 25;
-object_table->array[label2_object_id][object_table->FIELD_COLOR] = 1; // Changed from 2 to 1
+object_table->array[label2_object_id][object_table->FIELD_COLOR] = 2;
 object_table->array[label2_object_id][object_table->FIELD_SCALE] = 1;
 object_table->array[label2_object_id][object_table->FIELD_TEXT_ID] = label2_text_id;
 object_table->array[label2_object_id][object_table->FIELD_PAGE] = -1; // Show on all pages
