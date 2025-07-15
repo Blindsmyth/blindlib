@@ -1,0 +1,361 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sketchy_font" uuid="5224773f-18de-4231-8f92-b1f22bb9537B">
+      <sDescription>sketchy font data for OLED text rendering</sDescription>
+      <author>Simon</author>
+      <license>BSD</license>
+      <helpPatch>table.axh</helpPatch>
+      <inlets/>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs/>
+      <includes/>
+      <depends/>
+      <code.declaration><![CDATA[
+#define SKETCHY_FONT_DATA_SIZE 480
+
+// Font data in SDRAM for memory optimization
+uint8_t _font_data_sdram[SKETCHY_FONT_DATA_SIZE] __attribute__ ((section (".sdram")));
+
+// Font structure - this is what the renderer expects
+typedef struct {
+    uint8_t *data;
+} sketchy_font_t;
+
+// Expose font data directly for renderer and load/save objects
+sketchy_font_t font_data;
+]]></code.declaration>
+   <code.init><![CDATA[
+// Point to SDRAM font data
+font_data.data = &_font_data_sdram[0];
+
+// Initialize font data with 8x6 pixel characters (ASCII 32-95)
+// Each character is 6 bytes (6 columns x 8 bits)
+// This is a basic font with numbers, letters, and common symbols
+
+// Space (ASCII 32)
+font_data.data[0] = 0x00; font_data.data[1] = 0x00; font_data.data[2] = 0x00; 
+font_data.data[3] = 0x00; font_data.data[4] = 0x00; font_data.data[5] = 0x00;
+
+// ! (ASCII 33)
+font_data.data[6] = 0x00; font_data.data[7] = 0x00; font_data.data[8] = 0x5F; 
+font_data.data[9] = 0x00; font_data.data[10] = 0x00; font_data.data[11] = 0x00;
+
+// " (ASCII 34)
+font_data.data[12] = 0x00; font_data.data[13] = 0x07; font_data.data[14] = 0x00; 
+font_data.data[15] = 0x07; font_data.data[16] = 0x00; font_data.data[17] = 0x00;
+
+// # (ASCII 35)
+font_data.data[18] = 0x14; font_data.data[19] = 0x7F; font_data.data[20] = 0x14; 
+font_data.data[21] = 0x7F; font_data.data[22] = 0x14; font_data.data[23] = 0x00;
+
+// $ (ASCII 36)
+font_data.data[24] = 0x24; font_data.data[25] = 0x2A; font_data.data[26] = 0x7F; 
+font_data.data[27] = 0x2A; font_data.data[28] = 0x12; font_data.data[29] = 0x00;
+
+// % (ASCII 37)
+font_data.data[30] = 0x23; font_data.data[31] = 0x13; font_data.data[32] = 0x08; 
+font_data.data[33] = 0x64; font_data.data[34] = 0x62; font_data.data[35] = 0x00;
+
+// & (ASCII 38)
+font_data.data[36] = 0x36; font_data.data[37] = 0x49; font_data.data[38] = 0x55; 
+font_data.data[39] = 0x22; font_data.data[40] = 0x50; font_data.data[41] = 0x00;
+
+// ' (ASCII 39)
+font_data.data[42] = 0x00; font_data.data[43] = 0x05; font_data.data[44] = 0x03; 
+font_data.data[45] = 0x00; font_data.data[46] = 0x00; font_data.data[47] = 0x00;
+
+// ( (ASCII 40)
+font_data.data[48] = 0x00; font_data.data[49] = 0x1C; font_data.data[50] = 0x22; 
+font_data.data[51] = 0x41; font_data.data[52] = 0x00; font_data.data[53] = 0x00;
+
+// ) (ASCII 41)
+font_data.data[54] = 0x00; font_data.data[55] = 0x41; font_data.data[56] = 0x22; 
+font_data.data[57] = 0x1C; font_data.data[58] = 0x00; font_data.data[59] = 0x00;
+
+// * (ASCII 42)
+font_data.data[60] = 0x14; font_data.data[61] = 0x08; font_data.data[62] = 0x3E; 
+font_data.data[63] = 0x08; font_data.data[64] = 0x14; font_data.data[65] = 0x00;
+
+// + (ASCII 43)
+font_data.data[66] = 0x08; font_data.data[67] = 0x08; font_data.data[68] = 0x3E; 
+font_data.data[69] = 0x08; font_data.data[70] = 0x08; font_data.data[71] = 0x00;
+
+// , (ASCII 44)
+font_data.data[72] = 0x00; font_data.data[73] = 0x00; font_data.data[74] = 0xA0; 
+font_data.data[75] = 0x60; font_data.data[76] = 0x00; font_data.data[77] = 0x00;
+
+// - (ASCII 45)
+font_data.data[78] = 0x08; font_data.data[79] = 0x08; font_data.data[80] = 0x08; 
+font_data.data[81] = 0x08; font_data.data[82] = 0x08; font_data.data[83] = 0x00;
+
+// . (ASCII 46)
+font_data.data[84] = 0x00; font_data.data[85] = 0x60; font_data.data[86] = 0x60; 
+font_data.data[87] = 0x00; font_data.data[88] = 0x00; font_data.data[89] = 0x00;
+
+// / (ASCII 47)
+font_data.data[90] = 0x20; font_data.data[91] = 0x10; font_data.data[92] = 0x08; 
+font_data.data[93] = 0x04; font_data.data[94] = 0x02; font_data.data[95] = 0x00;
+
+// 0 (ASCII 48)
+font_data.data[96] = 0x3E; font_data.data[97] = 0x51; font_data.data[98] = 0x49; 
+font_data.data[99] = 0x45; font_data.data[100] = 0x3E; font_data.data[101] = 0x00;
+
+// 1 (ASCII 49)
+font_data.data[102] = 0x00; font_data.data[103] = 0x42; font_data.data[104] = 0x7F; 
+font_data.data[105] = 0x40; font_data.data[106] = 0x00; font_data.data[107] = 0x00;
+
+// 2 (ASCII 50)
+font_data.data[108] = 0x42; font_data.data[109] = 0x61; font_data.data[110] = 0x51; 
+font_data.data[111] = 0x49; font_data.data[112] = 0x46; font_data.data[113] = 0x00;
+
+// 3 (ASCII 51)
+font_data.data[114] = 0x21; font_data.data[115] = 0x41; font_data.data[116] = 0x45; 
+font_data.data[117] = 0x4B; font_data.data[118] = 0x31; font_data.data[119] = 0x00;
+
+// 4 (ASCII 52)
+font_data.data[120] = 0x18; font_data.data[121] = 0x14; font_data.data[122] = 0x12; 
+font_data.data[123] = 0x7F; font_data.data[124] = 0x10; font_data.data[125] = 0x00;
+
+// 5 (ASCII 53)
+font_data.data[126] = 0x27; font_data.data[127] = 0x45; font_data.data[128] = 0x45; 
+font_data.data[129] = 0x45; font_data.data[130] = 0x39; font_data.data[131] = 0x00;
+
+// 6 (ASCII 54)
+font_data.data[132] = 0x3C; font_data.data[133] = 0x4A; font_data.data[134] = 0x49; 
+font_data.data[135] = 0x49; font_data.data[136] = 0x30; font_data.data[137] = 0x00;
+
+// 7 (ASCII 55)
+font_data.data[138] = 0x01; font_data.data[139] = 0x71; font_data.data[140] = 0x09; 
+font_data.data[141] = 0x05; font_data.data[142] = 0x03; font_data.data[143] = 0x00;
+
+// 8 (ASCII 56)
+font_data.data[144] = 0x36; font_data.data[145] = 0x49; font_data.data[146] = 0x49; 
+font_data.data[147] = 0x49; font_data.data[148] = 0x36; font_data.data[149] = 0x00;
+
+// 9 (ASCII 57)
+font_data.data[150] = 0x06; font_data.data[151] = 0x49; font_data.data[152] = 0x49; 
+font_data.data[153] = 0x29; font_data.data[154] = 0x1E; font_data.data[155] = 0x00;
+
+// : (ASCII 58)
+font_data.data[156] = 0x00; font_data.data[157] = 0x36; font_data.data[158] = 0x36; 
+font_data.data[159] = 0x00; font_data.data[160] = 0x00; font_data.data[161] = 0x00;
+
+// ; (ASCII 59)
+font_data.data[162] = 0x00; font_data.data[163] = 0xAC; font_data.data[164] = 0x6C; 
+font_data.data[165] = 0x00; font_data.data[166] = 0x00; font_data.data[167] = 0x00;
+
+// < (ASCII 60)
+font_data.data[168] = 0x08; font_data.data[169] = 0x14; font_data.data[170] = 0x22; 
+font_data.data[171] = 0x41; font_data.data[172] = 0x00; font_data.data[173] = 0x00;
+
+// = (ASCII 61)
+font_data.data[174] = 0x14; font_data.data[175] = 0x14; font_data.data[176] = 0x14; 
+font_data.data[177] = 0x14; font_data.data[178] = 0x14; font_data.data[179] = 0x00;
+
+// > (ASCII 62)
+font_data.data[180] = 0x00; font_data.data[181] = 0x41; font_data.data[182] = 0x22; 
+font_data.data[183] = 0x14; font_data.data[184] = 0x08; font_data.data[185] = 0x00;
+
+// ? (ASCII 63)
+font_data.data[186] = 0x02; font_data.data[187] = 0x01; font_data.data[188] = 0x51; 
+font_data.data[189] = 0x09; font_data.data[190] = 0x06; font_data.data[191] = 0x00;
+
+// @ (ASCII 64)
+font_data.data[192] = 0x32; font_data.data[193] = 0x49; font_data.data[194] = 0x59; 
+font_data.data[195] = 0x51; font_data.data[196] = 0x3E; font_data.data[197] = 0x00;
+
+// A (ASCII 65)
+font_data.data[198] = 0x7C; font_data.data[199] = 0x12; font_data.data[200] = 0x11; 
+font_data.data[201] = 0x12; font_data.data[202] = 0x7C; font_data.data[203] = 0x00;
+
+// B (ASCII 66)
+font_data.data[204] = 0x7F; font_data.data[205] = 0x49; font_data.data[206] = 0x49; 
+font_data.data[207] = 0x49; font_data.data[208] = 0x36; font_data.data[209] = 0x00;
+
+// C (ASCII 67)
+font_data.data[210] = 0x3E; font_data.data[211] = 0x41; font_data.data[212] = 0x41; 
+font_data.data[213] = 0x41; font_data.data[214] = 0x22; font_data.data[215] = 0x00;
+
+// D (ASCII 68)
+font_data.data[216] = 0x7F; font_data.data[217] = 0x41; font_data.data[218] = 0x41; 
+font_data.data[219] = 0x22; font_data.data[220] = 0x1C; font_data.data[221] = 0x00;
+
+// E (ASCII 69)
+font_data.data[222] = 0x7F; font_data.data[223] = 0x49; font_data.data[224] = 0x49; 
+font_data.data[225] = 0x49; font_data.data[226] = 0x41; font_data.data[227] = 0x00;
+
+// F (ASCII 70)
+font_data.data[228] = 0x7F; font_data.data[229] = 0x09; font_data.data[230] = 0x09; 
+font_data.data[231] = 0x09; font_data.data[232] = 0x01; font_data.data[233] = 0x00;
+
+// G (ASCII 71)
+font_data.data[234] = 0x3E; font_data.data[235] = 0x41; font_data.data[236] = 0x49; 
+font_data.data[237] = 0x49; font_data.data[238] = 0x7A; font_data.data[239] = 0x00;
+
+// H (ASCII 72)
+font_data.data[240] = 0x7F; font_data.data[241] = 0x08; font_data.data[242] = 0x08; 
+font_data.data[243] = 0x08; font_data.data[244] = 0x7F; font_data.data[245] = 0x00;
+
+// I (ASCII 73)
+font_data.data[246] = 0x00; font_data.data[247] = 0x41; font_data.data[248] = 0x7F; 
+font_data.data[249] = 0x41; font_data.data[250] = 0x00; font_data.data[251] = 0x00;
+
+// J (ASCII 74)
+font_data.data[252] = 0x20; font_data.data[253] = 0x40; font_data.data[254] = 0x41; 
+font_data.data[255] = 0x3F; font_data.data[256] = 0x01; font_data.data[257] = 0x00;
+
+// K (ASCII 75)
+font_data.data[258] = 0x7F; font_data.data[259] = 0x08; font_data.data[260] = 0x14; 
+font_data.data[261] = 0x22; font_data.data[262] = 0x41; font_data.data[263] = 0x00;
+
+// L (ASCII 76)
+font_data.data[264] = 0x7F; font_data.data[265] = 0x40; font_data.data[266] = 0x40; 
+font_data.data[267] = 0x40; font_data.data[268] = 0x40; font_data.data[269] = 0x00;
+
+// M (ASCII 77)
+font_data.data[270] = 0x7F; font_data.data[271] = 0x02; font_data.data[272] = 0x0C; 
+font_data.data[273] = 0x02; font_data.data[274] = 0x7F; font_data.data[275] = 0x00;
+
+// N (ASCII 78)
+font_data.data[276] = 0x7F; font_data.data[277] = 0x04; font_data.data[278] = 0x08; 
+font_data.data[279] = 0x10; font_data.data[280] = 0x7F; font_data.data[281] = 0x00;
+
+// O (ASCII 79)
+font_data.data[282] = 0x3E; font_data.data[283] = 0x41; font_data.data[284] = 0x41; 
+font_data.data[285] = 0x41; font_data.data[286] = 0x3E; font_data.data[287] = 0x00;
+
+// P (ASCII 80)
+font_data.data[288] = 0x7F; font_data.data[289] = 0x09; font_data.data[290] = 0x09; 
+font_data.data[291] = 0x09; font_data.data[292] = 0x06; font_data.data[293] = 0x00;
+
+// Q (ASCII 81)
+font_data.data[294] = 0x3E; font_data.data[295] = 0x41; font_data.data[296] = 0x51; 
+font_data.data[297] = 0x21; font_data.data[298] = 0x5E; font_data.data[299] = 0x00;
+
+// R (ASCII 82)
+font_data.data[300] = 0x7F; font_data.data[301] = 0x09; font_data.data[302] = 0x19; 
+font_data.data[303] = 0x29; font_data.data[304] = 0x46; font_data.data[305] = 0x00;
+
+// S (ASCII 83)
+font_data.data[306] = 0x46; font_data.data[307] = 0x49; font_data.data[308] = 0x49; 
+font_data.data[309] = 0x49; font_data.data[310] = 0x31; font_data.data[311] = 0x00;
+
+// T (ASCII 84)
+font_data.data[312] = 0x01; font_data.data[313] = 0x01; font_data.data[314] = 0x7F; 
+font_data.data[315] = 0x01; font_data.data[316] = 0x01; font_data.data[317] = 0x00;
+
+// U (ASCII 85)
+font_data.data[318] = 0x3F; font_data.data[319] = 0x40; font_data.data[320] = 0x40; 
+font_data.data[321] = 0x40; font_data.data[322] = 0x3F; font_data.data[323] = 0x00;
+
+// V (ASCII 86)
+font_data.data[324] = 0x1F; font_data.data[325] = 0x20; font_data.data[326] = 0x40; 
+font_data.data[327] = 0x20; font_data.data[328] = 0x1F; font_data.data[329] = 0x00;
+
+// W (ASCII 87)
+font_data.data[330] = 0x3F; font_data.data[331] = 0x40; font_data.data[332] = 0x38; 
+font_data.data[333] = 0x40; font_data.data[334] = 0x3F; font_data.data[335] = 0x00;
+
+// X (ASCII 88)
+font_data.data[336] = 0x63; font_data.data[337] = 0x14; font_data.data[338] = 0x08; 
+font_data.data[339] = 0x14; font_data.data[340] = 0x63; font_data.data[341] = 0x00;
+
+// Y (ASCII 89)
+font_data.data[342] = 0x07; font_data.data[343] = 0x08; font_data.data[344] = 0x70; 
+font_data.data[345] = 0x08; font_data.data[346] = 0x07; font_data.data[347] = 0x00;
+
+// Z (ASCII 90)
+font_data.data[348] = 0x61; font_data.data[349] = 0x51; font_data.data[350] = 0x49; 
+font_data.data[351] = 0x45; font_data.data[352] = 0x43; font_data.data[353] = 0x00;
+
+// [ (ASCII 91)
+font_data.data[354] = 0x00; font_data.data[355] = 0x7F; font_data.data[356] = 0x41; 
+font_data.data[357] = 0x41; font_data.data[358] = 0x00; font_data.data[359] = 0x00;
+
+// \ (ASCII 92)
+font_data.data[360] = 0x02; font_data.data[361] = 0x04; font_data.data[362] = 0x08; 
+font_data.data[363] = 0x10; font_data.data[364] = 0x20; font_data.data[365] = 0x00;
+
+// ] (ASCII 93)
+font_data.data[366] = 0x00; font_data.data[367] = 0x41; font_data.data[368] = 0x41; 
+font_data.data[369] = 0x7F; font_data.data[370] = 0x00; font_data.data[371] = 0x00;
+
+// ^ (ASCII 94)
+font_data.data[372] = 0x04; font_data.data[373] = 0x02; font_data.data[374] = 0x01; 
+font_data.data[375] = 0x02; font_data.data[376] = 0x04; font_data.data[377] = 0x00;
+
+// _ (ASCII 95)
+font_data.data[378] = 0x40; font_data.data[379] = 0x40; font_data.data[380] = 0x40; 
+font_data.data[381] = 0x40; font_data.data[382] = 0x40; font_data.data[383] = 0x00;
+
+// ` (ASCII 96)
+font_data.data[384] = 0x00; font_data.data[385] = 0x01; font_data.data[386] = 0x02; 
+font_data.data[387] = 0x04; font_data.data[388] = 0x00; font_data.data[389] = 0x00;
+
+// a (ASCII 97)
+font_data.data[390] = 0x20; font_data.data[391] = 0x54; font_data.data[392] = 0x54; 
+font_data.data[393] = 0x54; font_data.data[394] = 0x78; font_data.data[395] = 0x00;
+
+// b (ASCII 98)
+font_data.data[396] = 0x7F; font_data.data[397] = 0x48; font_data.data[398] = 0x44; 
+font_data.data[399] = 0x44; font_data.data[400] = 0x38; font_data.data[401] = 0x00;
+
+// c (ASCII 99)
+font_data.data[402] = 0x38; font_data.data[403] = 0x44; font_data.data[404] = 0x44; 
+font_data.data[405] = 0x44; font_data.data[406] = 0x20; font_data.data[407] = 0x00;
+
+// d (ASCII 100)
+font_data.data[408] = 0x38; font_data.data[409] = 0x44; font_data.data[410] = 0x44; 
+font_data.data[411] = 0x48; font_data.data[412] = 0x7F; font_data.data[413] = 0x00;
+
+// e (ASCII 101)
+font_data.data[414] = 0x38; font_data.data[415] = 0x54; font_data.data[416] = 0x54; 
+font_data.data[417] = 0x54; font_data.data[418] = 0x18; font_data.data[419] = 0x00;
+
+// f (ASCII 102)
+font_data.data[420] = 0x08; font_data.data[421] = 0x7E; font_data.data[422] = 0x09; 
+font_data.data[423] = 0x01; font_data.data[424] = 0x02; font_data.data[425] = 0x00;
+
+// g (ASCII 103)
+font_data.data[426] = 0x0C; font_data.data[427] = 0x52; font_data.data[428] = 0x52; 
+font_data.data[429] = 0x52; font_data.data[430] = 0x3E; font_data.data[431] = 0x00;
+
+// h (ASCII 104)
+font_data.data[432] = 0x7F; font_data.data[433] = 0x08; font_data.data[434] = 0x04; 
+font_data.data[435] = 0x04; font_data.data[436] = 0x78; font_data.data[437] = 0x00;
+
+// i (ASCII 105)
+font_data.data[438] = 0x00; font_data.data[439] = 0x44; font_data.data[440] = 0x7D; 
+font_data.data[441] = 0x40; font_data.data[442] = 0x00; font_data.data[443] = 0x00;
+
+// j (ASCII 106)
+font_data.data[444] = 0x20; font_data.data[445] = 0x40; font_data.data[446] = 0x44; 
+font_data.data[447] = 0x3D; font_data.data[448] = 0x00; font_data.data[449] = 0x00;
+
+// k (ASCII 107)
+font_data.data[450] = 0x7F; font_data.data[451] = 0x10; font_data.data[452] = 0x28; 
+font_data.data[453] = 0x44; font_data.data[454] = 0x00; font_data.data[455] = 0x00;
+
+// l (ASCII 108)
+font_data.data[456] = 0x00; font_data.data[457] = 0x41; font_data.data[458] = 0x7F; 
+font_data.data[459] = 0x40; font_data.data[460] = 0x00; font_data.data[461] = 0x00;
+
+// m (ASCII 109)
+font_data.data[462] = 0x7C; font_data.data[463] = 0x04; font_data.data[464] = 0x18; 
+font_data.data[465] = 0x04; font_data.data[466] = 0x78; font_data.data[467] = 0x00;
+
+// n (ASCII 110)
+font_data.data[468] = 0x7C; font_data.data[469] = 0x08; font_data.data[470] = 0x04; 
+font_data.data[471] = 0x04; font_data.data[472] = 0x78; font_data.data[473] = 0x00;
+
+// o (ASCII 111)
+font_data.data[474] = 0x38; font_data.data[475] = 0x44; font_data.data[476] = 0x44; 
+font_data.data[477] = 0x44; font_data.data[478] = 0x38; font_data.data[479] = 0x00;
+]]></code.init>
+   <code.krate><![CDATA[
+// Font object doesn't need krate processing
+]]></code.krate>
+</obj.normal>
+</objdefs> 

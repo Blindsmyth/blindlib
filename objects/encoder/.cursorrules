@@ -9,8 +9,67 @@
   * sketchy_render_optimized.axo: 5224773f-18de-4231-8f92-b1f22bb95375
   * sketchy_render_shared.axo: 5224773f-18de-4231-8f92-b1f22bb95376
   * sketchy_dials_simple.axo: 5224773f-18de-4231-8f92-b1f22bb95377
+  * sketchy_font_save.axo: 5224773f-18de-4231-8f92-b1f22bb95378
+  * sketchy_font_load.axo: 5224773f-18de-4231-8f92-b1f22bb95379
+  * sketchy_font_sd.axo: 5224773f-18de-4231-8f92-b1f22bb9537A
+  * sketchy_font.axo: 5224773f-18de-4231-8f92-b1f22bb9537B
 - Generate new UUIDs by incrementing the last digit
 - Document all new UUIDs in this file
+
+## Axoloti File Format Rules
+
+### .axo files (Object Definitions) - CRITICAL
+- **MUST** start with `<objdefs appVersion="1.0.12">` root element
+- **MUST** contain `<obj.normal id="object_name" uuid="unique-uuid">` element
+- **NEVER** use `<patch>` or `<patchobj>` wrapper in .axo files
+- **NEVER** use `<object>` as root element
+- Used for creating reusable objects
+
+**Correct .axo structure:**
+```xml
+<objdefs appVersion="1.0.12">
+   <obj.normal id="object_name" uuid="unique-uuid">
+      <sDescription>...</sDescription>
+      <author>...</author>
+      <inlets/>
+      <outlets/>
+      <code.declaration><![CDATA[...]]></code.declaration>
+      <code.init><![CDATA[...]]></code.init>
+      <code.krate><![CDATA[...]]></code.krate>
+   </obj.normal>
+</objdefs>
+```
+
+### .axp files (Patch Files)
+- **MUST** start with `<patch appVersion="1.0.12">` root element
+- **MUST** contain object instances that reference .axo objects
+- **REQUIRED**: All objects MUST have `name`, `x`, and `y` attributes
+- **CRITICAL**: Object references use `type="directory/object_name"` format
+
+**Correct .axp structure:**
+```xml
+<patch appVersion="1.0.12">
+   <obj type="encoder/sketchy_font_save" uuid="..." name="font_save" x="98" y="14">
+      <params/>
+      <attribs/>
+   </obj>
+   <nets/>
+</patch>
+```
+
+### Common Format Mistakes
+❌ **WRONG**: .axo files with `<patch><patchobj>` structure
+❌ **WRONG**: .axo files with `<object>` root element  
+❌ **WRONG**: Missing `x`, `y`, or `name` attributes in .axp files
+❌ **WRONG**: Using `type="patch/object"` for custom objects
+
+✅ **CORRECT**: .axo files use `<objdefs><obj.normal>` structure
+✅ **CORRECT**: .axp files use `<patch><obj type="directory/name">` structure
+✅ **CORRECT**: All .axp objects have positioning attributes
+
+### Memory Aid
+- .a**x**o = o**bject** definition = `<objdefs><obj.normal>` structure
+- .a**x**p = **patch** = `<patch><obj type="...">` structure
 
 ## Naming Conventions (from Strategy Paper)
 
@@ -73,6 +132,7 @@
 2. Verify naming follows conventions
 3. Ensure all dependencies are included
 4. Test with minimal functionality first
+5. **CRITICAL**: Use correct file format (.axo vs .axp)
 
 ### When Making Changes
 1. Start with the original working object as base

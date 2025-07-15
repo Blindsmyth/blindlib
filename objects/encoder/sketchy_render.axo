@@ -19,10 +19,12 @@
             <MenuEntries>
                <string>SSD1306</string>
                <string>SH1106</string>
+               <string>SSD1309</string>  // Add this
             </MenuEntries>
             <CEntries>
                <string>1306</string>
                <string>1106</string>
+               <string>1309</string>  // Add this
             </CEntries>
          </combo>
          <combo name="I2CADDR">
@@ -149,38 +151,74 @@ void clear() {
 }
 
 void sendPage(int page) {
-	cmd(COLUMNADDR); cmd(0); cmd(127);
-	cmd(PAGEADDR); cmd(page); cmd(page);
-
-	if (attr_type == 1106) {
-		cmd(0xB0 + page);
-		cmd(2 & 0xf);
-		cmd(0x10 | (2 >> 4));
-	}
-
-	txbuf[0] = 0x40;
-	memcpy(txbuf + 1, pixels[page], LCDWIDTH);
-	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 129, rxbuf, 0, 30);
+  i2cAcquireBus(&I2CD1);
+  
+  // Prepare transmission to the "page"
+  cmd(COLUMNADDR, 0, 127);
+  cmd(PAGEADDR, page, page);
+  
+  if(attr_type == 1106) {
+    cmd(0xB0 + page);
+    cmd(2 & 0xf);
+    cmd(0x10 | (2 >> 4));
+  }
+  // Note: SSD1309 doesn't need special page addressing like SH1106
+  
+  i2cReleaseBus(&I2CD1);
+  
+  // Your existing rendering code here
+  // ...
+  
+  // Transmit the page
+  txbuf[0] = 0x40;
+  i2cAcquireBus(&I2CD1);
+  i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 129, rxbuf, 0, 30);
+  i2cReleaseBus(&I2CD1);
 }
 
 void init() {
-	cmd(DISPLAYOFF);
-	cmd(SETDISPLAYCLOCKDIV); cmd(0x80);
-	cmd(SETMULTIPLEX); cmd(LCDHEIGHT - 1);
-	cmd(SETDISPLAYOFFSET); cmd(attr_type == 1306 ? 0x00 : 0x01);
-	cmd(SETSTARTLINE_0);
-	cmd(CHARGEPUMP); cmd(0x14);
-	cmd(MEMORYMODE); cmd(0x00);
-	cmd(SEGREMAP | 0x1);
-	cmd(COMSCANDEC);
-	cmd(SETCOMPINS); cmd(0x12);
-	cmd(SETCONTRAST); cmd(0xCF);
-	cmd(SETPRECHARGE); cmd(0xF1);
-	cmd(SETVCOMDETECT); cmd(0x40);
-	cmd(DISPLAYALLON_RESUME);
-	cmd(NORMALDISPLAY);
-	cmd(DEACTIVATE_SCROLL);
-	cmd(DISPLAYON);
+  i2cAcquireBus(&I2CD1);
+  
+  if(attr_type == 1106 || attr_type == 1306) {
+    // Existing SSD1306/SH1106 sequence
+    cmd(DISPLAYOFF);
+    cmd(SETDISPLAYCLOCKDIV, 0x80);
+    cmd(SETMULTIPLEX, LCDHEIGHT - 1);
+    cmd(SETDISPLAYOFFSET, attr_type == 1306 ? 0x00 : 0x01);
+    cmd(SETSTARTLINE_0);
+    cmd(CHARGEPUMP, 0x14);
+    cmd(MEMORYMODE, 0x00);
+    cmd(SEGREMAP | 0x1);
+    cmd(COMSCANDEC);
+    cmd(SETCOMPINS, 0x12);
+    cmd(SETCONTRAST, 0xCF);
+    cmd(SETPRECHARGE, 0xF1);
+    cmd(SETVCOMDETECT, 0x40);
+    cmd(DISPLAYALLON_RESUME);
+    cmd(NORMALDISPLAY);
+    cmd(DEACTIVATE_SCROLL);
+    cmd(DISPLAYON);
+  } else if(attr_type == 1309) {
+    // SSD1309 sequence (more stable)
+    cmd(DISPLAYOFF);
+    cmd(SETDISPLAYCLOCKDIV, 0xA0);  // Different timing
+    cmd(SETMULTIPLEX, 0x3F);
+    cmd(SETDISPLAYOFFSET, 0x00);
+    cmd(SETSTARTLINE_0);
+    cmd(MEMORYMODE, 0x00);
+    cmd(SEGREMAP | 0x1);
+    cmd(COMSCANDEC);
+    cmd(SETCOMPINS, 0x12);
+    cmd(SETCONTRAST, 0x6F);     // Lower contrast (more forgiving)
+    cmd(SETPRECHARGE, 0xD3);    // Different timing
+    cmd(SETVCOMDETECT, 0x20);   // Lower VCOM (more stable)
+    cmd(DEACTIVATE_SCROLL);
+    cmd(DISPLAYALLON_RESUME);
+    cmd(NORMALDISPLAY);
+    cmd(DISPLAYON);
+  }
+  
+  i2cReleaseBus(&I2CD1);
 }
 
 void setup() {

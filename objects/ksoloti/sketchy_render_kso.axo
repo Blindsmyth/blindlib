@@ -1,5 +1,5 @@
 <objdefs appVersion="1.1.0">
-   <obj.normal id="sketchy_render_kso" uuid="e9a4f8a1-3e79-4fe6-9590-46abee6f9628">
+   <obj.normal id="sketchy_render_kso" uuid="c98a5df7-8ecd-4234-8317-deb3f40e2e28">
       <sDescription>Expanded renderer with 16-bit loop variables. Fixes object table iteration limits beyond 255 objects. Drop-in replacement for sketchy_render.</sDescription>
       <author>Karlo Sono</author>
       <license>MIT</license>
@@ -38,8 +38,8 @@
       </attribs>
       <depends>
          <depend>SD1</depend>
-         <depend>I2CD1</depend>
          <depend>SPID1</depend>
+         <depend>I2CD1</depend>
       </depends>
       <code.declaration><![CDATA[rootc::objectinstance_sketchy__objects* object_table;
 rootc::objectinstance_sketchy__texts* text_table;
@@ -136,7 +136,7 @@ uint8_t *rxbuf;
 void cmd(uint8_t c) {
 	txbuf[0] = 0;
 	txbuf[1] = c;
-	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 2, rxbuf, 0, 30);
+	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 2, rxbuf, 0, 32);
 }
 
 void clear() {
@@ -159,9 +159,7 @@ void sendPage(int page) {
 
 	txbuf[0] = 0x40;
 	memcpy(txbuf + 1, pixels[page], LCDWIDTH);
-	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 129, rxbuf, 0, 30);
-    
-    chThdSleepMilliseconds(1);  // Add 1ms delay between pages
+	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 129, rxbuf, 0, 32);
 }
 
 void init() {
@@ -201,7 +199,7 @@ msg_t ThreadX2() {
 		for (i = 0; i < 8; i++) {
 			sendPage(i);
 		}
-		chThdSleepMilliseconds(64);
+		chThdSleepMilliseconds(32);
 	}
 	chThdExit((msg_t)0);
 }
@@ -1146,11 +1144,11 @@ palSetPadMode(GPIOB, 8, PAL_MODE_ALTERNATE(4)|PAL_STM32_PUDR_PULLUP|PAL_STM32_OT
 palSetPadMode(GPIOB, 9, PAL_MODE_ALTERNATE(4)|PAL_STM32_PUDR_PULLUP|PAL_STM32_OTYPE_OPENDRAIN);
 static const I2CConfig i2cfg = {
     OPMODE_I2C,
-    100000,  // Change from 400000 to 100000
-    STD_DUTY_CYCLE,  // Change from FAST_DUTY_CYCLE_2 to STD_DUTY_CYCLE
+    400000,
+    FAST_DUTY_CYCLE_2,
 };
 i2cStart(&I2CD1, &i2cfg);
-Thd = chThdCreateStatic(waThreadX, sizeof(waThreadX), NORMALPRIO, ThreadX, (void *)this);
+Thd = chThdCreateStatic(waThreadX, sizeof(waThreadX), NORMALPRIO-1, ThreadX, (void *)this);
 
 clear();
 

@@ -1,0 +1,60 @@
+<patch-1.0 appVersion="1.1.0">
+   <obj type="gpio/i2c/config" uuid="b095a33e56de5fcd23740a7d983bc0bafb315d81" name="config_1" x="28" y="28">
+      <params/>
+      <attribs/>
+   </obj>
+   <obj type="lfo/sine" uuid="75f7330c26a13953215dccc3b7b9008545c9daa9" name="sine_1" x="28" y="70">
+      <params>
+         <frac32.s.map name="pitch" value="19.0"/>
+      </params>
+      <attribs/>
+   </obj>
+   <obj type="tiar/HW/strbar" uuid="19acb9de-7b6b-4c8e-87ee-75013c6b6e2f" name="strbar_1" x="140" y="70">
+      <params/>
+      <attribs>
+         <table attributeName="prefix" table="test"/>
+      </attribs>
+   </obj>
+   <obj type="tiar/HW/OLED128x64niceWOScope" uuid="5bde8c3d-fe37-4133-138e-edb113767bc8" name="OLED128x64niceWOScope_1" x="322" y="70">
+      <params/>
+      <attribs>
+         <combo attributeName="I2CADDR" selection="0x3C"/>
+         <combo attributeName="type" selection="SSD1306"/>
+      </attribs>
+   </obj>
+   <obj type="audio/out stereo" uuid="a1ca7a567f535acc21055669829101d3ee7f0189" name="out_1" x="238" y="266">
+      <params/>
+      <attribs/>
+   </obj>
+   <obj type="osc/sine" uuid="6e094045cca76a9dbf7ebfa72e44e4700d2b3ba" name="sine_2" x="98" y="280">
+      <params>
+         <frac32.s.map name="pitch" value="0.0"/>
+      </params>
+      <attribs/>
+   </obj>
+   <nets>
+      <net>
+         <source obj="sine_1" outlet="wave"/>
+         <dest obj="strbar_1" inlet="in"/>
+      </net>
+      <net>
+         <source obj="strbar_1" outlet="out"/>
+         <dest obj="OLED128x64niceWOScope_1" inlet="line1"/>
+      </net>
+      <net>
+         <source obj="sine_2" outlet="wave"/>
+         <dest obj="out_1" inlet="left"/>
+         <dest obj="out_1" inlet="right"/>
+      </net>
+   </nets>
+   <settings>
+      <subpatchmode>no</subpatchmode>
+   </settings>
+   <notes><![CDATA[]]></notes>
+   <windowPos>
+      <x>448</x>
+      <y>153</y>
+      <width>780</width>
+      <height>620</height>
+   </windowPos>
+</patch-1.0>

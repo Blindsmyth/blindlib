@@ -1,0 +1,166 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sketchy_font_sd" uuid="5224773f-18de-4231-8f92-b1f22bb9537A">
+      <sDescription>sketchy font data loaded from SD card</sDescription>
+      <author>Simon</author>
+      <license>BSD</license>
+      <helpPatch>table.axh</helpPatch>
+      <inlets>
+         <charptr32 name="filename" description="font file name"/>
+         <bool32.rising name="load_trig" description="load trigger"/>
+      </inlets>
+      <outlets>
+         <bool32 name="loaded" description="font loaded successfully"/>
+         <bool32 name="error" description="load error"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs/>
+      <includes>
+         <include>chibios/ext/fatfs/src/ff.h</include>
+      </includes>
+      <depends>
+         <depend>fatfs</depend>
+      </depends>
+      <code.declaration><![CDATA[
+#define SKETCHY_FONT_DATA_SIZE 480
+
+// Font data in SDRAM for memory optimization
+uint8_t _font_data_sdram[SKETCHY_FONT_DATA_SIZE] __attribute__ ((section (".sdram")));
+
+// Font structure
+typedef struct {
+    uint8_t *data;
+} sketchy_font_t;
+
+sketchy_font_t font_data;
+int font_loaded;
+int load_error;
+int ntrig;
+]]></code.declaration>
+      <code.init><![CDATA[
+// Point to SDRAM font data
+font_data.data = &_font_data_sdram[0];
+font_loaded = 0;
+load_error = 0;
+ntrig = 0;
+
+// Initialize with minimal fallback font (just numbers 0-9)
+// This ensures basic functionality even without SD card
+for (int i = 0; i < SKETCHY_FONT_DATA_SIZE; i++) {
+    font_data.data[i] = 0x00;
+}
+
+// Basic number characters (0-9) as fallback
+// 0 (ASCII 48)
+font_data.data[96] = 0x3E; font_data.data[97] = 0x51; font_data.data[98] = 0x49; 
+font_data.data[99] = 0x45; font_data.data[100] = 0x3E; font_data.data[101] = 0x00;
+
+// 1 (ASCII 49)
+font_data.data[102] = 0x00; font_data.data[103] = 0x42; font_data.data[104] = 0x7F; 
+font_data.data[105] = 0x40; font_data.data[106] = 0x00; font_data.data[107] = 0x00;
+
+// 2 (ASCII 50)
+font_data.data[108] = 0x42; font_data.data[109] = 0x61; font_data.data[110] = 0x51; 
+font_data.data[111] = 0x49; font_data.data[112] = 0x46; font_data.data[113] = 0x00;
+
+// 3 (ASCII 51)
+font_data.data[114] = 0x21; font_data.data[115] = 0x41; font_data.data[116] = 0x45; 
+font_data.data[117] = 0x4B; font_data.data[118] = 0x31; font_data.data[119] = 0x00;
+
+// 4 (ASCII 52)
+font_data.data[120] = 0x18; font_data.data[121] = 0x14; font_data.data[122] = 0x12; 
+font_data.data[123] = 0x7F; font_data.data[124] = 0x10; font_data.data[125] = 0x00;
+
+// 5 (ASCII 53)
+font_data.data[126] = 0x27; font_data.data[127] = 0x45; font_data.data[128] = 0x45; 
+font_data.data[129] = 0x45; font_data.data[130] = 0x39; font_data.data[131] = 0x00;
+
+// 6 (ASCII 54)
+font_data.data[132] = 0x3C; font_data.data[133] = 0x4A; font_data.data[134] = 0x49; 
+font_data.data[135] = 0x49; font_data.data[136] = 0x30; font_data.data[137] = 0x00;
+
+// 7 (ASCII 55)
+font_data.data[138] = 0x01; font_data.data[139] = 0x71; font_data.data[140] = 0x09; 
+font_data.data[141] = 0x05; font_data.data[142] = 0x03; font_data.data[143] = 0x00;
+
+// 8 (ASCII 56)
+font_data.data[144] = 0x36; font_data.data[145] = 0x49; font_data.data[146] = 0x49; 
+font_data.data[147] = 0x49; font_data.data[148] = 0x36; font_data.data[149] = 0x00;
+
+// 9 (ASCII 57)
+font_data.data[150] = 0x06; font_data.data[151] = 0x49; font_data.data[152] = 0x49; 
+font_data.data[153] = 0x29; font_data.data[154] = 0x1E; font_data.data[155] = 0x00;
+
+// Space (ASCII 32)
+font_data.data[0] = 0x00; font_data.data[1] = 0x00; font_data.data[2] = 0x00; 
+font_data.data[3] = 0x00; font_data.data[4] = 0x00; font_data.data[5] = 0x00;
+
+// Try to load font from SD card on startup
+load_font_from_sd();
+]]></code.init>
+      <code.krate><![CDATA[
+if ((inlet_load_trig>0) && !ntrig) {
+    ntrig=1;
+    load_font_from_sd();
+}
+else if (!(inlet_load_trig>0)) {
+    ntrig=0;
+}
+
+outlet_loaded = font_loaded;
+outlet_error = load_error;
+]]></code.krate>
+      <code.srate><![CDATA[
+// Load font from SD card
+void load_font_from_sd() {
+    FIL FileObject;
+    FRESULT err;
+    UINT bytes_read;
+    
+    // Use provided filename or default
+    const char* filename = (inlet_filename[0] != 0) ? inlet_filename : "sketchy_font.bin";
+    
+    err = f_open(&FileObject, filename, FA_READ | FA_OPEN_EXISTING);
+    if (err != FR_OK) {
+        // File not found or SD card error - use fallback font
+        load_error = 1;
+        font_loaded = 0;
+        return;
+    }
+    
+    // Load font data to SDRAM
+    int font_size = SKETCHY_FONT_DATA_SIZE;
+    int rem_sz = font_size;
+    int offset = 0;
+    
+    while (rem_sz>0) {
+      if (rem_sz>sizeof(fbuff)) {
+        err = f_read(&FileObject, fbuff, sizeof(fbuff),&bytes_read);
+        if (bytes_read == 0) break;
+        memcpy((char *)(font_data.data) + offset,(char *)fbuff,bytes_read);
+        rem_sz -= bytes_read;
+        offset += bytes_read;
+      } else {
+        err = f_read(&FileObject, fbuff, rem_sz,&bytes_read);
+        memcpy((char *)(font_data.data) + offset,(char *)fbuff,bytes_read);
+        rem_sz = 0;
+      }
+    }
+    
+    if (err != FR_OK) {
+        load_error = 1;
+        font_loaded = 0;
+    } else {
+        load_error = 0;
+        font_loaded = 1;
+    }
+    
+    err = f_close(&FileObject);
+    if (err != FR_OK) {
+        load_error = 1;
+        font_loaded = 0;
+    }
+}
+]]></code.srate>
+   </obj.normal>
+</objdefs> 

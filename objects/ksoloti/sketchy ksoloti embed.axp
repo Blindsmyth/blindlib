@@ -1075,7 +1075,7 @@ uint8_t *rxbuf;
 void cmd(uint8_t c) {
 	txbuf[0] = 0;
 	txbuf[1] = c;
-	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 2, rxbuf, 0, 30);
+	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 2, rxbuf, 0, 32);
 }
 
 void clear() {
@@ -1098,7 +1098,7 @@ void sendPage(int page) {
 
 	txbuf[0] = 0x40;
 	memcpy(txbuf + 1, pixels[page], LCDWIDTH);
-	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 129, rxbuf, 0, 30);
+	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 129, rxbuf, 0, 32);
 }
 
 void init() {
@@ -2087,7 +2087,7 @@ static const I2CConfig i2cfg = {
     FAST_DUTY_CYCLE_2,
 };
 i2cStart(&I2CD1, &i2cfg);
-Thd = chThdCreateStatic(waThreadX, sizeof(waThreadX), NORMALPRIO, ThreadX, (void *)this);
+Thd = chThdCreateStatic(waThreadX, sizeof(waThreadX), NORMALPRIO-1, ThreadX, (void *)this);
 
 clear();
 

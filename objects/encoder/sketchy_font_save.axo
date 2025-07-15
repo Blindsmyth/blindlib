@@ -1,0 +1,96 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sketchy_font_save" uuid="5224773f-18de-4231-8f92-b1f22bb95378">
+      <sDescription>save sketchy font to sdcard</sDescription>
+      <author>Simon</author>
+      <license>BSD</license>
+      <helpPatch>table.axh</helpPatch>
+      <inlets>
+         <charptr32 name="filename" description="file name"/>
+         <bool32.rising name="trig" description="trigger"/>
+      </inlets>
+      <outlets>
+         <bool32 name="done" description="save completed"/>
+         <bool32 name="error" description="save error"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <objref name="font" obj="sketchy_font"/>
+      </attribs>
+      <includes>
+         <include>chibios/ext/fatfs/src/ff.h</include>
+      </includes>
+      <depends>
+         <depend>fatfs</depend>
+      </depends>
+      <code.declaration><![CDATA[
+  int ntrig;
+  int save_done;
+  int save_error;
+]]></code.declaration>
+      <code.init><![CDATA[
+  ntrig = 0;
+  save_done = 0;
+  save_error = 0;
+]]></code.init>
+      <code.krate><![CDATA[
+if ((inlet_trig>0) && !ntrig) {
+    ntrig=1;
+    save_done = 0;
+    save_error = 0;
+    
+    FIL FileObject;
+    FRESULT err;
+    UINT bytes_written;
+    
+    // Use default filename if none provided
+    const char* filename = (inlet_filename[0] != 0) ? inlet_filename : "sketchy_font.bin";
+    
+    codec_clearbuffer();
+    err = f_open(&FileObject, filename, FA_WRITE | FA_CREATE_ALWAYS);
+    if (err != FR_OK) {
+        report_fatfs_error(err, filename);
+        save_error = 1;
+        return;
+    }
+    
+    // Save font data from SDRAM
+    int font_size = 480; // SKETCHY_FONT_DATA_SIZE
+    int rem_sz = font_size;
+    int offset = 0;
+    
+    while (rem_sz>0) {
+      if (rem_sz>sizeof(fbuff)) {
+        memcpy((char *)fbuff, (char *)(attr_font.data) + offset, sizeof(fbuff));
+        err = f_write(&FileObject, fbuff, sizeof(fbuff),&bytes_written);
+        rem_sz -= sizeof(fbuff);
+        offset += sizeof(fbuff);
+      } else {
+        memcpy((char *)fbuff, (char *)(attr_font.data) + offset, rem_sz);
+        err = f_write(&FileObject, fbuff, rem_sz, &bytes_written);
+        rem_sz = 0;
+      }
+    }
+    
+    if (err != FR_OK) {
+        report_fatfs_error(err, filename);
+        save_error = 1;
+    } else {
+        save_done = 1;
+    }
+    
+    err = f_close(&FileObject);
+    if (err != FR_OK) {
+        report_fatfs_error(err, filename);
+        save_error = 1;
+    }
+  }
+  else if (!(inlet_trig>0)) {
+    ntrig=0;
+  }
+  
+  outlet_done = save_done;
+  outlet_error = save_error;
+]]></code.krate>
+   </obj.normal>
+</objdefs> 
