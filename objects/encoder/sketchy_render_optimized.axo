@@ -479,6 +479,30 @@ void dial_init(dial_t* dial) __attribute__ ((noinline)) {
     dial->last_value = -999999;  // Force first update
 }
 
+// NEW: Reuse function for dials
+void dial_reuse(dial_t* dial, uint8_t position) __attribute__ ((noinline)) {
+    // Use shared objects for the specified position
+    dial->box_object_id = shared_dial_objects[position];
+    dial->label_object_id = shared_label_objects[position];
+    dial->label_text_id = shared_label_texts[position];
+    
+    // Update label object with new data
+    object_table->array[dial->label_object_id][object_table->FIELD_TYPE] = 9; // Text center
+    object_table->array[dial->label_object_id][object_table->FIELD_X] = dial->x;
+    object_table->array[dial->label_object_id][object_table->FIELD_Y] = dial->y + dial->height - 11;
+    object_table->array[dial->label_object_id][object_table->FIELD_W] = dial->width;
+    object_table->array[dial->label_object_id][object_table->FIELD_H] = 8;
+    object_table->array[dial->label_object_id][object_table->FIELD_COLOR] = 2;
+    object_table->array[dial->label_object_id][object_table->FIELD_TEXT_ID] = dial->label_text_id;
+    object_table->array[dial->label_object_id][object_table->FIELD_PAGE] = dial->page;
+
+    // Update label text
+    strcpy(text_table->array[dial->label_text_id], dial->label);
+    
+    // Force update
+    dial->last_value = -999999;
+}
+
 void dial_update(dial_t* dial) __attribute__ ((noinline)) {
     // Get table pointers
     rootc::instancesketchy__objects* object_table = &parent->instancesketchy__objects_i;
@@ -544,27 +568,95 @@ void dial_update(dial_t* dial) __attribute__ ((noinline)) {
     strcpy(text_table->array[dial->label_text_id], dial->label);
 }
 
-// Compatibility functions for other object types
-void intdisplay_init(intdisplay_t* display) __attribute__ ((noinline)) {
-    // Simple initialization - just set up basic properties
-    display->box_object_id = object_table->registerEntry();
-    display->label_object_id = object_table->registerEntry();
-    display->label_text_id = text_table->registerEntry();
+// NEW: Reuse functions for other object types
+void bar_reuse(bar_t* bar, uint8_t position) __attribute__ ((noinline)) {
+    // Use shared objects for the specified position
+    bar->box_object_id = shared_dial_objects[position];
+    bar->label_object_id = shared_label_objects[position];
+    bar->label_text_id = shared_label_texts[position];
+    
+    // Update label object with new data
+    object_table->array[bar->label_object_id][object_table->FIELD_TYPE] = 9; // Text center
+    object_table->array[bar->label_object_id][object_table->FIELD_X] = bar->x;
+    object_table->array[bar->label_object_id][object_table->FIELD_Y] = bar->y + bar->height - 11;
+    object_table->array[bar->label_object_id][object_table->FIELD_W] = bar->width;
+    object_table->array[bar->label_object_id][object_table->FIELD_H] = 8;
+    object_table->array[bar->label_object_id][object_table->FIELD_COLOR] = 2;
+    object_table->array[bar->label_object_id][object_table->FIELD_TEXT_ID] = bar->label_text_id;
+    object_table->array[bar->label_object_id][object_table->FIELD_PAGE] = bar->page;
+    
+    // Update label text
+    strcpy(text_table->array[bar->label_text_id], bar->label);
+    
+    // Force update
+    bar->last_value = -999999;
+}
 
-    // Set up label object
+void intdisplay_reuse(intdisplay_t* display, uint8_t position) __attribute__ ((noinline)) {
+    // Use shared objects for the specified position
+    display->box_object_id = shared_dial_objects[position];
+    display->label_object_id = shared_label_objects[position];
+    display->label_text_id = shared_label_texts[position];
+    
+    // Update label object with new data
     object_table->array[display->label_object_id][object_table->FIELD_TYPE] = 9; // Text center
     object_table->array[display->label_object_id][object_table->FIELD_X] = display->x;
-    object_table->array[display->label_object_id][object_table->FIELD_Y] = display->y;
+    object_table->array[display->label_object_id][object_table->FIELD_Y] = display->y + display->height - 11;
     object_table->array[display->label_object_id][object_table->FIELD_W] = display->width;
-    object_table->array[display->label_object_id][object_table->FIELD_H] = display->height;
+    object_table->array[display->label_object_id][object_table->FIELD_H] = 8;
     object_table->array[display->label_object_id][object_table->FIELD_COLOR] = 2;
     object_table->array[display->label_object_id][object_table->FIELD_TEXT_ID] = display->label_text_id;
     object_table->array[display->label_object_id][object_table->FIELD_PAGE] = display->page;
-
-    // Set up label text
+    
+    // Update label text
     strcpy(text_table->array[display->label_text_id], display->label);
     
+    // Force update
     display->last_value = -999999;
+}
+
+void select_reuse(select_t* select, uint8_t position) __attribute__ ((noinline)) {
+    // Use shared objects for the specified position
+    select->box_object_id = shared_dial_objects[position];
+    select->label_object_id = shared_label_objects[position];
+    select->label_text_id = shared_label_texts[position];
+    
+    // Update label object with new data
+    object_table->array[select->label_object_id][object_table->FIELD_TYPE] = 9; // Text center
+    object_table->array[select->label_object_id][object_table->FIELD_X] = select->x;
+    object_table->array[select->label_object_id][object_table->FIELD_Y] = select->y + select->height - 11;
+    object_table->array[select->label_object_id][object_table->FIELD_W] = select->width;
+    object_table->array[select->label_object_id][object_table->FIELD_H] = 8;
+    object_table->array[select->label_object_id][object_table->FIELD_COLOR] = 2;
+    object_table->array[select->label_object_id][object_table->FIELD_TEXT_ID] = select->label_text_id;
+    object_table->array[select->label_object_id][object_table->FIELD_PAGE] = select->page;
+    
+    // Update label text
+    strcpy(text_table->array[select->label_text_id], select->label);
+    
+    // Force update
+    select->last_value = -999999;
+}
+
+// Compatibility functions for other object types (keep for backward compatibility)
+void intdisplay_init(intdisplay_t* display) __attribute__ ((noinline)) {
+    // Use shared objects - calculate position from coordinates
+    uint8_t position = 0;
+    const uint8_t COL_X[4] = {26, 52, 78, 104};
+    const uint8_t ROW1_Y = 13;
+    const uint8_t ROW2_Y = 39;
+    
+    for (int i = 0; i < 4; i++) {
+        if (display->x == COL_X[i]) {
+            position = i;
+            break;
+        }
+    }
+    if (display->y >= ROW2_Y) {
+        position += 4; // Second row
+    }
+    
+    intdisplay_reuse(display, position);
 }
 
 void intdisplay_update(intdisplay_t* display) __attribute__ ((noinline)) {
@@ -583,22 +675,23 @@ void intdisplay_update(intdisplay_t* display) __attribute__ ((noinline)) {
 }
 
 void select_init(select_t* select) __attribute__ ((noinline)) {
-    select->box_object_id = object_table->registerEntry();
-    select->label_object_id = object_table->registerEntry();
-    select->label_text_id = text_table->registerEntry();
-
-    // Set up label object
-    object_table->array[select->label_object_id][object_table->FIELD_TYPE] = 9; // Text center
-    object_table->array[select->label_object_id][object_table->FIELD_X] = select->x;
-    object_table->array[select->label_object_id][object_table->FIELD_Y] = select->y;
-    object_table->array[select->label_object_id][object_table->FIELD_W] = select->width;
-    object_table->array[select->label_object_id][object_table->FIELD_H] = select->height;
-    object_table->array[select->label_object_id][object_table->FIELD_COLOR] = 2;
-    object_table->array[select->label_object_id][object_table->FIELD_TEXT_ID] = select->label_text_id;
-    object_table->array[select->label_object_id][object_table->FIELD_PAGE] = select->page;
-
-    strcpy(text_table->array[select->label_text_id], select->label);
-    select->last_value = -999999;
+    // Use shared objects - calculate position from coordinates
+    uint8_t position = 0;
+    const uint8_t COL_X[4] = {26, 52, 78, 104};
+    const uint8_t ROW1_Y = 13;
+    const uint8_t ROW2_Y = 39;
+    
+    for (int i = 0; i < 4; i++) {
+        if (select->x == COL_X[i]) {
+            position = i;
+            break;
+        }
+    }
+    if (select->y >= ROW2_Y) {
+        position += 4; // Second row
+    }
+    
+    select_reuse(select, position);
 }
 
 void select_update(select_t* select) __attribute__ ((noinline)) {
@@ -612,22 +705,23 @@ void select_update(select_t* select) __attribute__ ((noinline)) {
 }
 
 void bar_init(bar_t* bar) __attribute__ ((noinline)) {
-    bar->box_object_id = object_table->registerEntry();
-    bar->label_object_id = object_table->registerEntry();
-    bar->label_text_id = text_table->registerEntry();
+    // Use shared objects - calculate position from coordinates
+    uint8_t position = 0;
+    const uint8_t COL_X[4] = {26, 52, 78, 104};
+    const uint8_t ROW1_Y = 13;
+    const uint8_t ROW2_Y = 39;
     
-    // Set up label object
-    object_table->array[bar->label_object_id][object_table->FIELD_TYPE] = 9; // Text center
-    object_table->array[bar->label_object_id][object_table->FIELD_X] = bar->x;
-    object_table->array[bar->label_object_id][object_table->FIELD_Y] = bar->y;
-    object_table->array[bar->label_object_id][object_table->FIELD_W] = bar->width;
-    object_table->array[bar->label_object_id][object_table->FIELD_H] = bar->height;
-    object_table->array[bar->label_object_id][object_table->FIELD_COLOR] = 2;
-    object_table->array[bar->label_object_id][object_table->FIELD_TEXT_ID] = bar->label_text_id;
-    object_table->array[bar->label_object_id][object_table->FIELD_PAGE] = bar->page;
+    for (int i = 0; i < 4; i++) {
+        if (bar->x == COL_X[i]) {
+            position = i;
+            break;
+        }
+    }
+    if (bar->y >= ROW2_Y) {
+        position += 4; // Second row
+    }
     
-    strcpy(text_table->array[bar->label_text_id], bar->label);
-    bar->last_value = -999999;
+    bar_reuse(bar, position);
 }
 
 void bar_update(bar_t* bar) __attribute__ ((noinline)) {
