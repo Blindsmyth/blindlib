@@ -1,0 +1,127 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="test_dials_ring_reuse" uuid="5224773f-18de-4231-8f92-b1f22bb9537C">
+      <sDescription>Test dials object demonstrating ring reuse system. Shows how dials can use shared rings from the renderer instead of creating their own objects.</sDescription>
+      <author>Karlo Sono</author>
+      <license>MIT</license>
+      <inlets>
+         <int32.positive name="page" description="current page"/>
+         <int32.positive name="param1" description="parameter 1"/>
+         <int32.positive name="param2" description="parameter 2"/>
+         <int32.positive name="param3" description="parameter 3"/>
+         <int32.positive name="param4" description="parameter 4"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs/>
+      <depends>
+         <depend>sketchy_objects</depend>
+         <depend>sketchy_texts</depend>
+         <depend>sketchy_params</depend>
+         <depend>sketchy_render_kso</depend>
+      </depends>
+      <code.declaration><![CDATA[
+// Test dials using ring reuse system
+typedef struct {
+    int32_t page;
+    int32_t param;
+    bool is_bipolar;
+    const char* label;
+    int32_t x;
+    int32_t y;
+    int32_t width;
+    int32_t height;
+} test_dial_t;
+
+test_dial_t test_dials[4];
+
+void init_test_dials() {
+    // Initialize 4 test dials at standard positions
+    const uint8_t DIAL_WIDTH = 24;
+    const uint8_t DIAL_HEIGHT = 24;
+    const uint8_t ROW1_Y = 13;
+    const uint8_t COL_X[4] = {26, 52, 78, 104};
+    
+    for (int i = 0; i < 4; i++) {
+        test_dials[i].page = 0;
+        test_dials[i].param = i;
+        test_dials[i].is_bipolar = (i % 2 == 0); // Even dials are bipolar
+        test_dials[i].label = (i == 0) ? "FREQ" : 
+                              (i == 1) ? "AMP" : 
+                              (i == 2) ? "FLT" : "RES";
+        test_dials[i].x = COL_X[i];
+        test_dials[i].y = ROW1_Y;
+        test_dials[i].width = DIAL_WIDTH;
+        test_dials[i].height = DIAL_HEIGHT;
+    }
+}
+
+void update_test_dials() {
+    // Get table pointers
+    rootc::objectinstance_sketchy__objects* object_table = &parent->objectinstance_sketchy__objects_i;
+    rootc::objectinstance_sketchy__texts* text_table = &parent->objectinstance_sketchy__texts_i;
+    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
+    
+    // Update each test dial
+    for (int i = 0; i < 4; i++) {
+        // Get parameter value from inlet
+        int32_t value;
+        switch (i) {
+            case 0: value = inlet_param1; break;
+            case 1: value = inlet_param2; break;
+            case 2: value = inlet_param3; break;
+            case 3: value = inlet_param4; break;
+            default: value = 0; break;
+        }
+        
+        // Store in parameter table
+        param_table->array[test_dials[i].page][test_dials[i].param] = value;
+        
+        // Allocate ring for this dial position (if not already allocated)
+        uint8_t type = test_dials[i].is_bipolar ? 100 : 99;  // 99=unipolar, 100=bipolar
+        uint8_t slot = allocate_ring(test_dials[i].page, i, type, test_dials[i].label);
+        
+        // Calculate indicator position
+        float lookup_pos;
+        if (test_dials[i].is_bipolar) {
+            // Bipolar: transform value and map to -1/+1 range, then convert to 0/1 for lookup
+            int32_t transformed_value = (value-(1<<26))<<1;
+            float frac_value = ((float)transformed_value / 0x00200000);
+            float norm_value = frac_value / 64.0f;
+            
+            // Clamp to -1.0 to 1.0 range
+            if (norm_value < -1.0f) norm_value = -1.0f;
+            if (norm_value > 1.0f) norm_value = 1.0f;
+            
+            // Convert from -1/+1 to 0/1 range for lookup
+            lookup_pos = (norm_value + 1.0f) / 2.0f;
+        } else {
+            // Unipolar: map 0 to max_value directly to 0/1 range for full circle coverage
+            float max_value = (1<<27);  // 134217728
+            lookup_pos = (float)value / max_value;
+            
+            // Clamp to 0.0 to 1.0 range
+            if (lookup_pos < 0.0f) lookup_pos = 0.0f;
+            if (lookup_pos > 1.0f) lookup_pos = 1.0f;
+        }
+        
+        // Map to indicator positions (31 positions total)
+        int indicator_index = (int)(lookup_pos * 30 + 0.5f);
+        if (indicator_index < 0) indicator_index = 0;
+        if (indicator_index > 30) indicator_index = 30;
+        
+        // Update the ring indicator position
+        update_ring_indicator(test_dials[i].page, i, indicator_index);
+    }
+}
+]]></code.declaration>
+      <code.init><![CDATA[
+// Initialize test dials
+init_test_dials();
+]]></code.init>
+      <code.krate><![CDATA[
+// Update test dials with current parameter values
+update_test_dials();
+]]></code.krate>
+   </obj.normal>
+</objdefs> 

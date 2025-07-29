@@ -1,0 +1,215 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="play_4_combined" uuid="5224773f-18de-4231-8f92-b1f22bb95386">
+      <sDescription>4 combined sample players with pitch control - saves SRAM by reusing functionality</sDescription>
+      <author>Combined player for memory efficiency</author>
+      <license>BSD</license>
+      <inlets>
+         <bool32.rising name="trig1" description="trigger player 1"/>
+         <bool32.rising name="trig2" description="trigger player 2"/>
+         <bool32.rising name="trig3" description="trigger player 3"/>
+         <bool32.rising name="trig4" description="trigger player 4"/>
+         <frac32 name="revrange"/>
+         <bool32 name="reverse1" description="reverse direction player 1"/>
+         <bool32 name="reverse2" description="reverse direction player 2"/>
+         <bool32 name="reverse3" description="reverse direction player 3"/>
+         <bool32 name="reverse4" description="reverse direction player 4"/>
+         <int32 name="oct1" description="octave player 1"/>
+         <int32 name="oct2" description="octave player 2"/>
+         <int32 name="oct3" description="octave player 3"/>
+         <int32 name="oct4" description="octave player 4"/>
+      </inlets>
+      <outlets>
+         <frac32buffer name="out1" description="audio output player 1"/>
+         <frac32buffer name="out2" description="audio output player 2"/>
+         <frac32buffer name="out3" description="audio output player 3"/>
+         <frac32buffer name="out4" description="audio output player 4"/>
+         <frac32buffer name="mix" description="mixed output of all players"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <objref name="table"/>
+      </attribs>
+      <code.declaration><![CDATA[// Player state for each of the 4 players (replaces 4 separate ldrive objects)
+struct player_state {
+    float32_t index;
+    uint32_t r;
+    uint32_t pos;
+    int shift;
+    int range;
+    int t_speed;
+    int loopstart;
+    int reset;
+    int count;
+    bool add;
+    bool playing;
+    int32_t ntrig;
+};
+
+player_state players[4];
+
+// Shared variables (replaces duplicate constants and calculations)
+uint8_t shift;
+int32_t const_64 = 64;  // Replaces 4 separate c_64 objects
+int32_t const_1 = 1;    // Replaces 4 separate i_22 objects
+
+// Trigger inputs array (needed in both krate and srate)
+int32_t trig_inputs[4];]]></code.declaration>
+      <code.init><![CDATA[// Initialize shift factor (replaces 4 separate ldrive shift calculations)
+if (attr_table.LENGTH == 2048){shift = 16; }
+if (attr_table.LENGTH == 4096){shift = 15; }
+if (attr_table.LENGTH == 8192){shift = 14; }
+if (attr_table.LENGTH == 16384){shift = 13; }
+if (attr_table.LENGTH == 32768){shift = 12; }
+if (attr_table.LENGTH == 65536){shift = 11; }
+if (attr_table.LENGTH == 131072){shift = 10;}
+if (attr_table.LENGTH == 262144){shift = 9;}
+if (attr_table.LENGTH == 524288){shift = 8;}
+if (attr_table.LENGTH == 1048576 ){shift = 7;}
+if (attr_table.LENGTH == 2097152 ){shift = 6;}
+if (attr_table.LENGTH == 4194304 ){shift = 5;}
+
+// Initialize all players (replaces 4 separate ldrive initializations)
+for(int i = 0; i < 4; i++) {
+    players[i].index = 0;
+    players[i].r = 1;
+    players[i].pos = 0;
+    players[i].shift = shift;
+    players[i].range = 0;
+    players[i].t_speed = 0;
+    players[i].loopstart = 0;
+    players[i].reset = 0;
+    players[i].count = 0;
+    players[i].add = false;
+    players[i].playing = false;
+    players[i].ntrig = 0;
+}]]></code.init>
+      <code.krate><![CDATA[// Handle individual triggers for each player (replaces 4 separate trigger logic)
+trig_inputs[0] = inlet_trig1;
+trig_inputs[1] = inlet_trig2;
+trig_inputs[2] = inlet_trig3;
+trig_inputs[3] = inlet_trig4;
+
+for(int i = 0; i < 4; i++) {
+    if(trig_inputs[i] > 0) {
+        if(!players[i].ntrig) {
+            players[i].ntrig = 1;
+            players[i].playing = true;
+            players[i].r = 0;
+            players[i].count = 0;
+        }
+    } else {
+        players[i].ntrig = 0;
+        // Don't reset r here - keep playing until next pulse
+    }
+}
+
+// Calculate power mapping for each player (replaces 4 separate int_power_mapped objects)
+int32_t oct_inputs[4] = {inlet_oct1, inlet_oct2, inlet_oct3, inlet_oct4};
+bool reverse_inputs[4] = {inlet_reverse1 > 0, inlet_reverse2 > 0, inlet_reverse3 > 0, inlet_reverse4 > 0};
+
+for(int i = 0; i < 4; i++) {
+    int32_t input_value = oct_inputs[i];
+    int32_t mapped_result = 64;  // Base value
+    
+    // Power mapping logic (from int_power_mapped)
+    if(input_value >= 0) {
+        if(input_value == 0) {
+            mapped_result = 64;
+        } else {
+            mapped_result = 64 << input_value;
+        }
+    } else {
+        int abs_value = -input_value;
+        if(abs_value >= 6) {
+            mapped_result = 1;
+        } else {
+            mapped_result = 64 >> abs_value;
+        }
+    }
+    
+    // Mux logic for reverse direction (replaces 4 separate mux_4 objects)
+    int32_t final_speed;
+    if(reverse_inputs[i]) {
+        final_speed = -mapped_result;  // Replaces inv_1 logic
+    } else {
+        final_speed = mapped_result;
+    }
+    
+    // Store speed for each player - use proper scaling
+    players[i].t_speed = final_speed;  // Use full speed value
+}]]></code.krate>
+      <code.srate><![CDATA[// Process all 4 players (replaces 4 separate ldrive + table read combinations)
+int32_t mix_output = 0;
+
+for(int i = 0; i < 4; i++) {
+    int32_t player_output = 0;
+    
+    if(players[i].playing) {
+        // Ldrive logic (from embedded ldrive objects)
+        players[i].range = (inlet_revrange >> 27);  // Convert frac32 to integer range
+        
+        // Ldrive logic - simplified for continuous playback
+        if (trig_inputs[i] > 0 && players[i].ntrig == 0) {
+            // New trigger pulse - reset position
+            players[i].index = 0;
+            players[i].pos = 0;
+            players[i].r = 0;
+            players[i].count = 0;
+        }
+        
+        // Update position - use proper frac32 scaling like the original ldrive
+        players[i].index += (players[i].t_speed * (float)(1.0f/(1<<27)));
+        players[i].pos = (uint32_t)players[i].index;
+        
+        // Ensure position stays within reasonable bounds
+        if(players[i].pos >= attr_table.LENGTH) {
+            players[i].pos = 0;
+            players[i].index = 0;
+        }
+        
+        // Range checking - loop when reaching the end
+        if (players[i].t_speed > 0) {
+            if (players[i].pos >= players[i].range) {
+                players[i].index = 0;
+                players[i].pos = 0;
+                players[i].count++;
+            }
+        } else {
+            if (players[i].pos <= 0) {
+                players[i].index = players[i].range;
+                players[i].pos = players[i].range;
+                players[i].count++;
+            }
+        }
+        
+        // Table read logic (from embedded table read objects) - use exact same logic as working table read
+        uint32_t table_pos = players[i].pos;  // Use position directly
+        if(table_pos < attr_table.LENGTH) {
+            // Use exact same table access as the working table read object
+            player_output = attr_table.array[__USAT(table_pos, attr_table.LENGTHPOW)] << attr_table.GAIN;
+        } else {
+            players[i].playing = false;
+            player_output = 0;
+        }
+        
+    } else {
+        player_output = 0;
+    }
+    
+    // Output individual player
+    switch(i) {
+        case 0: outlet_out1 = player_output; break;
+        case 1: outlet_out2 = player_output; break;
+        case 2: outlet_out3 = player_output; break;
+        case 3: outlet_out4 = player_output; break;
+    }
+    
+    // Add to mix (replaces sum5_1 object)
+    mix_output += player_output;
+}
+
+// Output mixed signal (divide by 4 to prevent clipping)
+outlet_mix = mix_output >> 2;]]></code.srate>
+   </obj.normal>
+</objdefs>

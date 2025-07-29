@@ -1,0 +1,43 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="bpm_param_writer" uuid="5224773f-18de-4231-8f92-b1f22bb95387">
+      <sDescription>Writes BPM values to the param table when they change from external sources (MIDI clock). Prevents feedback loops by only writing when BPM comes from external sources.</sDescription>
+      <author>AI Assistant</author>
+      <license>MIT</license>
+      <inlets>
+         <int32 name="bpm" description="Current BPM value from tap.io"/>
+         <bool32 name="bpmChanged" description="Pulse when BPM changes from external source"/>
+         <int32 name="page" description="Page number for param table (default: 0)"/>
+         <int32 name="param" description="Parameter index for BPM storage (default: 0)"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs/>
+      <code.declaration><![CDATA[// BPM parameter writer for sketchy param table
+int32_t lastBpm; // Track last BPM value to avoid unnecessary writes
+bool lastBpmChanged; // Track last bpmChanged state
+
+// Function to write BPM to param table
+void writeBpmToParamTable(int32_t bpm, int32_t page, int32_t param) {
+    // Get param table instance
+    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+    
+    // Write BPM value to specified page and param
+    param_table->array[page][param] = bpm;
+}
+
+// Function to safely write BPM (only if value changed and bpmChanged is true)
+void safeWriteBpm(int32_t bpm, bool bpmChanged, int32_t page, int32_t param) {
+    if (bpmChanged && !lastBpmChanged && bpm != lastBpm) {
+        writeBpmToParamTable(bpm, page, param);
+        lastBpm = bpm;
+    }
+    lastBpmChanged = bpmChanged;
+}]]></code.declaration>
+      <code.init><![CDATA[// Initialize tracking variables
+lastBpm = 120; // Default BPM
+lastBpmChanged = false;]]></code.init>
+      <code.krate><![CDATA[// Write BPM to param table when it changes from external source
+safeWriteBpm(inlet_bpm, inlet_bpmChanged, inlet_page, inlet_param);]]></code.krate>
+   </obj.normal>
+</objdefs> 

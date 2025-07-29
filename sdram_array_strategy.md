@@ -1,7 +1,9 @@
 # SDRAM Array Strategy for Axoloti Objects
 
+#As of the current firmware we can't properly implement this!! 
+
 ## Overview
-This document outlines the technique for moving large arrays from SRAM to SDRAM in Axoloti objects, providing significant memory savings for objects that need to store large amounts of data.
+This document outlines the technique for moving large arrays from SRAM to SDRAM in Axoloti objects, providing significant memory savings for objects that need to store large amounts of data. As of the current firmware we can't properly implement this.
 
 ## The Problem
 - **SRAM is limited**: Axoloti has limited SRAM (Static RAM) which is fast but scarce

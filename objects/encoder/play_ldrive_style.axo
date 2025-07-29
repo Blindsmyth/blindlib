@@ -1,0 +1,98 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="play_ldrive_style" uuid="5224773f-18de-4231-8f92-b1f22bb95384">
+      <sDescription>play audio sample from table with pitch control - ldrive style interface</sDescription>
+      <author>Johannes Taelman (modified for ldrive interface)</author>
+      <license>BSD</license>
+      <helpPatch>play pitch.axh</helpPatch>
+      <inlets>
+         <frac32.positive name="offset" description="offset inside the table"/>
+         <frac32.positive name="range" description="length of the area to index,or loop end"/>
+         <frac32.positive name="startpoint" description="position inside range on reset"/>
+         <frac32.bipolar name="pitch" description="pitch modulation"/>
+         <bool32.rising name="play" description="trigger playback"/>
+      </inlets>
+      <outlets>
+         <frac32buffer name="wave" description="wave"/>
+         <int32 name="spos" description="playhead position inside range in samples"/>
+         <int32 name="stotal" description="length of range in samples"/>
+         <frac32.bipolar name="speed" description="total speed"/>
+         <bool32 name="play" description="playback state"/>
+      </outlets>
+      <displays/>
+      <params>
+         <frac32.s.map.pitch name="pitch" noLabel="true"/>
+      </params>
+      <attribs>
+         <objref name="table"/>
+      </attribs>
+      <includes/>
+      <code.declaration><![CDATA[int pstart;
+int pstop;
+uint64_t pos;
+uint8_t shift;]]></code.declaration>
+      <code.init><![CDATA[pos = 0;
+pstart = 0;
+pstop = 1;
+shift = (27-attr_table.LENGTHPOW);]]></code.init>
+      <code.krate><![CDATA[// Handle play trigger like ldrive
+if ((inlet_play>0) && !pstart) {
+    pstart = 1;
+    pstop = 0;
+    
+    // Calculate start position like ldrive does
+    uint32_t asat = __USAT(inlet_startpoint, 27);
+    uint32_t start_pos = (asat >> (27 - attr_table.LENGTHPOW));
+    
+    // Add offset to start position
+    uint32_t offset_pos = __USAT(inlet_offset, 27);
+    uint32_t final_start = start_pos + (offset_pos >> (27 - attr_table.LENGTHPOW));
+    
+    // Ensure we don't exceed table bounds
+    if(final_start >= attr_table.LENGTH) {
+        final_start = attr_table.LENGTH - 1;
+    }
+    
+    pos = ((uint64_t)final_start) << 32;
+    
+} else if (!(inlet_play > 0)) {
+    pstart = 0;
+    pstop = 1;
+}
+
+// Calculate pitch to frequency like original play object
+uint32_t f0;
+MTOFEXTENDED(inlet_pitch + 0xFEC747D4 - param_pitch, f0);
+
+// Calculate range bounds like ldrive
+int32_t lrange = inlet_range << 3;
+int32_t start = ___SMMUL(inlet_range, inlet_startpoint) << 8;
+int32_t re = (f0 > 0) ? lrange - (4 << shift) : lrange;
+int32_t rs = (f0 > 0) ? start : start - (4 << shift);
+
+// Output position and range info like ldrive
+outlet_spos = (((pos >> 32) >> shift) > 0) ? ((pos >> 32) >> shift) : 0;
+outlet_stotal = inlet_range >> shift;
+outlet_speed = inlet_pitch + param_pitch;
+outlet_play = !pstop;]]></code.krate>
+      <code.srate><![CDATA[if (!pstop) {
+    // Check if we're within the specified range
+    uint32_t current_pos = pos >> 32;
+    uint32_t offset_pos = __USAT(inlet_offset, 27) >> (27 - attr_table.LENGTHPOW);
+    uint32_t range_length = __USAT(inlet_range, 27) >> (27 - attr_table.LENGTHPOW);
+    uint32_t range_end = offset_pos + range_length;
+    
+    if (current_pos < attr_table.LENGTH && current_pos < range_end) {
+        // Interpolate between samples like original play object
+        uint32_t r = ___SMMUL(attr_table.array[current_pos] << attr_table.GAIN, INT32_MAX - (((uint32_t)pos) >> 1));
+        r = ___SMMLA(attr_table.array[current_pos + 1] << attr_table.GAIN, (((uint32_t)pos) >> 1), r);
+        outlet_wave = r;
+        pos += ((uint64_t)f0) << 8;
+    } else {
+        outlet_wave = 0;
+        pstop = 1;  // Stop when we reach the end of range
+    }
+} else {
+    outlet_wave = 0;
+}]]></code.srate>
+   </obj.normal>
+</objdefs> 

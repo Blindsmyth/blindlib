@@ -1,0 +1,43 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="param_write_int" uuid="5224773f-18de-4231-8f92-b1f22bb95387">
+      <sDescription>Writes integer values to the sketchy param table when triggered. Useful for updating param table from external sources like MIDI clock BPM detection.</sDescription>
+      <author>AI Assistant</author>
+      <license>MIT</license>
+      <inlets>
+         <int32 name="value" description="Value to write to param table"/>
+         <bool32 name="trigger" description="Pulse to trigger writing to param table"/>
+         <int32 name="page" description="Page number for param table (default: 0)"/>
+         <int32 name="param" description="Parameter index for storage (default: 0)"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs/>
+      <code.declaration><![CDATA[// Generic parameter writer for sketchy param table
+int32_t lastValue; // Track last value to avoid unnecessary writes
+bool lastTrigger; // Track last trigger state
+
+// Function to write value to param table
+void writeValueToParamTable(int32_t value, int32_t page, int32_t param) {
+    // Get param table instance
+    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
+    
+    // Write value to specified page and param
+    param_table->array[page][param] = value;
+}
+
+// Function to safely write value (only if trigger is true and value changed)
+void safeWriteValue(int32_t value, bool trigger, int32_t page, int32_t param) {
+    if (trigger && !lastTrigger && value != lastValue) {
+        writeValueToParamTable(value, page, param);
+        lastValue = value;
+    }
+    lastTrigger = trigger;
+}]]></code.declaration>
+      <code.init><![CDATA[// Initialize tracking variables
+lastValue = 0;
+lastTrigger = false;]]></code.init>
+      <code.krate><![CDATA[// Write value to param table when triggered
+safeWriteValue(inlet_value, inlet_trigger, inlet_page, inlet_param);]]></code.krate>
+   </obj.normal>
+</objdefs> 

@@ -1,5 +1,5 @@
 <patch-1.0 appVersion="1.1.0">
-   <patchobj type="patch/object" uuid="085a4cdd-b870-46bb-b1e3-1c29cb983e98" name="sketchy_objects" x="322" y="28">
+   <patchobj type="patch/object" uuid="085a4cdd-b870-46bb-b1e3-1c29cb983e98" name="sketchy_objects" x="280" y="28">
       <params/>
       <attribs>
          <spinner attributeName="entries" value="500"/>
@@ -185,7 +185,7 @@ pprint = inlet_print;]]></code.krate>
       <params/>
       <attribs>
          <spinner attributeName="params" value="32"/>
-         <spinner attributeName="pages" value="8"/>
+         <spinner attributeName="pages" value="16"/>
          <text attributeName="init">
             <sText><![CDATA[]]></sText>
          </text>
@@ -931,13 +931,19 @@ const uint8_t data[SKETCHY_FONT_DATA_SIZE] = {
 };]]></code.declaration>
       </object>
    </patchobj>
+   <obj type="ctrl/i" uuid="a3786816db6ea5bc6ac4193a5cccdb2c83b83496" name="i_1" x="182" y="168">
+      <params>
+         <int32 name="value" value="15"/>
+      </params>
+      <attribs/>
+   </obj>
    <obj type="const/i" uuid="e202f44b2df17ae0b3e663b98ea6b14c8ff00408" name="layout page" x="644" y="168">
       <params/>
       <attribs>
          <spinner attributeName="value" value="-1"/>
       </attribs>
    </obj>
-   <obj type="ksoloti/sketchy_render_kso" uuid="e9a4f8a1-3e79-4fe6-9590-46abee6f9628" name="sketchy_render" x="742" y="168">
+   <obj type="ksoloti/sketchy_render_kso" uuid="c98a5df7-8ecd-4234-8317-deb3f40e2e28" name="sketchy_render" x="742" y="168">
       <params/>
       <attribs>
          <combo attributeName="I2CADDR" selection="0x3C"/>
@@ -1047,330 +1053,18 @@ num_pagenames = renderer->count_tokens("attr_list");]]></code.init>
 }]]></code.krate>
       </object>
    </patchobj>
-   <patchobj type="patch/object" uuid="9ec91186-893d-4b17-90de-2304ddcbcac4" name="8encoder_integrated" x="322" y="224">
+   <obj type="ksoloti/8encoder_integrated_exp" uuid="8a95f7c5-7cda-4dc0-bb62-66f3281730e1" name="8encoder_integrated" x="322" y="224">
       <params/>
       <attribs>
          <spinner attributeName="accelmultiplier" value="6"/>
          <spinner attributeName="acceltime" value="100"/>
-         <spinner attributeName="maxpages" value="8"/>
+         <spinner attributeName="maxpages" value="16"/>
       </attribs>
-      <object id="patch/object" uuid="9ec91186-893d-4b17-90de-2304ddcbcac4">
-         <sDescription>8 rotary encoders with integrated GPIO and acceleration. Reads configuration from sketchy_dials_exp and writes directly to param table. GPIO pins are hardcoded for optimal performance. Supports 8-64 pages.</sDescription>
-         <author>AI Assistant</author>
-         <license>BSD</license>
-         <helpPatch>logic.axh</helpPatch>
-         <inlets>
-            <int32 name="page"/>
-         </inlets>
-         <outlets>
-            <int32 name="debugintval"/>
-            <int32 name="debugtableval"/>
-         </outlets>
-         <displays/>
-         <params/>
-         <attribs>
-            <spinner name="acceltime" MinValue="1" MaxValue="1000" DefaultValue="100"/>
-            <spinner name="accelmultiplier" MinValue="1" MaxValue="10" DefaultValue="6"/>
-            <spinner name="maxpages" description="Maximum number of pages (8-64)" MinValue="8" MaxValue="64" DefaultValue="8"/>
-         </attribs>
-         <includes/>
-         <depends>
-            <depend>sketchy_font</depend>
-            <depend>sketchy_params</depend>
-            <depend>sketchy_render</depend>
-            <depend>sketchy_objects</depend>
-            <depend>sketchy_texts</depend>
-         </depends>
-         <code.declaration><![CDATA[// Encoder data and page management
-float encoderPos[8];
-int accel[8];
-uint32_t lastTrigTime[8];
-int lastTrigState[8];
-int lastDirState[8];
-uint32_t timeCounter = 0;
-int lastPage = -1;
-
-// Mode constants - must match sketchy_dials_exp
-#define MODE_FRAC_UNIPOLAR 0
-#define MODE_FRAC_BIPOLAR  1
-#define MODE_INT           2
-#define MODE_LIST          3
-#define MODE_BAR_UNIPOLAR  4
-#define MODE_BAR_BIPOLAR   5
-#define MODE_DUPLICATE     6
-#define MODE_EMPTY         255
-
-// GPIO pin definitions for 8 encoders
-// Encoder 1: Trig=PC2, Dir=PC3
-// Encoder 2: Trig=PA4, Dir=PA5  
-// Encoder 3: Trig=PB7, Dir=PB6
-// Encoder 4: Trig=PB0, Dir=PB1
-// Encoder 5: Trig=PC5, Dir=PC4
-// Encoder 6: Trig=PC0, Dir=PC1
-// Encoder 7: Trig=PA0, Dir=PA1
-// Encoder 8: Trig=PA6, Dir=PA7
-
-// Helper function for basic constraints
-float applyConstraints(float value) {
-    if(value < 0.0f) return 0.0f;
-    if(value > 1.0f) return 1.0f;
-    return value;
-}
-
-// Parse duplicate reference "page,dial" into page and dial indices
-void parse_duplicate_reference(const char* options, uint8_t* ref_page, uint8_t* ref_dial) {
-    *ref_page = 0;
-    *ref_dial = 0;
-    
-    // Simple parsing: expect "page,dial" format
-    if (options && strlen(options) >= 3) {
-        *ref_page = options[0] - '0';  // Convert first char to number
-        if (options[1] == ',' && options[2] >= '0' && options[2] <= '7') {
-            *ref_dial = options[2] - '0';  // Convert third char to number
-        }
-    }
-}
-
-// Resolve duplicate reference to get actual page/dial to write to
-void resolve_duplicate(int page, int dial, int* target_page, int* target_dial) {
-    if (page >= attr_maxpages || dial >= 8) {
-        *target_page = page;
-        *target_dial = dial;
-        return;
-    }
-    
-    auto& config = parent->objectinstance_sketchy__dials_i.configs[page][dial];
-    
-    if (config.mode == MODE_DUPLICATE) {
-        uint8_t ref_page, ref_dial;
-        parse_duplicate_reference(config.options, &ref_page, &ref_dial);
-        
-        if (ref_page < attr_maxpages && ref_dial < 8) {
-            *target_page = ref_page;
-            *target_dial = ref_dial;
-        } else {
-            // Invalid reference, fall back to current
-            *target_page = page;
-            *target_dial = dial;
-        }
-    } else {
-        // Not a duplicate, use current
-        *target_page = page;
-        *target_dial = dial;
-    }
-}
-
-// Convert from display value to encoder position (0-1)
-float displayToEncoderValue(float displayValue, int mode) {
-    switch(mode) {
-        case MODE_FRAC_UNIPOLAR:
-        case MODE_BAR_UNIPOLAR:
-            return displayValue / 64.0f;
-        case MODE_FRAC_BIPOLAR:
-        case MODE_BAR_BIPOLAR:
-            return (displayValue + 64.0f) / 128.0f;
-        case MODE_INT:
-        case MODE_LIST:
-            return 0.0f;  // Not used for these modes
-        default:
-            return displayValue;
-    }
-}
-
-// Load values from param table for page change
-void loadPageValues(int page) {
-    if (page < 0 || page >= attr_maxpages) return;
-    
-    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
-    
-    for (int i = 0; i < 8; i++) {
-        // Access configuration via parent shared table
-        auto& config = parent->objectinstance_sketchy__dials_i.configs[page][i];
-        
-        // Resolve duplicate reference to get actual parameter to load from
-        int target_page, target_dial;
-        resolve_duplicate(page, i, &target_page, &target_dial);
-        
-        // Get the actual config for the target parameter (in case of duplicate)
-        auto& target_config = parent->objectinstance_sketchy__dials_i.configs[target_page][target_dial];
-        
-        if (target_config.mode == MODE_INT || target_config.mode == MODE_LIST) {
-            // For INT/LIST modes, param table stores actual integer values
-            // No need to load into encoderPos - values stay in param table
-        } else {
-            // For fractional modes, load encoder position from param table (from target location)
-            int32_t stored_value = param_table->array[target_page][target_dial];
-            encoderPos[i] = (float)stored_value / (float)(1 << 27);
-            encoderPos[i] = applyConstraints(encoderPos[i]);
-        }
-    }
-}
-
-// Save values to param table for page change
-void savePageValues(int page) {
-    if (page < 0 || page >= attr_maxpages) return;
-    
-    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
-    
-    for (int i = 0; i < 8; i++) {
-        // Access configuration via parent shared table
-        auto& config = parent->objectinstance_sketchy__dials_i.configs[page][i];
-        
-        if (config.mode == MODE_INT || config.mode == MODE_LIST) {
-            // INT/LIST modes: values already stored directly in param table
-            // Nothing to do here
-        } else {
-            // Fractional modes: store encoder positions
-            int32_t value = (int32_t)(encoderPos[i] * (float)(1 << 27));
-            param_table->array[page][i] = value;
-        }
-    }
-}
-
-// Direct GPIO reading function
-void readEncoderGPIO(bool trig[8], bool dir[8]) {
-    // Read all pins directly for maximum efficiency
-    trig[0] = palReadPad(GPIOC, 2);   // PC2
-    dir[0]  = palReadPad(GPIOC, 3);   // PC3
-    trig[1] = palReadPad(GPIOA, 4);   // PA4
-    dir[1]  = palReadPad(GPIOA, 5);   // PA5
-    trig[2] = palReadPad(GPIOB, 7);   // PB7
-    dir[2]  = palReadPad(GPIOB, 6);   // PB6
-    trig[3] = palReadPad(GPIOB, 0);   // PB0
-    dir[3]  = palReadPad(GPIOB, 1);   // PB1
-    trig[4] = palReadPad(GPIOC, 5);   // PC5
-    dir[4]  = palReadPad(GPIOC, 4);   // PC4
-    trig[5] = palReadPad(GPIOC, 0);   // PC0
-    dir[5]  = palReadPad(GPIOC, 1);   // PC1
-    trig[6] = palReadPad(GPIOA, 0);   // PA0
-    dir[6]  = palReadPad(GPIOA, 1);   // PA1
-    trig[7] = palReadPad(GPIOA, 6);   // PA6
-    dir[7]  = palReadPad(GPIOA, 7);   // PA7
-}]]></code.declaration>
-         <code.init><![CDATA[// Initialize GPIO pins with pulldown mode
-palSetPadMode(GPIOC, 2, PAL_MODE_INPUT_PULLDOWN);  // PC2 - Encoder 1 Trig
-palSetPadMode(GPIOC, 3, PAL_MODE_INPUT_PULLDOWN);  // PC3 - Encoder 1 Dir
-palSetPadMode(GPIOA, 4, PAL_MODE_INPUT_PULLDOWN);  // PA4 - Encoder 2 Trig
-palSetPadMode(GPIOA, 5, PAL_MODE_INPUT_PULLDOWN);  // PA5 - Encoder 2 Dir
-palSetPadMode(GPIOB, 7, PAL_MODE_INPUT_PULLDOWN);  // PB7 - Encoder 3 Trig
-palSetPadMode(GPIOB, 6, PAL_MODE_INPUT_PULLDOWN);  // PB6 - Encoder 3 Dir
-palSetPadMode(GPIOB, 0, PAL_MODE_INPUT_PULLDOWN);  // PB0 - Encoder 4 Trig
-palSetPadMode(GPIOB, 1, PAL_MODE_INPUT_PULLDOWN);  // PB1 - Encoder 4 Dir
-palSetPadMode(GPIOC, 5, PAL_MODE_INPUT_PULLDOWN);  // PC5 - Encoder 5 Trig
-palSetPadMode(GPIOC, 4, PAL_MODE_INPUT_PULLDOWN);  // PC4 - Encoder 5 Dir
-palSetPadMode(GPIOC, 0, PAL_MODE_INPUT_PULLDOWN);  // PC0 - Encoder 6 Trig
-palSetPadMode(GPIOC, 1, PAL_MODE_INPUT_PULLDOWN);  // PC1 - Encoder 6 Dir
-palSetPadMode(GPIOA, 0, PAL_MODE_INPUT_PULLDOWN);  // PA0 - Encoder 7 Trig
-palSetPadMode(GPIOA, 1, PAL_MODE_INPUT_PULLDOWN);  // PA1 - Encoder 7 Dir
-palSetPadMode(GPIOA, 6, PAL_MODE_INPUT_PULLDOWN);  // PA6 - Encoder 8 Trig
-palSetPadMode(GPIOA, 7, PAL_MODE_INPUT_PULLDOWN);  // PA7 - Encoder 8 Dir
-
-// Initialize encoder values
-for (int i = 0; i < 8; i++) {
-    encoderPos[i] = 0.0f;
-    accel[i] = 1;
-    lastTrigTime[i] = 0;
-    lastTrigState[i] = 0;
-    lastDirState[i] = 0;
-}
-timeCounter = 0;
-lastPage = -1;]]></code.init>
-         <code.krate><![CDATA[timeCounter++;
-int page = inlet_page;
-
-// Handle page changes - now supports configurable page count
-if (page != lastPage && page >= 0 && page < attr_maxpages) {
-    // Save current page values before switching
-    if (lastPage >= 0 && lastPage < attr_maxpages) {
-        savePageValues(lastPage);
-    }
-    
-    // Load new page values
-    loadPageValues(page);
-    lastPage = page;
-}
-
-// Process encoder inputs with mode-specific logic
-if (page >= 0 && page < attr_maxpages) {
-    bool trig[8], dir[8];
-    
-    // Read all GPIO pins directly
-    readEncoderGPIO(trig, dir);
-
-    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
-
-    for (int i = 0; i < 8; i++) {
-        bool edge = (trig[i] == 1) && (lastTrigState[i] == 0);
-        lastTrigState[i] = trig[i];
-
-        if (edge) {
-            // Access configuration via parent shared table
-            auto& config = parent->objectinstance_sketchy__dials_i.configs[page][i];
-
-            // Resolve duplicate reference to get actual parameter to modify
-            int target_page, target_dial;
-            resolve_duplicate(page, i, &target_page, &target_dial);
-            
-            // Get the actual config for the target parameter (in case of duplicate)
-            auto& target_config = parent->objectinstance_sketchy__dials_i.configs[target_page][target_dial];
-
-            // Acceleration logic
-            uint32_t diff = timeCounter - lastTrigTime[i];
-            if (diff < attr_acceltime) {
-                accel[i]++;
-                if (accel[i] > attr_accelmultiplier) accel[i] = attr_accelmultiplier;
-            } else {
-                accel[i] = 1;
-            }
-            
-            if (target_config.mode == MODE_INT || target_config.mode == MODE_LIST) {
-                // Integer/List mode: increment/decrement actual integer values
-                int current_value = param_table->array[target_page][target_dial];
-                
-                if (dir[i] == 0) {
-                    current_value -= accel[i];
-                } else {
-                    current_value += accel[i];
-                }
-                
-                // Clamp to range
-                if (current_value < target_config.int_min) current_value = target_config.int_min;
-                if (current_value > target_config.int_max) current_value = target_config.int_max;
-                
-                // Store directly in param table (at target location)
-                param_table->array[target_page][target_dial] = current_value;
-                
-            } else {
-                // Fractional mode: use encoder positions
-                float inc = 0.0078125f * accel[i]; // 1/128 * acceleration
-                if (dir[i] == 0) {
-                    encoderPos[i] -= inc;
-                } else {
-                    encoderPos[i] += inc;
-                }
-                
-                encoderPos[i] = applyConstraints(encoderPos[i]);
-                
-                // Store encoder position in param table (at target location)
-                int32_t value = (int32_t)(encoderPos[i] * (float)(1 << 27));
-                param_table->array[target_page][target_dial] = value;
-            }
-            
-            lastTrigTime[i] = timeCounter;
-        }
-    }
-}
-
-// Debug outputs
-rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
-outlet_debugintval = (page >= 0 && page < attr_maxpages) ? param_table->array[page][0] : 0;
-outlet_debugtableval = (page >= 0 && page < attr_maxpages) ? param_table->array[page][0] : 0;]]></code.krate>
-      </object>
-   </patchobj>
+   </obj>
    <patchobj type="patch/object" uuid="1596853e-ecc7-4ea5-811f-56bf5e66c107" name="sketchy_dials" x="504" y="224">
       <params/>
       <attribs>
-         <spinner attributeName="maxpages" value="8"/>
+         <spinner attributeName="maxpages" value="16"/>
       </attribs>
       <object id="patch/object" uuid="1596853e-ecc7-4ea5-811f-56bf5e66c107">
          <sDescription>Dial configuration with configurable page count. Drop-in replacement for sketchy_dials with attribute to set maximum pages (8-64).</sDescription>
@@ -1893,11 +1587,41 @@ if (page >= 0 && page < attr_maxpages) {
 }]]></code.krate>
       </object>
    </patchobj>
+   <patchobj type="patch/object" uuid="7b507645-d892-4d51-818b-9afe45df2680" name="get_1" x="154" y="336">
+      <params/>
+      <attribs>
+         <spinner attributeName="param" value="0"/>
+         <spinner attributeName="page" value="0"/>
+      </attribs>
+      <object id="patch/object" uuid="7b507645-d892-4d51-818b-9afe45df2680">
+         <license>GPL</license>
+         <inlets/>
+         <outlets>
+            <frac32.positive name="value"/>
+         </outlets>
+         <displays/>
+         <params/>
+         <attribs>
+            <spinner name="page" MinValue="-127" MaxValue="127" DefaultValue="0"/>
+            <spinner name="param" MinValue="0" MaxValue="127" DefaultValue="0"/>
+         </attribs>
+         <includes/>
+         <code.declaration><![CDATA[rootc::objectinstance_sketchy__params* param_table;]]></code.declaration>
+         <code.init><![CDATA[param_table = &parent->objectinstance_sketchy__params_i;]]></code.init>
+         <code.krate><![CDATA[outlet_value = param_table->array[attr_page][attr_param];]]></code.krate>
+      </object>
+   </patchobj>
    <obj type="osc/sine" uuid="6e094045cca76a9dbf7ebfa72e44e4700d2b3ba" name="sine_1" x="630" y="434">
       <params>
          <frac32.s.map name="pitch" value="0.0"/>
       </params>
       <attribs/>
+   </obj>
+   <obj type="ksoloti/int param get page kso" uuid="11db07f8-5095-46e9-bac5-7940f297b2eb" name="int_1" x="308" y="448">
+      <params/>
+      <attribs>
+         <spinner attributeName="page" value="1"/>
+      </attribs>
    </obj>
    <obj type="audio/out left" uuid="b11a3c09b2fdd575ea8212f2ce7743d5269253b1" name="out_1" x="784" y="448">
       <params/>
@@ -1912,6 +1636,12 @@ if (page >= 0 && page < attr_maxpages) {
          <source obj="sine_1" outlet="wave"/>
          <dest obj="out_1" inlet="wave"/>
       </net>
+      <net>
+         <source obj="i_1" outlet="out"/>
+         <dest obj="8encoder_integrated" inlet="page"/>
+         <dest obj="sketchy_render" inlet="page"/>
+         <dest obj="sketchy_dials" inlet="page"/>
+      </net>
    </nets>
    <settings>
       <subpatchmode>no</subpatchmode>
@@ -1923,7 +1653,7 @@ if (page >= 0 && page < attr_maxpages) {
    </settings>
    <notes><![CDATA[]]></notes>
    <windowPos>
-      <x>0</x>
+      <x>261</x>
       <y>25</y>
       <width>1440</width>
       <height>875</height>

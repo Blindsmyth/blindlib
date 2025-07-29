@@ -1,0 +1,68 @@
+<patch appVersion="1.1.0">
+   <obj type="patch/object" uuid="085a4cdd-b870-46bb-b1e3-1c29cb983e98" name="sketchy_objects" x="322" y="28">
+      <params/>
+      <attribs>
+         <text attributeName="init">
+            <sText><![CDATA[]]></sText>
+         </text>
+         <spinner attributeName="entries" value="500"/>
+      </attribs>
+   </obj>
+   <obj type="patch/object" uuid="885eb1fc-8caa-45f5-9908-8d1fb2c59880" name="sketchy_texts" x="448" y="28">
+      <params/>
+      <attribs>
+         <text attributeName="init">
+            <sText><![CDATA[]]></sText>
+         </text>
+         <spinner attributeName="entries" value="1024"/>
+         <spinner attributeName="length" value="10"/>
+      </attribs>
+   </obj>
+   <obj type="patch/object" uuid="242fe5d4-66c6-4d46-94dd-fa4b24ba02d9" name="sketchy_params" x="560" y="28">
+      <params/>
+      <attribs>
+         <text attributeName="init">
+            <sText><![CDATA[]]></sText>
+         </text>
+         <spinner attributeName="pages" value="8"/>
+         <spinner attributeName="params" value="32"/>
+      </attribs>
+   </obj>
+   <obj type="patch/object" uuid="c98a5df7-8ecd-4234-8317-deb3f40e2e28" name="sketchy_render_kso" x="322" y="140">
+      <params/>
+      <attribs>
+         <combo attributeName="type" value="0"/>
+         <combo attributeName="I2CADDR" value="0"/>
+      </attribs>
+   </obj>
+   <obj type="patch/object" uuid="3b7c3c3c-3c3c-3c3c-3c3c-3c3c3c3c3c3c" name="pager_fixed_kso" x="322" y="252">
+      <params/>
+      <attribs/>
+   </obj>
+   <obj type="ksoloti/test_dials_ring_reuse" uuid="5224773f-18de-4231-8f92-b1f22bb9537C" name="test_dials" x="322" y="364">
+      <params/>
+      <attribs/>
+   </obj>
+   <nets>
+      <net>
+         <obj name="sketchy_objects" inlet="print"/>
+         <obj name="sketchy_render_kso" outlet="print"/>
+      </net>
+      <net>
+         <obj name="sketchy_texts" inlet="print"/>
+         <obj name="sketchy_render_kso" outlet="print"/>
+      </net>
+      <net>
+         <obj name="sketchy_params" inlet="print"/>
+         <obj name="sketchy_render_kso" outlet="print"/>
+      </net>
+      <net>
+         <obj name="pager_fixed_kso" outlet="page"/>
+         <obj name="sketchy_render_kso" inlet="page"/>
+      </net>
+      <net>
+         <obj name="pager_fixed_kso" outlet="layout"/>
+         <obj name="sketchy_render_kso" inlet="layout"/>
+      </net>
+   </nets>
+</patch> 

@@ -10,7 +10,7 @@ Configure mapping pairs in the code - each pair maps input note to output note.<
       <inlets/>
       <outlets>
          <int32 name="note" description="remapped note on note-on"/>
-         <int32 name="index" description="index 0-4 for first 5 mappings only"/>
+         <int32 name="index" description="index 0-3 for notes 0-3, -1 for others"/>
          <bool32.pulse name="noteOn" description="pulse on note-on"/>
          <bool32 name="gate" description="any notes on hold?"/>
       </outlets>
@@ -38,42 +38,33 @@ int8_t remap_note(int8_t midi_note) {
     for (int i = 0; i < num_mappings; i++) {
         if (note_mapping[i].input == midi_note) {
             int8_t output = note_mapping[i].output;
-            // Set index (0-4 if remapped output is 0-4, -1 for others)
-            _index = (output >= 0 && output <= 4) ? output : -1;
+            // Set index (0-3 if remapped output is 0-3, keep current value for others)
+            if (output >= 0 && output <= 3) {
+                _index = output;
+            }
             return output;
         }
     }
     // If no mapping found, return -1 to ignore
-    _index = -1;
     return -1;
 }]]></code.declaration>
       <code.init><![CDATA[_note = 0;
-_index = -1;
+_index = 0;
 
-// Initialize note mapping array using simple assignment
-// Format: input_note -> output_note
-// Original mapping from the hardcoded version:
-note_mapping[0].input = 60; note_mapping[0].output = 0;   // C4 -> 0
-note_mapping[1].input = 61; note_mapping[1].output = 5;   // C#4 -> 5
-note_mapping[2].input = 62; note_mapping[2].output = 6;   // D4 -> 6
-note_mapping[3].input = 63; note_mapping[3].output = 7;   // D#4 -> 7
-note_mapping[4].input = 64; note_mapping[4].output = 8;   // E4 -> 8
-note_mapping[5].input = 65; note_mapping[5].output = 9;   // F4 -> 9
-note_mapping[6].input = 66; note_mapping[6].output = 10;   // F#4 -> 10
-note_mapping[7].input = 67; note_mapping[7].output = 11;   // G4 -> 11
-note_mapping[8].input = 37; note_mapping[8].output = 1;   // C#2 -> 1
-note_mapping[9].input = 39; note_mapping[9].output = 2;   // D#2 -> 2
-note_mapping[10].input = 41; note_mapping[10].output = 3; // F2 -> 3
-note_mapping[11].input = 43; note_mapping[11].output = 4; // G2 -> 4
+note_mapping[0].input = 60; note_mapping[0].output = 0;
+note_mapping[1].input = 61; note_mapping[1].output = 5;
+note_mapping[2].input = 62; note_mapping[2].output = 6;
+note_mapping[3].input = 63; note_mapping[3].output = 7;
+note_mapping[4].input = 64; note_mapping[4].output = 8;
+note_mapping[5].input = 65; note_mapping[5].output = 9;
+note_mapping[6].input = 66; note_mapping[6].output = 10;
+note_mapping[7].input = 67; note_mapping[7].output = 11;
+note_mapping[8].input = 37; note_mapping[8].output = 1;
+note_mapping[9].input = 39; note_mapping[9].output = 2;
+note_mapping[10].input = 41; note_mapping[10].output = 3;
+note_mapping[11].input = 43; note_mapping[11].output = 4;
 
-// Add more mappings here as needed:
-// note_mapping[12].input = 48; note_mapping[12].output = 12; // C3 -> 12
-// note_mapping[13].input = 50; note_mapping[13].output = 13; // D3 -> 13
-// note_mapping[14].input = 52; note_mapping[14].output = 14; // E3 -> 14
-// note_mapping[15].input = 53; note_mapping[15].output = 15; // F3 -> 15
-
-// Set the number of active mappings
-num_mappings = 12;  // Update this when you add more mappings]]></code.init>
+num_mappings = 12;]]></code.init>
       <code.krate><![CDATA[outlet_noteOn = trigon;
 outlet_note = _note;
 outlet_index = _index;

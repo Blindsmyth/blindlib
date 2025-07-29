@@ -1,5 +1,5 @@
 <objdefs appVersion="1.1.0">
-   <obj.normal id="sketchy_render_kso" uuid="c98a5df7-8ecd-4234-8317-deb3f40e2e28">
+   <obj.normal id="sketchy_render_reuse" uuid="b0382e58-e61a-41fe-8893-88565f1ef811">
       <sDescription>Expanded renderer with 16-bit loop variables. Fixes object table iteration limits beyond 255 objects. Drop-in replacement for sketchy_render.</sDescription>
       <author>Karlo Sono</author>
       <license>MIT</license>
@@ -52,6 +52,205 @@ uint16_t layout;
 // ================ VIRTUAL KNOB CONSTANTS ================
 #define CIRCLE_POINTS 38
 #define INDICATOR_POSITIONS 31
+
+// ================ SHARED RING SUPPORT ================
+// 8 shared ring objects for dial reuse optimization
+uint16_t shared_ring_ids[8];
+bool shared_rings_initialized = false;
+
+// Ring reuse management system
+typedef struct {
+    uint16_t ring_object_id;     // The actual ring object in object table
+    uint16_t label_object_id;    // Label object for the dial
+    uint16_t label_text_id;      // Label text for the dial
+    bool is_allocated;           // Whether this ring is currently in use
+    uint8_t current_page;        // Page this ring is currently on
+    uint8_t current_position;    // Position (0-7) this ring is currently at
+    uint8_t current_type;        // Type: 99=unipolar, 100=bipolar, 101=shared ring
+} ring_slot_t;
+
+ring_slot_t ring_slots[8];  // 8 ring slots for 8 dial positions
+
+void init_shared_rings() {
+    if (shared_rings_initialized) return;
+    
+    for (int i = 0; i < 8; i++) {
+        // Register ring object
+        ring_slots[i].ring_object_id = object_table->registerEntry();
+        ring_slots[i].label_object_id = object_table->registerEntry();
+        ring_slots[i].label_text_id = text_table->registerEntry();
+        
+        // Initialize as unallocated
+        ring_slots[i].is_allocated = false;
+        ring_slots[i].current_page = 0xFF;
+        ring_slots[i].current_position = 0xFF;
+        ring_slots[i].current_type = 0;
+        
+        // Set to hidden by default
+        object_table->array[ring_slots[i].ring_object_id][object_table->FIELD_TYPE] = 0;
+        object_table->array[ring_slots[i].ring_object_id][object_table->FIELD_PAGE] = 0xFFFF;
+        
+        // Initialize label object (hidden by default)
+        object_table->array[ring_slots[i].label_object_id][object_table->FIELD_TYPE] = 0;
+        object_table->array[ring_slots[i].label_object_id][object_table->FIELD_PAGE] = 0xFFFF;
+    }
+    shared_rings_initialized = true;
+}
+
+// Function to allocate a ring for a specific dial position
+uint8_t allocate_ring(uint8_t page, uint8_t position, uint8_t type, const char* label) {
+    // Check if this position already has a ring allocated
+    for (int i = 0; i < 8; i++) {
+        if (ring_slots[i].is_allocated && 
+            ring_slots[i].current_page == page && 
+            ring_slots[i].current_position == position) {
+            // Update existing allocation
+            ring_slots[i].current_type = type;
+            update_ring_display(i, page, position, type, label);
+            return i;
+        }
+    }
+    
+    // Find a free slot
+    for (int i = 0; i < 8; i++) {
+        if (!ring_slots[i].is_allocated) {
+            ring_slots[i].is_allocated = true;
+            ring_slots[i].current_page = page;
+            ring_slots[i].current_position = position;
+            ring_slots[i].current_type = type;
+            update_ring_display(i, page, position, type, label);
+            
+            // Debug: Log ring allocation
+            LogTextMessage("Ring allocated: slot=%d, page=%d, pos=%d, type=%d", i, page, position, type);
+            
+            return i;
+        }
+    }
+    
+    // No free slots available
+    LogTextMessage("WARNING: No free ring slots available!");
+    return 0xFF;
+}
+
+// Function to deallocate a ring
+void deallocate_ring(uint8_t page, uint8_t position) {
+    for (int i = 0; i < 8; i++) {
+        if (ring_slots[i].is_allocated && 
+            ring_slots[i].current_page == page && 
+            ring_slots[i].current_position == position) {
+            ring_slots[i].is_allocated = false;
+            ring_slots[i].current_page = 0xFF;
+            ring_slots[i].current_position = 0xFF;
+            ring_slots[i].current_type = 0;
+            
+            // Hide the objects
+            object_table->array[ring_slots[i].ring_object_id][object_table->FIELD_TYPE] = 0;
+            object_table->array[ring_slots[i].ring_object_id][object_table->FIELD_PAGE] = 0xFFFF;
+            object_table->array[ring_slots[i].label_object_id][object_table->FIELD_TYPE] = 0;
+            object_table->array[ring_slots[i].label_object_id][object_table->FIELD_PAGE] = 0xFFFF;
+            break;
+        }
+    }
+}
+
+// Function to update ring display
+void update_ring_display(uint8_t slot_index, uint8_t page, uint8_t position, uint8_t type, const char* label) {
+    if (slot_index >= 8) return;
+    
+    // Calculate position for this dial slot
+    const uint8_t DIAL_WIDTH = 24;
+    const uint8_t DIAL_HEIGHT = 24;
+    const uint8_t ROW1_Y = 13;
+    const uint8_t ROW2_Y = 39;
+    const uint8_t COL_X[4] = {26, 52, 78, 104};
+    
+    int x = COL_X[position % 4];
+    int y = (position < 4) ? ROW1_Y : ROW2_Y;
+    bool is_second_row = (position >= 4);
+    int y_offset = is_second_row ? 1 : 0;
+    int cx = x + DIAL_WIDTH/2;
+    int cy = y + y_offset + DIAL_HEIGHT/2 - 6;
+    
+    // Update ring object
+    object_table->array[ring_slots[slot_index].ring_object_id][object_table->FIELD_TYPE] = type;
+    object_table->array[ring_slots[slot_index].ring_object_id][object_table->FIELD_PAGE] = page;
+    object_table->array[ring_slots[slot_index].ring_object_id][object_table->FIELD_X] = cx;
+    object_table->array[ring_slots[slot_index].ring_object_id][object_table->FIELD_Y] = cy;
+    object_table->array[ring_slots[slot_index].ring_object_id][object_table->FIELD_W] = 0; // Will be set by dial update
+    object_table->array[ring_slots[slot_index].ring_object_id][object_table->FIELD_H] = DIAL_WIDTH;
+    object_table->array[ring_slots[slot_index].ring_object_id][object_table->FIELD_COLOR] = 0;
+    object_table->array[ring_slots[slot_index].ring_object_id][object_table->FIELD_SCALE] = 1;
+    
+    // Update label object
+    object_table->array[ring_slots[slot_index].label_object_id][object_table->FIELD_TYPE] = 9; // Text type
+    object_table->array[ring_slots[slot_index].label_object_id][object_table->FIELD_PAGE] = page;
+    object_table->array[ring_slots[slot_index].label_object_id][object_table->FIELD_X] = x;
+    object_table->array[ring_slots[slot_index].label_object_id][object_table->FIELD_Y] = y + y_offset + DIAL_HEIGHT - 11;
+    object_table->array[ring_slots[slot_index].label_object_id][object_table->FIELD_W] = DIAL_WIDTH;
+    object_table->array[ring_slots[slot_index].label_object_id][object_table->FIELD_H] = 8;
+    object_table->array[ring_slots[slot_index].label_object_id][object_table->FIELD_COLOR] = 2;
+    object_table->array[ring_slots[slot_index].label_object_id][object_table->FIELD_SCALE] = 1;
+    object_table->array[ring_slots[slot_index].label_object_id][object_table->FIELD_TEXT_ID] = ring_slots[slot_index].label_text_id;
+    
+    // Update label text
+    if (label) {
+        strcpy(text_table->array[ring_slots[slot_index].label_text_id], label);
+    }
+    
+    // Debug: Log ring display update
+    LogTextMessage("Ring display: slot=%d, page=%d, pos=%d, type=%d, x=%d, y=%d", 
+                   slot_index, page, position, type, cx, cy);
+}
+
+// Function to update ring indicator position
+void update_ring_indicator(uint8_t page, uint8_t position, int indicator_index) {
+    for (int i = 0; i < 8; i++) {
+        if (ring_slots[i].is_allocated && 
+            ring_slots[i].current_page == page && 
+            ring_slots[i].current_position == position) {
+            object_table->array[ring_slots[i].ring_object_id][object_table->FIELD_W] = indicator_index;
+            break;
+        }
+    }
+}
+
+// Function to get ring object ID for a position (for dials to use)
+uint16_t get_ring_object_id(uint8_t page, uint8_t position) {
+    for (int i = 0; i < 8; i++) {
+        if (ring_slots[i].is_allocated && 
+            ring_slots[i].current_page == page && 
+            ring_slots[i].current_position == position) {
+            return ring_slots[i].ring_object_id;
+        }
+    }
+    return 0xFFFF; // Not found
+}
+
+// Function to clear all rings for a page
+void clear_page_rings(uint8_t page) {
+    for (int i = 0; i < 8; i++) {
+        if (ring_slots[i].is_allocated && ring_slots[i].current_page == page) {
+            deallocate_ring(page, ring_slots[i].current_position);
+        }
+    }
+}
+
+// Legacy function for backward compatibility
+void update_shared_rings(int page) {
+    // This function is now deprecated in favor of the new allocation system
+    // It's kept for backward compatibility but doesn't do anything
+}
+
+// Debug function to print ring slot status
+void debug_print_ring_slots() {
+    LogTextMessage("=== RING SLOTS STATUS ===");
+    for (int i = 0; i < 8; i++) {
+        LogTextMessage("Slot %d: allocated=%d, page=%d, pos=%d, type=%d", 
+                       i, ring_slots[i].is_allocated, ring_slots[i].current_page, 
+                       ring_slots[i].current_position, ring_slots[i].current_type);
+    }
+    LogTextMessage("========================");
+}
 
 enum SSD1306 {
 	LCDWIDTH            = 128,
@@ -981,43 +1180,42 @@ void dial_init(dial_t* dial) __attribute__ ((noinline)) {
     rootc::objectinstance_sketchy__texts* text_table = &parent->objectinstance_sketchy__texts_i;
     rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
 
-    // Register and get ids
-    dial->box_object_id = object_table->registerEntry();
-    dial->label_object_id = object_table->registerEntry();
-    dial->label_text_id = text_table->registerEntry();
-
-    // Detect if this is a second row dial (dials 4-7 typically have Y >= 32)
-    bool is_second_row = (dial->y >= 32);
-    int y_offset = is_second_row ? 2 : 1;  // Move second row down by 2 pixel, first row down by 1 pixel
-
-    // Setup box object for storing dial data
-    object_table->array[dial->box_object_id][object_table->FIELD_TYPE] = 2;  // Will be overridden in update
-    object_table->array[dial->box_object_id][object_table->FIELD_X] = dial->x;
-    object_table->array[dial->box_object_id][object_table->FIELD_Y] = dial->y + y_offset;
-    object_table->array[dial->box_object_id][object_table->FIELD_W] = dial->width;
-    object_table->array[dial->box_object_id][object_table->FIELD_H] = 0;
-    object_table->array[dial->box_object_id][object_table->FIELD_COLOR] = 0;
-    object_table->array[dial->box_object_id][object_table->FIELD_SCALE] = 1;
-    object_table->array[dial->box_object_id][object_table->FIELD_TEXT_ID] = 0;
-    object_table->array[dial->box_object_id][object_table->FIELD_PAGE] = dial->page;
-
-    // Setup label object - positioned for text below knob
-    object_table->array[dial->label_object_id][object_table->FIELD_TYPE] = 9;
-    object_table->array[dial->label_object_id][object_table->FIELD_X] = dial->x;
-    object_table->array[dial->label_object_id][object_table->FIELD_Y] = dial->y + y_offset + dial->height - 11; // Dial label up by 1 pixel
-    object_table->array[dial->label_object_id][object_table->FIELD_W] = dial->width;
-    object_table->array[dial->label_object_id][object_table->FIELD_H] = 8;
-    object_table->array[dial->label_object_id][object_table->FIELD_COLOR] = 2;
-    object_table->array[dial->label_object_id][object_table->FIELD_SCALE] = 1;
-    object_table->array[dial->label_object_id][object_table->FIELD_TEXT_ID] = dial->label_text_id;
-    object_table->array[dial->label_object_id][object_table->FIELD_PAGE] = dial->page;
-
-    // Setup label text
-    strcpy(text_table->array[dial->label_text_id], dial->label);
+    // Calculate dial position (0-7) from x,y coordinates
+    const uint8_t DIAL_WIDTH = 24;
+    const uint8_t DIAL_HEIGHT = 24;
+    const uint8_t ROW1_Y = 13;
+    const uint8_t ROW2_Y = 39;
+    const uint8_t COL_X[4] = {26, 52, 78, 104};
+    
+    uint8_t position = 0xFF;
+    for (int i = 0; i < 8; i++) {
+        int expected_x = COL_X[i % 4];
+        int expected_y = (i < 4) ? ROW1_Y : ROW2_Y;
+        if (dial->x == expected_x && dial->y == expected_y) {
+            position = i;
+            break;
+        }
+    }
+    
+    // If position not found, use a default
+    if (position == 0xFF) {
+        position = 0;
+    }
+    
+    // Allocate a ring for this dial position using ring reuse system
+    uint8_t type = dial->is_bipolar ? 100 : 99;  // 99=unipolar, 100=bipolar
+    uint8_t slot = allocate_ring(dial->page, position, type, dial->label);
+    
+    // Store the slot index for later use (reuse box_object_id field)
+    dial->box_object_id = slot;  // Store slot index instead of object ID
     
     // Set default value and initialize change detection
     param_table->array[dial->page][dial->param] = dial->default_value;
     dial->last_value = -999999;  // Force first update
+    
+    // Debug: Log dial initialization
+    LogTextMessage("Dial init: page=%d, param=%d, pos=%d, slot=%d, type=%s", 
+                   dial->page, dial->param, position, slot, dial->is_bipolar ? "bipolar" : "unipolar");
 }
 
 void dial_update(dial_t* dial) __attribute__ ((noinline)) {
@@ -1035,11 +1233,27 @@ void dial_update(dial_t* dial) __attribute__ ((noinline)) {
 
     dial->last_value = value;
 
-    // Calculate dial center (accounting for second row offset)
-    bool is_second_row = (dial->y >= 32);
-    int y_offset = is_second_row ? 1 : 0;
-    int cx = dial->x + dial->width/2;
-    int cy = dial->y + y_offset + dial->height/2 - 6;
+    // Calculate dial position from coordinates
+    const uint8_t DIAL_WIDTH = 24;
+    const uint8_t DIAL_HEIGHT = 24;
+    const uint8_t ROW1_Y = 13;
+    const uint8_t ROW2_Y = 39;
+    const uint8_t COL_X[4] = {26, 52, 78, 104};
+    
+    uint8_t position = 0xFF;
+    for (int i = 0; i < 8; i++) {
+        int expected_x = COL_X[i % 4];
+        int expected_y = (i < 4) ? ROW1_Y : ROW2_Y;
+        if (dial->x == expected_x && dial->y == expected_y) {
+            position = i;
+            break;
+        }
+    }
+    
+    // If position not found, use a default
+    if (position == 0xFF) {
+        position = 0;
+    }
     
     // Process value differently for bipolar vs unipolar
     float lookup_pos;
@@ -1071,17 +1285,8 @@ void dial_update(dial_t* dial) __attribute__ ((noinline)) {
     if (indicator_index < 0) indicator_index = 0;
     if (indicator_index >= INDICATOR_POSITIONS) indicator_index = INDICATOR_POSITIONS - 1;
     
-    // Store knob data in object table for rendering
-    // Type 99 = regular knob, Type 100 = bipolar knob with +/- indicators
-    int knob_type = dial->is_bipolar ? 100 : 99;
-    object_table->array[dial->box_object_id][object_table->FIELD_TYPE] = knob_type;
-    object_table->array[dial->box_object_id][object_table->FIELD_X] = cx;    // Center X
-    object_table->array[dial->box_object_id][object_table->FIELD_Y] = cy;    // Center Y
-    object_table->array[dial->box_object_id][object_table->FIELD_W] = indicator_index; // Store indicator position
-    object_table->array[dial->box_object_id][object_table->FIELD_H] = dial->width;     // Store dial width for bounds
-
-    // Update label text
-    strcpy(text_table->array[dial->label_text_id], dial->label);
+    // Update the ring indicator position using the ring reuse system
+    update_ring_indicator(dial->page, position, indicator_index);
 }]]></code.declaration>
       <code.init><![CDATA[object_table = &parent->objectinstance_sketchy__objects_i;
 text_table = &parent->objectinstance_sketchy__texts_i;
@@ -1099,6 +1304,15 @@ i2cStart(&I2CD1, &i2cfg);
 Thd = chThdCreateStatic(waThreadX, sizeof(waThreadX), NORMALPRIO-1, ThreadX, (void *)this);
 
 clear();
+
+// Initialize shared rings
+init_shared_rings();
+
+// Test: Create some visible rings for testing
+allocate_ring(0, 0, 99, "TEST1");
+allocate_ring(0, 1, 100, "TEST2");
+allocate_ring(0, 2, 99, "TEST3");
+allocate_ring(0, 3, 100, "TEST4");
 
 pprint = false;
 page = 0;
@@ -1124,6 +1338,9 @@ palSetPadMode(GPIOB, 9, PAL_MODE_INPUT_ANALOG);]]></code.dispose>
 		);
 	}
 	LogTextMessage("");
+	
+	// Also print ring slot status
+	debug_print_ring_slots();
 }
 
 if (!inlet_print && pprint) {
@@ -1131,6 +1348,8 @@ if (!inlet_print && pprint) {
 }
 
 if (page != inlet_page) {
+	// Don't clear rings immediately - let them persist for a moment
+	// clear_page_rings(page);
 	page = inlet_page;
 }
 if (layout != inlet_layout) {

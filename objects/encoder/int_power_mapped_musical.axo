@@ -1,0 +1,135 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="int_power_mapped_musical" uuid="5224773f-18de-4231-8f92-b1f22bb95382">
+      <sDescription>Maps musical pitch input (-64 to +64) to powers of 2. 0=64, 12=128, -12=32. Also scales a frac32 signal by this factor.</sDescription>
+      <author>Modified for musical pitch mapping</author>
+      <license>BSD</license>
+      <helpPatch></helpPatch>
+      <inlets>
+         <frac32.bipolar name="pitch" description="musical pitch input (-64 to +64)"/>
+         <frac32buffer name="signal" description="signal to scale"/>
+      </inlets>
+      <outlets>
+         <int32 name="out" description="mapped power of 2 value"/>
+         <frac32buffer name="scaled" description="signal scaled by power of 2"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs/>
+      <includes/>
+      <code.declaration><![CDATA[int32_t mapped_result;
+int32_t pitch_input;
+int32_t signal_input;]]></code.declaration>
+      <code.init><![CDATA[mapped_result = 64;]]></code.init>
+      <code.krate><![CDATA[// Get inputs
+pitch_input = inlet_pitch;
+signal_input = inlet_signal;
+
+// Convert frac32.bipolar (-64 to +64) to integer semitones
+// frac32.bipolar range is -64 to +64, so divide by 64 to get -1 to +1
+// Then multiply by 64 to get -64 to +64 semitones
+int32_t semitones = (pitch_input * 64) >> 27;  // Convert to integer semitones
+
+// Clamp to reasonable range to prevent overflow
+if(semitones > 48) semitones = 48;   // 4 octaves up
+if(semitones < -48) semitones = -48; // 4 octaves down
+
+// Map to powers of 2: 0=64, 12=128, -12=32, etc.
+if(semitones >= 0) {
+    // Positive semitones: multiply by 2^(semitones/12)
+    // 12 semitones = 1 octave = ×2
+    int32_t octaves = semitones / 12;
+    int32_t remaining_semitones = semitones % 12;
+    
+    // Base value: 64 (middle C)
+    mapped_result = 64;
+    
+    // Apply octave shifts
+    if(octaves > 0) {
+        if(octaves <= 4) {  // Safe range for bit shifting
+            mapped_result = mapped_result << octaves;
+        } else {
+            mapped_result = 64 << 4;  // Clamp at 4 octaves up
+        }
+    }
+    
+    // Apply remaining semitone shifts (approximate)
+    // Each semitone is roughly 2^(1/12) ≈ 1.059
+    // We'll use a simple approximation for the remaining semitones
+    if(remaining_semitones > 0) {
+        // Simple approximation: each semitone adds about 6% (64/12 ≈ 5.33)
+        int32_t semitone_adjustment = (mapped_result * remaining_semitones) / 12;
+        mapped_result += semitone_adjustment;
+    }
+    
+} else {
+    // Negative semitones: divide by 2^(abs(semitones)/12)
+    int32_t abs_semitones = -semitones;
+    int32_t octaves = abs_semitones / 12;
+    int32_t remaining_semitones = abs_semitones % 12;
+    
+    // Base value: 64 (middle C)
+    mapped_result = 64;
+    
+    // Apply octave shifts
+    if(octaves > 0) {
+        if(octaves <= 4) {  // Safe range for bit shifting
+            mapped_result = mapped_result >> octaves;
+        } else {
+            mapped_result = 64 >> 4;  // Clamp at 4 octaves down
+        }
+    }
+    
+    // Apply remaining semitone shifts (approximate)
+    if(remaining_semitones > 0) {
+        // Simple approximation: each semitone subtracts about 6%
+        int32_t semitone_adjustment = (mapped_result * remaining_semitones) / 12;
+        mapped_result -= semitone_adjustment;
+        if(mapped_result < 1) mapped_result = 1;  // Minimum value
+    }
+}
+
+// Output the mapped power of 2 value
+outlet_out = mapped_result;
+
+// Scale the signal by the mapped result
+// Convert mapped_result back to a scaling factor
+if(semitones >= 0) {
+    // For positive semitones, multiply the signal
+    // Use safe bit shifting for scaling
+    int32_t scale_shift = semitones / 12;  // Octave shifts
+    if(scale_shift > 4) scale_shift = 4;   // Clamp at 4 octaves
+    
+    if(scale_shift > 0) {
+        outlet_scaled = signal_input << scale_shift;
+    } else {
+        outlet_scaled = signal_input;
+    }
+    
+    // Apply remaining semitone scaling (approximate)
+    int32_t remaining = semitones % 12;
+    if(remaining > 0) {
+        // Simple approximation for remaining semitones
+        outlet_scaled = (outlet_scaled * (12 + remaining)) / 12;
+    }
+    
+} else {
+    // For negative semitones, divide the signal
+    int32_t abs_semitones = -semitones;
+    int32_t scale_shift = abs_semitones / 12;  // Octave shifts
+    if(scale_shift > 4) scale_shift = 4;       // Clamp at 4 octaves
+    
+    if(scale_shift > 0) {
+        outlet_scaled = signal_input >> scale_shift;
+    } else {
+        outlet_scaled = signal_input;
+    }
+    
+    // Apply remaining semitone scaling (approximate)
+    int32_t remaining = abs_semitones % 12;
+    if(remaining > 0) {
+        // Simple approximation for remaining semitones
+        outlet_scaled = (outlet_scaled * (12 - remaining)) / 12;
+    }
+}]]></code.krate>
+   </obj.normal>
+</objdefs> 

@@ -1,0 +1,63 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="midi_cc_send" uuid="5224773f-18de-4231-8f92-b1f22bb95389">
+      <sDescription>High-resolution MIDI CC sender with automatic thinning. Sends 14-bit MIDI CC messages via serial port (PA2) with both coarse (CC) and fine (CC+32) messages.</sDescription>
+      <author>Johannes Taelman / Simon Schmidt (modified by AI Assistant)</author>
+      <license>BSD</license>
+      <inlets>
+         <frac32.positive name="v" description="value 0.0-64.0"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="channel" description="MIDI channel" MinValue="1" MaxValue="16" DefaultValue="1"/>
+         <spinner name="cc" description="CC number (0-95)" MinValue="0" MaxValue="95" DefaultValue="0"/>
+      </attribs>
+      <includes/>
+      <depends>
+         <depend>SD2</depend>
+      </depends>
+      <code.declaration><![CDATA[int32_t lsend;
+int timer;
+uint8_t coarseValue;
+uint8_t fineValue;
+
+void SendMidi3(uint8_t b0, uint8_t b1, uint8_t b2) {
+    sdPut(&SD2, b0);
+    sdPut(&SD2, b1);
+    sdPut(&SD2, b2);
+}]]></code.declaration>
+      <code.init><![CDATA[timer = 0;
+lsend = 0;]]></code.init>
+      <code.krate><![CDATA[// Check if value has changed significantly (thinning) and timer has elapsed
+if (((lsend > inlet_v + (1<<19)) || (inlet_v > lsend + (1<<19))) && (timer > 30)) {
+    lsend = inlet_v;
+    
+    // The receiving object reconstructs as: (coarse << 20) + (fine << 13)
+    // We need to send values that will reconstruct to the same frac32.positive range
+    
+    // For input range 0 to (64 << 27), we want to send values that reconstruct to the same
+    // The receiver expects: (coarse << 20) + (fine << 13)
+    // So we need to split our input value accordingly
+    
+    // Extract the parts that will be reconstructed by the receiver
+    // Coarse: bits 20-26 (7 bits), Fine: bits 13-19 (7 bits)
+    uint8_t coarseValue = (inlet_v >> 20) & 0x7F; // Upper 7 bits (bits 20-26)
+    uint8_t fineValue = (inlet_v >> 13) & 0x7F;   // Middle 7 bits (bits 13-19)
+    
+    // Send coarse value (CC) - receiver expects this as (data2 << 20)
+    if (attr_cc <= 95) { // Ensure CC number is valid
+        SendMidi3(MIDI_CONTROL_CHANGE + (attr_channel - 1), attr_cc, coarseValue);
+    }
+    
+    // Send fine value (CC+32) - receiver expects this as (data2 << 13)
+    if ((attr_cc + 32) <= 127) { // Ensure CC+32 doesn't exceed 127
+        SendMidi3(MIDI_CONTROL_CHANGE + (attr_channel - 1), attr_cc + 32, fineValue);
+    }
+    
+    timer = 0;
+} else {
+    timer++;
+}]]></code.krate>
+   </obj.normal>
+</objdefs> 

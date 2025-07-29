@@ -1,0 +1,56 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="int_divide_mapped" uuid="5224773f-18de-4231-8f92-b1f22bb9537F">
+      <sDescription>Divides int1 by int2 and maps the 0-1 result to 0-64 Axoloti range. Handles division by zero safely.</sDescription>
+      <author>Blindsmyth</author>
+      <license>BSD</license>
+      <inlets>
+         <int32 name="a" description="numerator"/>
+         <int32 name="b" description="denominator"/>
+      </inlets>
+      <outlets>
+         <frac32 name="float" description="mapped result (0-64)"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs/>
+      <code.declaration><![CDATA[int numerator;
+int denominator;
+int mapped_result;]]></code.declaration>
+      <code.init><![CDATA[numerator = 0;
+denominator = 1;
+mapped_result = 0;]]></code.init>
+      <code.krate><![CDATA[// Get inputs
+numerator = inlet_a;
+denominator = inlet_b;
+
+// Handle division by zero and edge cases
+if(denominator == 0) {
+    // Division by zero - output 0
+    mapped_result = 0;
+} else if(numerator == 0) {
+    // Numerator is zero - output 0
+    mapped_result = 0;
+} else if(numerator == denominator) {
+    // Equal values - output 64 (full range)
+    mapped_result = 64;
+} else if(numerator > denominator) {
+    // Result > 1 - clamp to 64
+    mapped_result = 64;
+} else {
+    // Normal case: 0 < result < 1
+    // Use fixed-point arithmetic for precision
+    // Multiply by 64 to get 0-64 range
+    mapped_result = (numerator * 64) / denominator;
+    
+    // Clamp to valid range
+    if(mapped_result < 0) mapped_result = 0;
+    if(mapped_result > 64) mapped_result = 64;
+}
+
+// Round to 2 decimal places and output in frac32 format
+float rounded_result = (float)mapped_result / 64.0f;  // Convert back to 0-1 range
+rounded_result = round(rounded_result * 100.0f) / 100.0f;  // Round to 2 decimal places
+int final_result = (int)(rounded_result * 64.0f);  // Convert back to 0-64 range
+outlet_float = final_result << 27;]]></code.krate>
+   </obj.normal>
+</objdefs>

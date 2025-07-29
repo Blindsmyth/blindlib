@@ -1,0 +1,24 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="get_param_int_kso" uuid="5224773f-18de-4231-8f92-b1f22bb95380">
+      <sDescription>Get single integer parameter value from specified page and parameter index</sDescription>
+      <author>AI Assistant</author>
+      <license>GPL</license>
+      <inlets/>
+      <outlets>
+         <int32 name="value" description="parameter value"/>
+      </outlets>
+      <displays>
+         <int32 name="currentValue" noLabel="true"/>
+      </displays>
+      <params/>
+      <attribs>
+         <spinner name="page" description="page index" MinValue="-127" MaxValue="127" DefaultValue="0"/>
+         <spinner name="param" description="parameter index (0-7)" MinValue="0" MaxValue="7" DefaultValue="0"/>
+      </attribs>
+      <code.declaration><![CDATA[rootc::objectinstance_sketchy__params* param_table;]]></code.declaration>
+      <code.init><![CDATA[param_table = &parent->objectinstance_sketchy__params_i;]]></code.init>
+      <code.krate><![CDATA[// Get single parameter value from specified page and parameter index
+outlet_value = param_table->array[attr_page][attr_param];
+disp_currentValue = outlet_value;]]></code.krate>
+   </obj.normal>
+</objdefs> 

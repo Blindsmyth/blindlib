@@ -1,0 +1,67 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="int_power_mapped" uuid="5224773f-18de-4231-8f92-b1f22bb95381">
+      <sDescription>Maps integers to powers of 2. Positive: 0→64, 1→128, 2→256, 3→512... Negative: -1→32, -2→16, -3→8, -4→4, -5→2, -6→1</sDescription>
+      <author>Blindsmyth</author>
+      <license>BSD</license>
+      <inlets>
+         <int32 name="in" description="input integer"/>
+         <frac32 name="signal" description="signal to be scaled"/>
+      </inlets>
+      <outlets>
+         <int32 name="out" description="mapped power of 2"/>
+         <frac32 name="scaled" description="scaled signal"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs/>
+      <code.declaration><![CDATA[int input_value;
+int mapped_result;
+int32_t signal_input;]]></code.declaration>
+      <code.init><![CDATA[input_value = 0;
+mapped_result = 64;]]></code.init>
+      <code.krate><![CDATA[// Get inputs
+input_value = inlet_in;
+signal_input = inlet_signal;
+
+// Map to powers of 2
+if(input_value >= 0) {
+    // Positive integers: 0→64, 1→128, 2→256, 3→512...
+    if(input_value == 0) {
+        mapped_result = 64;
+    } else {
+        mapped_result = 64 << input_value;  // 64 * 2^input_value
+    }
+} else {
+    // Negative integers: -1→32, -2→16, -3→8, -4→4, -5→2, -6→1
+    int abs_value = -input_value;
+    if(abs_value >= 6) {
+        mapped_result = 1;  // Clamp at minimum value
+    } else {
+        mapped_result = 64 >> abs_value;  // 64 / 2^abs_value
+    }
+}
+
+// Scale the signal by the mapped result
+// Output both the mapped power of 2 and the scaled signal
+outlet_out = mapped_result;
+
+// Apply proper scaling based on input value
+if(input_value >= 0) {
+    // Positive: multiply by 2^input_value
+    // For frac32: multiply by 2^input_value
+    if(input_value >= 31) {
+        outlet_scaled = 0;  // Clamp at maximum to prevent overflow
+    } else {
+        outlet_scaled = signal_input << input_value;
+    }
+} else {
+    // Negative: divide by 2^abs_value
+    int abs_value = -input_value;
+    if(abs_value >= 31) {
+        outlet_scaled = 0;  // Clamp at minimum to prevent underflow
+    } else {
+        outlet_scaled = signal_input >> abs_value;  // Divide by 2^abs_value
+    }
+}]]></code.krate>
+   </obj.normal>
+</objdefs>

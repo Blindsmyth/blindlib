@@ -1,0 +1,158 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sketchy_params_midi_send" uuid="5224773f-18de-4231-8f92-b1f22bb9538A">
+      <sDescription>Sends all parameters from sketchy_param table as MIDI CC messages. Integer parameters are limited to range -63 to 64. Useful for bi-directional MIDI controllers.</sDescription>
+      <author>AI Assistant (based on Robert Schirmer's tablesend)</author>
+      <license>BSD</license>
+      <inlets>
+         <int32 name="startcc" description="Starting CC number"/>
+         <bool32.rising name="redraw" description="Redraw all parameters"/>
+         <bool32 name="active" description="Enable/disable sending"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="channel" description="MIDI channel" MinValue="1" MaxValue="16" DefaultValue="1"/>
+         <spinner name="maxpages" description="Maximum pages to send" MinValue="1" MaxValue="64" DefaultValue="8"/>
+         <spinner name="maxparams" description="Maximum params per page" MinValue="1" MaxValue="128" DefaultValue="8"/>
+      </attribs>
+      <includes/>
+      <depends>
+         <depend>SD2</depend>
+         <depend>sketchy_dials</depend>
+      </depends>
+      <code.declaration><![CDATA[int i, j;
+int32_t v[512]; // Support up to 64 pages * 8 params
+int32_t prev[512];
+int ntrig[512];
+int rtrig;
+int totalParams;
+
+// Use the encoder configuration structure from sketchy_dials directly
+// No need to redefine - we'll use rootc::objectinstance_sketchy__dials::encoder_dial_config_t
+
+// Mode constants (matching sketchy_dials)
+#define MODE_FRAC_UNIPOLAR 0  // 0.0 to 1.0, positive only
+#define MODE_FRAC_BIPOLAR  1  // -1.0 to 1.0, bipolar
+#define MODE_INT           2  // min to max, integer
+#define MODE_LIST          3  // selector mode
+#define MODE_BAR_UNIPOLAR  4  // 0.0 to 1.0, vertical bar
+#define MODE_BAR_BIPOLAR   5  // -1.0 to 1.0, vertical bar
+#define MODE_DUPLICATE     6  // duplicate another parameter
+#define MODE_EMPTY         255 // empty/unconfigured
+
+// No local configs array - we access the real one from sketchy_dials
+
+void SendMidi3(uint8_t b0, uint8_t b1, uint8_t b2) {
+    sdPut(&SD2, b0);
+    sdPut(&SD2, b1);
+    sdPut(&SD2, b2);
+}
+
+// Function to convert integer value to MIDI CC range, mapping negative ranges properly
+uint8_t intValueToMidiCC(int32_t value, int32_t int_min, int32_t int_max) {
+    // Handle edge cases
+    if (int_min == int_max) return (uint8_t)int_min; // Return the single value
+    
+    // Clamp value to the original range
+    if (value < int_min) value = int_min;
+    if (value > int_max) value = int_max;
+    
+    // Map from int_min..int_max to 0..(int_max-int_min)
+    // This shifts negative ranges to start at 0
+    uint8_t mapped = (uint8_t)(value - int_min);
+    
+    // Ensure it fits in MIDI CC range (0-127)
+    if (mapped > 127) return 127;
+    return mapped;
+}
+
+// Function to convert float value to MIDI CC range (0-127)
+uint8_t floatValueToMidiCC(int32_t value) {
+    // Convert frac32.positive (0.0-64.0) to 0-127
+    // Same as original tablesend: (value >> 20)
+    return (uint8_t)(__USAT(value >> 20, 7));
+}
+
+// No need for getEncoderConfig function - we'll access configs directly]]></code.declaration>
+      <code.init><![CDATA[// Initialize arrays
+totalParams = attr_maxpages * attr_maxparams;
+for (i = 0; i < totalParams; i++) {
+    prev[i] = -666;
+    ntrig[i] = 0;
+}
+
+// No need to initialize configs - we use the real ones from sketchy_dials
+
+rtrig = 0;]]></code.init>
+      <code.krate><![CDATA[if (inlet_active) {
+    // Get param table instance
+    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
+    
+    // Scan through limited number of parameters like original tablesend
+    static int i = 0;
+    int maxParams = attr_maxpages * attr_maxparams;
+    if (maxParams > 128) maxParams = 128; // Limit to prevent crashes
+    
+    i += 1;
+    if (i >= maxParams) i = 0;
+    
+    // Calculate page and param from index
+    int currentPage = i / attr_maxparams;
+    int currentParam = i % attr_maxparams;
+    
+    if (currentPage < attr_maxpages && currentParam < attr_maxparams) {
+        // Get value from param table
+        v[i] = param_table->array[currentPage][currentParam];
+        
+        // Check if value has changed
+        if ((v[i] != prev[i]) && !ntrig[i]) {
+            uint8_t midiValue;
+            
+            // Get encoder configuration for this parameter (using same pattern as other objects)
+            auto& config = parent->objectinstance_sketchy__dials_i.configs[currentPage][currentParam];
+            
+            // Convert based on encoder mode
+            if (config.mode == MODE_INT || config.mode == MODE_LIST) {
+                // Integer value: convert directly to 0-127 MIDI CC range
+                midiValue = intValueToMidiCC(v[i], config.int_min, config.int_max);
+            } else if (config.mode == MODE_FRAC_UNIPOLAR || config.mode == MODE_FRAC_BIPOLAR || 
+                       config.mode == MODE_BAR_UNIPOLAR || config.mode == MODE_BAR_BIPOLAR) {
+                // Float value: convert directly to 0-127 range
+                midiValue = floatValueToMidiCC(v[i]);
+            } else {
+                // Default to float conversion for unknown modes
+                midiValue = floatValueToMidiCC(v[i]);
+            }
+            
+            // Calculate CC number - logical order: param 0 page 0 = CC 0, param 1 page 0 = CC 1, etc.
+            uint8_t ccNumber = (uint8_t)(currentParam + (currentPage * attr_maxparams) + inlet_startcc);
+            
+            // Send MIDI CC (limit to valid CC range 0-127)
+            if (ccNumber <= 127) {
+                SendMidi3(MIDI_CONTROL_CHANGE + (attr_channel - 1), ccNumber, midiValue);
+            }
+            
+            prev[i] = v[i];
+            ntrig[i] = 1;
+        }
+        
+        if (v[i] == prev[i]) {
+            ntrig[i] = 0;
+        }
+    }
+}
+
+// Re-initialize on redraw
+if ((inlet_redraw > 0) && !rtrig) {
+    rtrig = 1;
+    for (i = 0; i < 128; i++) {
+        prev[i] = -666;
+        ntrig[i] = 0;
+    }
+}
+if (!(inlet_redraw > 0)) {
+    rtrig = 0;
+}]]></code.krate>
+   </obj.normal>
+</objdefs> 

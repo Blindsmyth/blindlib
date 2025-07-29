@@ -1,0 +1,49 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="ldub_no_params" uuid="5224773f-18de-4231-8f92-b1f22bb95388">
+      <sDescription>Looper overdub object without parameters - all control via inlets. Adds data to the content of a table at inlet pos (in fraction of the table's size). Feedback controls feedback amount. Set the length of the fade-out period with 'release', the length of the fade-in of the recording with 'attack'.</sDescription>
+      <author>robert schirmer (modified by AI Assistant)</author>
+      <license>BSD</license>
+      <inlets>
+         <frac32buffer.positive name="pos" description="index in fraction of table size"/>
+         <frac32buffer name="wave" description="audio in"/>
+         <bool32.risingfalling name="overdub" description="overdub"/>
+         <frac32.positive name="feedback" description="feedback amount"/>
+         <frac32.positive name="attack" description="recording fade-in time"/>
+         <frac32.positive name="release" description="recording fade-out time"/>
+      </inlets>
+      <outlets>
+         <bool32 name="state" description="recording state with fade-out"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <objref name="table" description="Table to write to"/>
+      </attribs>
+      <code.declaration><![CDATA[uint32_t csample;
+uint32_t dub;
+
+uint8_t shift;
+
+int32_t env;
+bool dubstate;
+uint32_t attack;
+uint32_t release;]]></code.declaration>
+      <code.init><![CDATA[shift = 27-attr_table.LENGTHPOW;]]></code.init>
+      <code.krate><![CDATA[attack = inlet_attack;
+release = inlet_release;
+
+if (inlet_overdub) env = (1<<27) - (___SMMUL((1<<27)-env,attack)<<1);
+else env = ___SMMUL(env,release)<<1;
+dubstate = env;
+
+outlet_state = dubstate;]]></code.krate>
+      <code.srate><![CDATA[if (dubstate){
+
+csample =  (__USAT(inlet_pos,27)>>shift);
+dub= (___SMMUL((attr_table.array[csample]<<attr_table.GAIN),(inlet_feedback))<<5);
+
+attr_table.array[csample] =  (__SSAT((___SMMUL((inlet_wave),env)<<5) + dub,28 ))>>attr_table.GAIN;
+
+}]]></code.srate>
+   </obj.normal>
+</objdefs> 

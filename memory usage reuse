@@ -1,0 +1,8 @@
+No reuse system. 
+
+Memory region         Used Size  Region Size  %age Used
+         CCMSRAM:        4712 B        50 KB      9.20%
+           SRAM1:       25824 B        44 KB     57.32%
+           SRAM2:         137 B         8 KB      1.67%
+           SRAM3:           0 B        64 KB      0.00%
+           SDRAM:      134952 B         8 MB      1.61%

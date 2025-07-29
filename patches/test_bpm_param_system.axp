@@ -1,0 +1,35 @@
+<patch appVersion="1.1.0">
+   <obj type="clock/tap.io" uuid="3c191cd4-4638-4ea8-b7a6-21fae3772180" name="tap_io" x="98" y="14">
+      <params/>
+      <attribs/>
+   </obj>
+   <obj type="encoder/param_write_int" uuid="5224773f-18de-4231-8f92-b1f22bb95387" name="param_writer" x="280" y="14">
+      <params/>
+      <attribs/>
+   </obj>
+   <obj type="encoder/sketchy_params" uuid="4f2f8c6a-2f0f-6d0c-bd4f-9e0f1f2a3b4c" name="sketchy_params" x="462" y="14">
+      <params/>
+      <attribs/>
+   </obj>
+   <obj type="encoder/get_param_int_kso" uuid="5224773f-18de-4231-8f92-b1f22bb95380" name="get_bpm" x="644" y="14">
+      <params/>
+      <attribs>
+         <int attributeName="page" value="0"/>
+         <int attributeName="param" value="0"/>
+      </attribs>
+   </obj>
+   <nets>
+      <net>
+         <o1>tap_io</o1>
+         <i1>param_writer</i1>
+      </net>
+      <net>
+         <o2>tap_io</o2>
+         <i2>param_writer</i2>
+      </net>
+      <net>
+         <o1>get_bpm</o1>
+         <i3>tap_io</i3>
+      </net>
+   </nets>
+</patch> 

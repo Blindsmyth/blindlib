@@ -112,6 +112,13 @@ Following the established pattern:
 - Instance name: `instancesketchy__render_i` (original)
 - Type namespace: `rootc::instancesketchy__render` (original)
 
+### Inlet/Outlet/Attribute/Parameter Names
+- **UNDERSCORES ARE FORBIDDEN** in inlet/outlet/attribute/parameter names
+- Use camelCase instead: `sequenceLength` not `sequence_length`
+- Axoloti converts underscores to double underscores in generated code, causing compilation errors
+- Examples: `sequencelength`, `trackoffset`, `isstep`, `currentlength`
+- This is different from type namespaces which use double underscores: `rootc::instancesketchy__render::`
+
 ## Compatibility
 
 This approach maintains full compatibility with:

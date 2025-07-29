@@ -1,0 +1,34 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="int param get page kso" uuid="11db07f8-5095-46e9-bac5-7940f297b2eb">
+      <sDescription>Get all 8 parameters from a page as separate outputs. Reads param_table[page][0] through param_table[page][7].</sDescription>
+      <author>AI Assistant</author>
+      <license>GPL</license>
+      <inlets/>
+      <outlets>
+         <int32 name="value0"/>
+         <int32 name="value1"/>
+         <int32 name="value2"/>
+         <int32 name="value3"/>
+         <int32 name="value4"/>
+         <int32 name="value5"/>
+         <int32 name="value6"/>
+         <int32 name="value7"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="page" MinValue="-127" MaxValue="127" DefaultValue="0"/>
+      </attribs>
+      <code.declaration><![CDATA[rootc::objectinstance_sketchy__params* param_table;]]></code.declaration>
+      <code.init><![CDATA[param_table = &parent->objectinstance_sketchy__params_i;]]></code.init>
+      <code.krate><![CDATA[// Get all 8 parameters from the specified page
+outlet_value0 = param_table->array[attr_page][0];
+outlet_value1 = param_table->array[attr_page][1];
+outlet_value2 = param_table->array[attr_page][2];
+outlet_value3 = param_table->array[attr_page][3];
+outlet_value4 = param_table->array[attr_page][4];
+outlet_value5 = param_table->array[attr_page][5];
+outlet_value6 = param_table->array[attr_page][6];
+outlet_value7 = param_table->array[attr_page][7];]]></code.krate>
+   </obj.normal>
+</objdefs>

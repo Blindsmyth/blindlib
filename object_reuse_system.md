@@ -2,7 +2,7 @@
 
 ## Overview
 
-The Object Reuse System is a memory-optimized approach to solving the object table overflow problem in the Axoloti encoder system. Instead of creating unlimited object table entries, it implements a smart reuse mechanism that recycles object IDs when switching between pages.
+The Object Reuse System is a memory-optimized approach to solving the object table overflow problem in the Axoloti encoder system. Instead of creating unlimited object table entries, it implements a smart reuse mechanism that recycles object IDs when switching between pages. This system has not been succesfully implemented
 
 ## The Problem
 

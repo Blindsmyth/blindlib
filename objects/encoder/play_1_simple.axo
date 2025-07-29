@@ -1,0 +1,51 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="play_1_simple" uuid="5224773f-18de-4231-8f92-b1f22bb95386">
+      <sDescription>Simple audio sample player with trigger input and pitch control</sDescription>
+      <author>Blindsmyth</author>
+      <license>BSD</license>
+      <inlets>
+         <bool32 name="trig" description="trigger input"/>
+         <frac32.bipolar name="pitch" description="pitch modulation"/>
+         <frac32.positive name="pos" description="start position in table"/>
+      </inlets>
+      <outlets>
+         <frac32buffer name="wave" description="audio output"/>
+      </outlets>
+      <displays/>
+      <params>
+         <frac32.s.map.pitch name="pitch" value="0.0"/>
+      </params>
+      <attribs>
+         <objref name="table"/>
+      </attribs>
+      <includes/>
+      <code.declaration><![CDATA[int pstart;
+int pstop;
+uint64_t pos;
+uint32_t f0;]]></code.declaration>
+      <code.init><![CDATA[pos = 0;
+pstart = 0;
+pstop = 1;]]></code.init>
+      <code.krate><![CDATA[// Handle trigger input (rising edge detection)
+if ((inlet_trig > 0) && !pstart) {
+   pstart = 1;
+   pstop = 0;
+   uint32_t asat = __USAT(inlet_pos,27);
+   pos = ((uint64_t)(asat>>(27-attr_table.LENGTHPOW)))<<32;
+} else if (!(inlet_trig > 0)) {
+   pstart = 0;
+}
+
+// Calculate frequency from pitch
+MTOFEXTENDED(inlet_pitch + 0xFEC747D4 - param_pitch,f0);]]></code.krate>
+      <code.srate><![CDATA[if (!pstop) {
+   if ((pos>>32)<attr_table.LENGTH) {
+      uint32_t r = ___SMMUL(attr_table.array[pos>>32]<<attr_table.GAIN,INT32_MAX-(((uint32_t)pos)>>1));
+      r = ___SMMLA(attr_table.array[(pos>>32)+1]<<attr_table.GAIN,(((uint32_t)pos)>>1),r);
+      outlet_wave = r;
+      pos += ((uint64_t)f0)<<8;
+   }
+   else outlet_wave = 0;
+} else outlet_wave = 0;]]></code.srate>
+   </obj.normal>
+</objdefs> 

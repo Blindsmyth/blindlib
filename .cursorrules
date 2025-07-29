@@ -1,8 +1,23 @@
 # Cursor Rules for Axoloti Sketchy Objects Project
 
-## UUID Management
-- ALWAYS check for UUID conflicts before creating new objects
-- Use the base pattern: 5224773f-18de-4231-8f92-b1f22bb9537X where X is unique
+## UUID Management - CRITICAL WORKFLOW
+- **MANDATORY**: ALWAYS check for UUID conflicts before creating new objects
+- **MANDATORY**: Use the base pattern: 5224773f-18de-4231-8f92-b1f22bb9537X where X is unique
+- **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
+- **MANDATORY**: Document all new UUIDs in this file immediately after creation
+- **CRITICAL**: UUID conflicts will cause compilation failures and object loading issues
+
+### UUID WORKFLOW - MUST FOLLOW IN ORDER:
+1. **BEFORE creating any object**: Check the UUID registry below for conflicts
+2. **WHEN creating object**: Use the next available UUID in sequence
+3. **IMMEDIATELY after creating object**: Update this UUID registry
+4. **NEVER create object without following steps 1-3**
+
+### UUID ASSIGNMENT RULES:
+- **ALWAYS increment the last digit**: If last UUID ends in 85, next must be 86
+- **NEVER reuse UUIDs**: Even if object is deleted, UUID is permanently retired
+- **ALWAYS document immediately**: Update registry before any other work
+- **CHECK TWICE**: Verify no conflicts before and after assignment
 - Current UUID registry:
   * sketchy_render.axo: 5224773f-18de-4231-8f92-b1f22bb95372
   * sketchy_render_exp.axo: 5224773f-18de-4231-8f92-b1f22bb95373
@@ -13,8 +28,21 @@
   * sketchy_font_load.axo: 5224773f-18de-4231-8f92-b1f22bb95379
   * sketchy_font_sd.axo: 5224773f-18de-4231-8f92-b1f22bb9537A
   * sketchy_font.axo: 5224773f-18de-4231-8f92-b1f22bb9537B
-- Generate new UUIDs by incrementing the last digit
-- Document all new UUIDs in this file
+  * euclidean_step_length.axo: 5224773f-18de-4231-8f92-b1f22bb9537E
+  * int_divide_mapped.axo: 5224773f-18de-4231-8f92-b1f22bb9537F
+  * get_param_int_kso.axo: 5224773f-18de-4231-8f92-b1f22bb95380
+  * int_power_mapped.axo: 5224773f-18de-4231-8f92-b1f22bb95381
+  * int_power_mapped_musical.axo: 5224773f-18de-4231-8f92-b1f22bb95382
+  * ldrive_musical.axo: 5224773f-18de-4231-8f92-b1f22bb95383
+  * play_ldrive_style.axo: 5224773f-18de-4231-8f92-b1f22bb95384
+  * ldrive_safe.axo: 5224773f-18de-4231-8f92-b1f22bb95385
+  * play_1_simple.axo: 5224773f-18de-4231-8f92-b1f22bb95386
+  * param_write_int.axo: 5224773f-18de-4231-8f92-b1f22bb95387
+  * ldub_no_params.axo: 5224773f-18de-4231-8f92-b1f22bb95388
+  * midi_cc_send.axo: 5224773f-18de-4231-8f92-b1f22bb95389
+  * sketchy_params_midi_send.axo: 5224773f-18de-4231-8f92-b1f22bb9538A
+- **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
+- **MANDATORY**: Document all new UUIDs in this file immediately after creation
 
 ## Axoloti File Format Rules
 
@@ -62,10 +90,12 @@
 ❌ **WRONG**: .axo files with `<object>` root element  
 ❌ **WRONG**: Missing `x`, `y`, or `name` attributes in .axp files
 ❌ **WRONG**: Using `type="patch/object"` for custom objects
+❌ **WRONG**: Using underscores in inlet/outlet/attribute/parameter names
 
 ✅ **CORRECT**: .axo files use `<objdefs><obj.normal>` structure
 ✅ **CORRECT**: .axp files use `<patch><obj type="directory/name">` structure
 ✅ **CORRECT**: All .axp objects have positioning attributes
+✅ **CORRECT**: Use camelCase for inlet/outlet/attr/param names: `sequencelength` not `sequence_length`
 
 ### Memory Aid
 - .a**x**o = o**bject** definition = `<objdefs><obj.normal>` structure

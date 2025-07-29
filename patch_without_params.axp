@@ -1,0 +1,81 @@
+<patch appVersion="1.1.0">
+   <patchobj type="patch/object" uuid="378af07b-3f9b-4566-8231-c2f99c99466a" name="ldub_NEW_1" x="1722" y="1442">
+      <params/>
+      <attribs>
+         <objref attributeName="table" obj="sample"/>
+      </attribs>
+      <object id="patch/object" uuid="378af07b-3f9b-4566-8231-c2f99c99466a">
+         <sDescription>adds data to the content of a table,at inlet pos (in fraction of the table&apos;s size).feedback controls feedback amount.
+set the length of the fade-out period with &apos;release&apos;,
+the length of the fade-in of the recording with &apos;attack&apos;.</sDescription>
+         <author>robert schirmer</author>
+         <license>BSD</license>
+         <helpPatch>looper.axh</helpPatch>
+         <inlets>
+            <frac32buffer.positive name="pos" description="index in fraction of table size"/>
+            <frac32buffer name="wave" description="audio in"/>
+            <bool32.risingfalling name="overdub" description="overdub"/>
+            <frac32.positive name="feedback" description="feedback amount"/>
+            <frac32.positive name="attack" description="recording fade-in time"/>
+            <frac32.positive name="release" description="recording fade-out time"/>
+         </inlets>
+         <outlets>
+            <bool32 name="state" description="recording state with fade-out"/>
+         </outlets>
+         <displays/>
+         <params/>
+         <attribs>
+            <objref name="table"/>
+         </attribs>
+         <includes/>
+         <code.declaration><![CDATA[uint32_t csample;
+uint32_t dub;
+
+uint8_t shift;
+
+  int32_t env;
+  bool dubstate;
+  uint32_t attack;
+uint32_t release;]]></code.declaration>
+         <code.init><![CDATA[shift = 27-attr_table.LENGTHPOW;]]></code.init>
+         <code.krate><![CDATA[attack = inlet_attack;
+release = inlet_release;
+
+if (inlet_overdub) env = (1<<27) - (___SMMUL((1<<27)-env,attack)<<1);
+else env = ___SMMUL(env,release)<<1;
+dubstate = env;
+
+outlet_state = dubstate;]]></code.krate>
+         <code.srate><![CDATA[if (dubstate){
+
+csample =  (__USAT(inlet_pos,27)>>shift);
+dub= (___SMMUL((attr_table.array[csample]<<attr_table.GAIN),(inlet_feedback))<<5);
+
+attr_table.array[csample] =  (__SSAT((___SMMUL((inlet_wave),env)<<5) + dub,28 ))>>attr_table.GAIN;
+
+}]]></code.srate>
+      </object>
+   </patchobj>
+   <nets>
+      <net>
+         <source obj="in_1" outlet="wave"/>
+         <dest obj="+_1" inlet="in2"/>
+         <dest obj="sum3_1" inlet="in1"/>
+         <dest obj="ldub_NEW_1" inlet="wave"/>
+      </net>
+      <net>
+         <source obj="ldrive_2" outlet="pos"/>
+         <dest obj="ldub_NEW_1" inlet="pos"/>
+      </net>
+      <net>
+         <source obj="get_9" outlet="value"/>
+         <dest obj="ldub_NEW_1" inlet="feedback"/>
+      </net>
+      <net>
+         <source obj="mux_2" outlet="o"/>
+         <dest obj="vel_2" inlet="toggle"/>
+         <dest obj="ldub_NEW_1" inlet="overdub"/>
+      </net>
+   </nets>
+   <notes><![CDATA[]]></notes>
+</patch> 

@@ -1,0 +1,92 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="euclidean_step_length" uuid="5224773f-18de-4231-8f92-b1f22bb9537E">
+      <sDescription>Calculates the distance to the next step in a Euclidean sequence stored in a table. Works with 16-slot tracks. Outputs the length (steps until next hit) for any given index.</sDescription>
+      <author>Blindsmyth</author>
+      <license>BSD</license>
+      <inlets>
+         <int32 name="index" description="current position in sequence"/>
+         <int32 name="sequencelength" description="total length of sequence"/>
+         <int32 name="trackoffset" description="track offset in table (0, 16, 32, 48)"/>
+      </inlets>
+      <outlets>
+         <int32 name="length" description="distance to next step"/>
+         <bool32 name="isstep" description="true if current position is a step"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <objref name="table" description="table containing the sequence"/>
+      </attribs>
+      <code.declaration><![CDATA[int current_index;
+int current_sequence_length;
+int current_track_offset;
+int step_length;
+bool is_current_step;]]></code.declaration>
+      <code.init><![CDATA[current_index = 0;
+current_sequence_length = 16;
+current_track_offset = 0;
+step_length = 1;
+is_current_step = false;]]></code.init>
+      <code.krate><![CDATA[// Get current inputs
+current_index = inlet_index;
+current_sequence_length = inlet_sequencelength;
+current_track_offset = inlet_trackoffset;
+
+// Clamp values to valid ranges
+if(current_sequence_length < 1) current_sequence_length = 1;
+if(current_sequence_length > 16) current_sequence_length = 16;
+if(current_track_offset < 0) current_track_offset = 0;
+if(current_track_offset > 48) current_track_offset = 48;
+
+// Ensure index is within sequence bounds
+if(current_index < 0) current_index = 0;
+if(current_index >= current_sequence_length) current_index = current_sequence_length - 1;
+
+// Check if current position is a step (hit)
+int table_pos = current_track_offset + current_index;
+bool current_is_step = false;
+if(table_pos < attr_table.LENGTH) {
+    // Read table value like table read object does
+    int table_value = attr_table.array[__USAT(table_pos, attr_table.LENGTHPOW)] << attr_table.GAIN;
+    // Check if the value in table is non-zero (indicating a step)
+    current_is_step = (table_value != 0);
+}
+is_current_step = current_is_step;
+
+// Only update length when current position is a step (X)
+if(current_is_step) {
+    // Find the next step from current position
+    int next_step_pos = -1;
+    for(int i = 1; i <= current_sequence_length; i++) {
+        int check_pos = (current_index + i) % current_sequence_length;
+        int check_table_pos = current_track_offset + check_pos;
+        
+        if(check_table_pos < attr_table.LENGTH) {
+            int check_table_value = attr_table.array[__USAT(check_table_pos, attr_table.LENGTHPOW)] << attr_table.GAIN;
+            if(check_table_value != 0) {
+                next_step_pos = check_pos;
+                break;
+            }
+        }
+    }
+    
+    // Calculate distance to next step using the correct formula
+    if(next_step_pos < 0) {
+        step_length = current_sequence_length;
+    } else {
+        if(current_index < next_step_pos) {
+            // Normal case: current step index < next step index
+            step_length = next_step_pos - current_index;
+        } else {
+            // Edge case: current step index > next step index (wrapped around)
+            step_length = current_sequence_length - current_index + next_step_pos;
+        }
+    }
+}
+// If not a step, keep the previous length value
+
+// Output values
+outlet_length = step_length;
+outlet_isstep = is_current_step ? 1 : 0;]]></code.krate>
+   </obj.normal>
+</objdefs>

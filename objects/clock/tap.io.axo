@@ -1,0 +1,360 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="tap.io" uuid="3c191cd4-4638-4ea8-b7a6-21fae3772180">
+      <license>GPL</license>
+      <inlets>
+         <bool32.rising name="reset"/>
+         <bool32.rising name="play"/>
+         <bool32.rising name="start"/>
+         <bool32.rising name="stop"/>
+         <int32 name="samples" description="set clock by samples of 1 bar (only on change)"/>
+         <int32 name="factor"/>
+         <bool32 name="bpmPlus"/>
+         <bool32 name="bpmMinus"/>
+         <bool32 name="half"/>
+         <bool32 name="double"/>
+         <int32 name="beats"/>
+         <int32 name="measure"/>
+         <int32 name="syncmode"/>
+         <bool32 name="waitforstart"/>
+         <int32 name="bpm" description="BPM input from param table (only updates if value changes)"/>
+      </inlets>
+      <outlets>
+         <bool32 name="slave"/>
+         <int32 name="bpm"/>
+         <bool32.pulse name="24ppq"/>
+         <bool32 name="start"/>
+         <int32.positive name="24ppqsmp"/>
+         <int32.positive name="barsamples"/>
+         <bool32 name="playing"/>
+         <bool32 name="bpmChanged" description="Pulse when BPM changes (for param table updates)"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs/>
+      <code.declaration><![CDATA[// Local Data Section
+int isClockIncoming; // Flag to indicate if a clock is incoming
+int syncmode; // 0 = Auto only after Clock Dropping out switch to internal, 1 = Auto, after Midi Stop switch to Internal, 2 = External
+int waitforstart; // 0 = immediately start playing when 24ppq arrive, 1 = wait for midi start 
+
+bool samplesUpdateNeeded; // Flag to indicate if samples need to be updated
+bool factorUpdateNeeded; // Flag to indicate if factor needs to be updated
+bool reset; // Flag to indicate if a reset is needed
+
+// BPM input handling
+int32_t lastInletBpm; // Track last BPM input value
+bool bpmUpdateNeeded; // Flag to indicate if BPM input needs updating
+bool bpmFromExternal; // Flag to indicate if BPM was set from external clock
+bool bpmFromParam; // Flag to indicate if BPM was set from param table
+int32_t lastExternalBpm; // Track last BPM calculated from external clock
+bool bpmChangedFromExternal; // Pulse flag for external BPM changes
+
+// Measure
+int16_t timer;
+int lastInletReset;
+int32_t lastInletSamples;
+int32_t lastInletFactor;
+const int averageSteps = 96;
+int16_t averagePool[96];
+int averagePoolWriteIndex;
+float currentAverage;
+int shouldTrigger24Ppq;
+int midiStartTrigger;
+int barsamples;
+int prevBpmPlus;
+int prevBpmMinus;
+int prevHalf;
+int prevDouble;
+int lastPlay;
+int playing;
+int lastStart;
+int lastStop;
+int forceMaster;
+
+// Oscillator
+int32_t Phase;
+int32_t oldPhase;
+
+void calculateCurrentAverage(bool samplesUpdateNeeded, int inl_samples, bool factorUpdateNeeded, int inl_factor, int inl_beats, int inl_measure) {
+    if ((inl_samples > 0 && samplesUpdateNeeded) || factorUpdateNeeded) {
+        currentAverage = inl_samples / inl_factor;
+        barsamples = currentAverage * (inl_beats * (96 / inl_measure));
+    }
+}
+
+// Function to set BPM from external source (MIDI clock or param table)
+void setBpmFromExternal(float newBpm) {
+    if (newBpm > 0) {
+        currentAverage = 48000.0 / (newBpm / 2.5);
+        bpmFromExternal = true;
+        bpmFromParam = false;
+    }
+}
+
+// Function to set BPM from param table input
+void setBpmFromParam(int32_t newBpm) {
+    if (newBpm > 0 && newBpm != lastInletBpm) {
+        currentAverage = 48000.0 / ((float)newBpm / 2.5);
+        bpmFromParam = true;
+        bpmFromExternal = false;
+        lastInletBpm = newBpm;
+    }
+}
+
+void onMidi(int status) {
+    if (syncmode == 2) return; // Ignore external MIDI if in Internal mode
+
+    switch (status) {
+        case MIDI_TIMING_CLOCK:
+            measureClock();
+            // Only start playing if waitforstart is not set
+            if ((!playing) && (!waitforstart)) {
+                shouldTrigger24Ppq = true;
+                playing = 1; // Start playing
+                Phase = 0; // Reset phase
+                reset = true; // Notify reset
+            }
+            // If already playing, continue triggering pulses
+            if (playing) {
+                shouldTrigger24Ppq = true; // Continue triggering pulses
+            }
+            // If waitforstart is active, do not start playing
+            if ((!playing) && (waitforstart)) {
+                shouldTrigger24Ppq = false; // No pulses should be sent
+                playing = 0;
+                // Do not change playing state
+            }
+            break; // Ensure break is here
+
+        case MIDI_START:
+            shouldTrigger24Ppq = true;
+            playing = 1; // Start playing
+            Phase = 0; // Reset phase
+            reset = true; // Notify reset
+            midiStartTrigger = true; // Set MIDI start trigger
+            break;
+
+        case MIDI_STOP:
+            isClockIncoming = false;
+            if (syncmode == 0 || syncmode == 3) {
+                playing = 0; // Stop playback
+            } else if (syncmode == 1) {
+                shouldTrigger24Ppq = true; // Allow continuation
+                playing = 1; // Continue playing
+            }
+            break;
+    }
+    reset = false; // Clear reset after handling
+}
+
+// Function to activate the internal oscillator
+void activateInternalOscillator() {
+    playing = 1; // Ensure playback is active
+    isClockIncoming = false; // Disregard external clock
+    Phase = 0; // Reset phase for internal oscillator
+}
+
+// Measure samples since last call and calculate average
+void measureClock() {
+    isClockIncoming = true;
+    averagePool[averagePoolWriteIndex] = timer;
+    timer = 0;
+    averagePoolWriteIndex = (averagePoolWriteIndex >= averageSteps) ? 0 : averagePoolWriteIndex + 1;
+    currentAverage = 0;
+
+    for (int i = 0; i < averageSteps; i++) {
+        currentAverage += averagePool[i];
+    }
+    barsamples = currentAverage * lastInletFactor;
+    currentAverage /= averageSteps;
+    
+    // Calculate current BPM from external clock
+    int32_t currentExternalBpm = (int)(getBpm() + 0.5);
+    
+    // If we got BPM from external clock, mark it as external source
+    if (isClockIncoming) {
+        bpmFromExternal = true;
+        bpmFromParam = false;
+        
+        // Check if BPM changed from external source
+        if (currentExternalBpm != lastExternalBpm && lastExternalBpm > 0) {
+            bpmChangedFromExternal = true;
+        }
+        lastExternalBpm = currentExternalBpm;
+    }
+}
+
+// Return current calculated BPM from currentAverage (samples)
+float getBpm() {
+    return 48000.0 / currentAverage * 2.5;
+}
+
+bool get24ppq(bool reset) {
+    if (getStart(reset)) { // Check if reset is true
+        Phase = 0; // Reset Phase to 0
+    } else if (playing) { // If playing is active
+        double freq = 1000.0 / (currentAverage / 48.0);
+        Phase += int(1431655.7653 * freq); // Increment Phase based on frequency
+    }
+
+    int internalOscPulse = (oldPhase <= 0 && Phase > 0);
+    oldPhase = Phase;
+    bool result = false; // Initialize result to false
+
+    // Only calculate result if playing is active
+    if (playing) {
+        if (syncmode == 0) { // Auto mode
+            result = isClockIncoming ? shouldTrigger24Ppq : internalOscPulse;
+        } else if (syncmode == 1) { // Auto Speziale mode
+            result = isClockIncoming ? shouldTrigger24Ppq : internalOscPulse;
+        } else if (syncmode == 2) { // Internal mode
+            result = internalOscPulse; // Always use internal oscillator pulse
+        } else if (syncmode == 3) { // External mode
+            result = isClockIncoming ? shouldTrigger24Ppq : false; // Use shouldTrigger24Ppq if clock is incoming, else false
+        }
+    }
+
+    shouldTrigger24Ppq = false; // Reset the trigger for the next cycle
+    return result; // Return the result indicating whether a pulse should be sent
+}
+
+bool getStart(bool inl_reset) {
+    return midiStartTrigger || inl_reset; // Include rising edge of inlet_play
+}]]></code.declaration>
+      <code.init><![CDATA[averagePoolWriteIndex = 0;
+currentAverage = 1000;
+isClockIncoming = false;
+shouldTrigger24Ppq = false;
+midiStartTrigger = false;
+forceMaster = false;
+playing = 0;
+
+// Initialize handlestatus to a default value (e.g., 0)
+samplesUpdateNeeded = false; // Initialize samplesUpdateNeeded
+factorUpdateNeeded = false; // Initialize factorUpdateNeeded
+reset = false; // Initialize reset
+
+// Initialize BPM handling
+lastInletBpm = 120; // Default BPM
+bpmUpdateNeeded = false;
+bpmFromExternal = false;
+bpmFromParam = false;
+lastExternalBpm = 0; // Initialize lastExternalBpm
+bpmChangedFromExternal = false; // Initialize bpmChangedFromExternal
+
+// set default existing average to 120 bpm
+for (int i = 0; i < averageSteps; i++) {
+    averagePool[i] = currentAverage;
+}
+barsamples = 48000 * 2; // 120bpm
+
+prevBpmPlus = 0;
+prevBpmMinus = 0;]]></code.init>
+      <code.krate><![CDATA[// Main processing logic
+samplesUpdateNeeded = inlet_samples != lastInletSamples; // Check if samples need updating
+factorUpdateNeeded = inlet_factor != lastInletFactor; // Check if factor needs updating
+reset = inlet_reset && !lastInletReset; // Check for reset condition
+
+// Check for BPM input changes
+bpmUpdateNeeded = inlet_bpm != lastInletBpm;
+
+// Update playing state based on inlet_play
+if (inlet_play && !lastPlay) { // Check for rising edge
+    playing = !playing; // Toggle playing state
+    reset = 1;
+    lastInletReset = 0;
+}
+lastPlay = inlet_play; // Update lastPlay to the current state of inlet_play
+
+if (inlet_start && !lastStart) { // Check for rising edge
+    playing = 1; 
+    lastInletReset = 0;
+}
+lastStart = inlet_start;
+
+if (inlet_stop && !lastStop) { // Check for rising edge
+    playing = 0; // T
+}
+lastStop = inlet_stop; 
+
+if (isClockIncoming) {
+    playing = 1;
+}
+
+// Handle BPM input from param table (only if not from external clock)
+if (bpmUpdateNeeded && !bpmFromExternal) {
+    setBpmFromParam(inlet_bpm);
+}
+
+// Adjust BPM based on the new inlets (only if not from external clock or param table)
+if (!bpmFromExternal && !bpmFromParam) {
+    if (inlet_bpmPlus && !prevBpmPlus) {
+        // Increase BPM by 1
+        float newBpm = getBpm() + 1;
+        currentAverage = 48000.0 / (newBpm / 2.5); // Calculate new currentAverage for +1 BPM
+    } 
+    prevBpmPlus = inlet_bpmPlus;
+
+    if (inlet_bpmMinus && !prevBpmMinus) {
+        // Decrease BPM by 1
+        float newBpm = getBpm() - 1;
+        currentAverage = 48000.0 / (newBpm / 2.5); // Calculate new currentAverage for -1 BPM
+    } 
+    prevBpmMinus = inlet_bpmMinus;
+
+    // Handle half button
+    if (inlet_half && !prevHalf) {
+        currentAverage *= 2; // Double the current average
+    }
+    prevHalf = inlet_half; // Update prevHalf to the current state of inlet_half
+
+    // Handle double button
+    if (inlet_double && !prevDouble) {
+        currentAverage /= 2; // Halve the current average
+    }
+    prevDouble = inlet_double; // Update prevDouble to the current state of inlet_double
+} else {
+    // Reset button states when BPM is from external source
+    prevBpmPlus = inlet_bpmPlus;
+    prevBpmMinus = inlet_bpmMinus;
+    prevHalf = inlet_half;
+    prevDouble = inlet_double;
+}
+
+// Calculate current average based on samples and factor
+calculateCurrentAverage(samplesUpdateNeeded, inlet_samples, factorUpdateNeeded, inlet_factor, inlet_beats, inlet_measure);
+
+outlet_bpm = (int)(getBpm() + 0.5); // Output the current BPM
+outlet_slave = isClockIncoming;
+
+if (playing) {
+    outlet_24ppq = get24ppq(reset);
+}
+
+outlet_start = getStart(reset);
+outlet_24ppqsmp = (int)currentAverage;
+outlet_barsamples = barsamples;
+
+// Output BPM change pulse when BPM changes from external source
+outlet_bpmChanged = bpmChangedFromExternal;
+
+lastInletReset = inlet_reset;
+lastInletSamples = inlet_samples;
+lastInletFactor = inlet_factor;
+
+midiStartTrigger = false;
+bpmChangedFromExternal = false; // Reset the pulse flag
+outlet_playing = playing;
+
+syncmode = inlet_syncmode; 
+waitforstart = inlet_waitforstart;]]></code.krate>
+      <code.srate><![CDATA[if(isClockIncoming) {
+    timer++;
+} else {
+    timer = 0;
+}
+if(timer >= 12000) {
+    isClockIncoming = false;
+}]]></code.srate>
+      <code.midihandler><![CDATA[onMidi(status);]]></code.midihandler>
+   </obj.normal>
+</objdefs>
