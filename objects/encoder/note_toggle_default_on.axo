@@ -1,0 +1,60 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="note_toggle_default_on" uuid="5224773f-18de-4231-8f92-b1f22bb95391">
+      <sDescription>sends note velocities,no gate,no bullshit.for controllers that feel like receiving them. Toggle defaults to ON.</sDescription>
+      <author>robert schirmer</author>
+      <license>BSD</license>
+      <helpPatch>midi_out.axh</helpPatch>
+      <inlets>
+         <int32 name="startnote"/>
+         <bool32.rising name="toggle"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params>
+         <int32 name="startnote" noLabel="true">
+            <MinValue i="0"/>
+            <MaxValue i="127"/>
+         </int32>
+      </params>
+      <attribs>
+         <combo name="device">
+            <MenuEntries>
+               <string>din</string>
+               <string>usb host port 1</string>
+               <string>usb host port 2</string>
+               <string>usb host port 3</string>
+               <string>usb host port 4</string>
+               <string>internal port 1</string>
+               <string>internal port 2</string>
+               <string>usb device port 1</string>
+            </MenuEntries>
+            <CEntries>
+               <string>MIDI_DEVICE_DIN, 1</string>
+               <string>MIDI_DEVICE_USB_HOST, 1</string>
+               <string>MIDI_DEVICE_USB_HOST, 2</string>
+               <string>MIDI_DEVICE_USB_HOST, 3</string>
+               <string>MIDI_DEVICE_USB_HOST, 4</string>
+               <string>MIDI_DEVICE_INTERNAL, 1</string>
+               <string>MIDI_DEVICE_INTERNAL, 2</string>
+               <string>MIDI_DEVICE_USB_DEVICE, 1</string>
+            </CEntries>
+         </combo>
+         <spinner name="channel" MinValue="1" MaxValue="16" DefaultValue="0"/>
+         <spinner name="coloron" MinValue="0" MaxValue="127" DefaultValue="0"/>
+         <spinner name="coloroff" MinValue="0" MaxValue="127" DefaultValue="0"/>
+      </attribs>
+      <includes/>
+      <code.declaration><![CDATA[uint8_t prevtoggle;
+uint8_t startnote;]]></code.declaration>
+      <code.init><![CDATA[prevtoggle = 1; // Initialize to on state so object starts in "on" mode]]></code.init>
+      <code.krate><![CDATA[startnote = param_startnote + inlet_startnote;
+
+// Handle toggle state changes
+if ((inlet_toggle != prevtoggle)&&(inlet_toggle > 0)) {
+MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1),startnote,attr_coloron);  prevtoggle = inlet_toggle;
+}
+if ((inlet_toggle != prevtoggle)&&(inlet_toggle == 0)) {
+MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1),startnote,attr_coloroff);  prevtoggle = inlet_toggle;
+}]]></code.krate>
+   </obj.normal>
+</objdefs>

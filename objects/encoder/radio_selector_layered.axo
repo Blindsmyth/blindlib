@@ -1,0 +1,91 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="radio_selector_layered" uuid="5224773f-18de-4231-8f92-b1f22bb9538C">
+      <sDescription>Radio-type integer selector for 2x4 Launchpad grid. Accepts MIDI notes 36-39,44-47 (with gap) and maps to continuous table positions 0-7. Layer switching via offset inlet.</sDescription>
+      <author>AI Assistant</author>
+      <license>BSD</license>
+      <inlets>
+         <int32 name="note" description="MIDI note input (36-39,44-47 with gap)"/>
+         <int32 name="value" description="Value to write when selected"/>
+         <bool32 name="enable" description="Enable radio selection"/>
+         <int32 name="offset" description="Table offset for layer switching"/>
+      </inlets>
+      <outlets>
+         <int32 name="index" description="Mapped index (0-3,8-11) matching Launchpad layout"/>
+         <int32 name="tablepos" description="Actual table position written"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <objref name="table"/>
+      </attribs>
+      <includes/>
+      <code.declaration><![CDATA[int last_note;
+int current_index;
+int table_position;
+
+// Map MIDI notes to table positions matching Launchpad visual layout
+// MIDI Notes: 36,37,38,39,44,45,46,47 -> Table positions: 0,1,2,3,8,9,10,11
+// This accounts for the gap in MIDI notes (40-43 missing) to match LED positions
+int getMappedIndex(int note) {
+    if (note >= 36 && note <= 39) {
+        return note - 36;  // Maps 36-39 to 0-3 (first row)
+    } else if (note >= 44 && note <= 47) {
+        return (note - 36);  // Maps 44-47 to 8-11 (second row with gap)
+    }
+    return -1; // Invalid note
+}
+
+// Function to clear all radio buttons (includes gap positions)
+void clearAllRadioButtons(int offset) {
+    // Clear first row (positions 0-3)
+    for (int i = 0; i < 4; i++) {
+        attr_table.array[i + offset] = 0;
+    }
+    // Clear second row (positions 8-11, accounting for gap)
+    for (int i = 8; i < 12; i++) {
+        attr_table.array[i + offset] = 0;
+    }
+}
+
+// Function to set radio button value at specific index
+void setRadioValue(int index, int value, int offset) {
+    if (index >= 0 && index <= 11) {  // Handle range 0-3 and 8-11
+        int table_pos = index + offset;
+        attr_table.array[table_pos] = value;
+        table_position = table_pos;
+    }
+}
+
+// Function to check if note is in valid range
+bool isValidNote(int note) {
+    return ((note >= 36 && note <= 39) || (note >= 44 && note <= 47));
+}]]></code.declaration>
+      <code.init><![CDATA[last_note = -1;
+current_index = -1;
+table_position = -1;]]></code.init>
+      <code.krate><![CDATA[// Process input note
+if (inlet_enable && inlet_note != last_note) {
+    // Check if note is in valid range
+    if (isValidNote(inlet_note)) {
+        // Get continuous index (0-7) from gapped MIDI notes
+        int index = getMappedIndex(inlet_note);
+        
+        if (index >= 0) {
+            // Clear all radio buttons in current layer (offset determines layer)
+            clearAllRadioButtons(inlet_offset);
+            
+            // Set the selected position
+            setRadioValue(index, inlet_value, inlet_offset);
+            
+            // Update current state
+            current_index = index;
+            last_note = inlet_note;
+        }
+    }
+}
+
+// Update outlets
+outlet_index = current_index;
+outlet_tablepos = table_position;]]></code.krate>
+   </obj.normal>
+</objdefs>

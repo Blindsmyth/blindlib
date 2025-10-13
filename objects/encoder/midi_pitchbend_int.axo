@@ -1,0 +1,63 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="midi_pitchbend_int" uuid="5224773f-18de-4231-8f92-b1f22bb9538B">
+      <sDescription>MIDI pitch bend output with integer input (0-16383)</sDescription>
+      <author>Modified from Johannes Taelman original</author>
+      <license>BSD</license>
+      <helpPatch>midi_out.axh</helpPatch>
+      <inlets>
+         <int32 name="bendvalue" description="pitch bend value (0-16383)"/>
+         <bool32.rising name="trig" description="trigger"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs>
+         <combo name="device">
+            <MenuEntries>
+               <string>din</string>
+               <string>usb host port 1</string>
+               <string>usb host port 2</string>
+               <string>usb host port 3</string>
+               <string>usb host port 4</string>
+               <string>internal port 1</string>
+               <string>internal port 2</string>
+               <string>usb device port 1</string>
+            </MenuEntries>
+            <CEntries>
+               <string>MIDI_DEVICE_DIN, 1</string>
+               <string>MIDI_DEVICE_USB_HOST, 1</string>
+               <string>MIDI_DEVICE_USB_HOST, 2</string>
+               <string>MIDI_DEVICE_USB_HOST, 3</string>
+               <string>MIDI_DEVICE_USB_HOST, 4</string>
+               <string>MIDI_DEVICE_INTERNAL, 1</string>
+               <string>MIDI_DEVICE_INTERNAL, 2</string>
+               <string>MIDI_DEVICE_USB_DEVICE, 1</string>
+            </CEntries>
+         </combo>
+         <spinner name="channel" MinValue="1" MaxValue="16" DefaultValue="0"/>
+      </attribs>
+      <includes/>
+      <code.declaration><![CDATA[int ntrig;
+
+void SendMidi3(uint8_t b0,uint8_t b1,uint8_t b2){
+  sdPut(&SD2,b0);
+  sdPut(&SD2,b1);
+  sdPut(&SD2,b2);
+}]]></code.declaration>
+      <code.krate><![CDATA[if ((inlet_trig>0) && !ntrig) {
+  // Clamp input to valid range (0-16383)
+  int bendval = inlet_bendvalue;
+  if (bendval < 0) bendval = 0;
+  if (bendval > 16383) bendval = 16383;
+  
+  // Convert to MIDI pitch bend format: LSB (7 bits) and MSB (7 bits)
+  uint8_t lsb = bendval & 0x7F;        // Lower 7 bits
+  uint8_t msb = (bendval >> 7) & 0x7F; // Upper 7 bits
+  
+  SendMidi3(MIDI_PITCH_BEND + (attr_channel-1), lsb, msb);
+  ntrig=1;
+}
+if (!(inlet_trig>0)) ntrig=0;]]></code.krate>
+   </obj.normal>
+</objdefs>
+

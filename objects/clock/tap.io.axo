@@ -54,7 +54,7 @@ int lastInletReset;
 int32_t lastInletSamples;
 int32_t lastInletFactor;
 const int averageSteps = 96;
-int16_t averagePool[96];
+int16_t averagePool[96];  // Will go to CCMSRAM (uninitialized)
 int averagePoolWriteIndex;
 float currentAverage;
 int shouldTrigger24Ppq;
@@ -241,15 +241,22 @@ bpmFromParam = false;
 lastExternalBpm = 0; // Initialize lastExternalBpm
 bpmChangedFromExternal = false; // Initialize bpmChangedFromExternal
 
-// set default existing average to 120 bpm
-for (int i = 0; i < averageSteps; i++) {
-    averagePool[i] = currentAverage;
-}
+// Initialize averagePool to default values (will be done in krate on first run)
+// averagePool goes to CCMSRAM since it's not initialized here
 barsamples = 48000 * 2; // 120bpm
 
 prevBpmPlus = 0;
 prevBpmMinus = 0;]]></code.init>
-      <code.krate><![CDATA[// Main processing logic
+      <code.krate><![CDATA[// Initialize averagePool on first run (since it's in CCMSRAM)
+static bool averagePoolInitialized = false;
+if (!averagePoolInitialized) {
+    for (int i = 0; i < averageSteps; i++) {
+        averagePool[i] = currentAverage;
+    }
+    averagePoolInitialized = true;
+}
+
+// Main processing logic
 samplesUpdateNeeded = inlet_samples != lastInletSamples; // Check if samples need updating
 factorUpdateNeeded = inlet_factor != lastInletFactor; // Check if factor needs updating
 reset = inlet_reset && !lastInletReset; // Check for reset condition

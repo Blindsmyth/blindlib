@@ -1,0 +1,40 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="prm_vol_pitch" uuid="8f9a0b1c-2d3e-4f5a-6b7c-8d9e0f1a2b3c">
+      <sDescription>RBRT smplr parameter control for volume and pitch. Based on Robert's prm pattern.</sDescription>
+      <license>GPL</license>
+      <inlets>
+         <int32.positive name="slot" description="Slot number (0-3)"/>
+         <frac32.positive name="vol" description="Volume (0.0-1.0)"/>
+         <frac32.positive name="pitch" description="Pitch (0.0-1.0)"/>
+      </inlets>
+      <outlets>
+         <frac32.positive name="vol" description="Current volume"/>
+         <frac32.positive name="pitch" description="Current pitch"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs/>
+      <includes>
+         <include>../../../../Axolonatics/objects/rbrt_new/rbrt_classes/Smplr.h</include>
+      </includes>
+      <code.declaration><![CDATA[Smplr smplr;
+int32_t prev_vol, prev_pitch;]]></code.declaration>
+      <code.init><![CDATA[prev_vol = -1;
+prev_pitch = -1;]]></code.init>
+      <code.krate><![CDATA[uint16_t adr = inlet_slot << 7;  // slot * 128
+
+// Volume control (parameter 8)
+if (inlet_vol != prev_vol) {
+    smplr.prm[adr + 8] = inlet_vol;  // Direct write, no shift needed for frac32
+    prev_vol = inlet_vol;
+}
+outlet_vol = smplr.prm[adr + 8];
+
+// Pitch control (parameter 7) 
+if (inlet_pitch != prev_pitch) {
+    smplr.prm[adr + 7] = inlet_pitch;  // Direct write, no shift needed for frac32
+    prev_pitch = inlet_pitch;
+}
+outlet_pitch = smplr.prm[adr + 7];]]></code.krate>
+   </obj.normal>
+</objdefs>

@@ -1,0 +1,95 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="vel 8x" uuid="b2c3d4e5-f6g7-8901-bcde-f23456789012">
+      <sDescription>Sends 8 note velocities, no gate, no bullshit. For controllers that feel like receiving them. Each velocity change sends a MIDI Note On message.</sDescription>
+      <author>Robert Schirmer / AI Assistant</author>
+      <license>BSD</license>
+      <helpPatch>midi_out.axh</helpPatch>
+      <inlets>
+         <int32 name="startnote" description="starting MIDI note number"/>
+         <int32 name="v0" description="velocity for note 0"/>
+         <int32 name="v1" description="velocity for note 1"/>
+         <int32 name="v2" description="velocity for note 2"/>
+         <int32 name="v3" description="velocity for note 3"/>
+         <int32 name="v4" description="velocity for note 4"/>
+         <int32 name="v5" description="velocity for note 5"/>
+         <int32 name="v6" description="velocity for note 6"/>
+         <int32 name="v7" description="velocity for note 7"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params>
+         <int32 name="startnote" noLabel="true">
+            <MinValue i="0"/>
+            <MaxValue i="127"/>
+         </int32>
+      </params>
+      <attribs>
+         <combo name="device">
+            <MenuEntries>
+               <string>din</string>
+               <string>usb host port 1</string>
+               <string>usb host port 2</string>
+               <string>usb host port 3</string>
+               <string>usb host port 4</string>
+               <string>internal port 1</string>
+               <string>internal port 2</string>
+               <string>usb device port 1</string>
+            </MenuEntries>
+            <CEntries>
+               <string>MIDI_DEVICE_DIN, 1</string>
+               <string>MIDI_DEVICE_USB_HOST, 1</string>
+               <string>MIDI_DEVICE_USB_HOST, 2</string>
+               <string>MIDI_DEVICE_USB_HOST, 3</string>
+               <string>MIDI_DEVICE_USB_HOST, 4</string>
+               <string>MIDI_DEVICE_INTERNAL, 1</string>
+               <string>MIDI_DEVICE_INTERNAL, 2</string>
+               <string>MIDI_DEVICE_USB_DEVICE, 1</string>
+            </CEntries>
+         </combo>
+         <spinner name="channel" MinValue="1" MaxValue="16" DefaultValue="1"/>
+      </attribs>
+      <includes/>
+      <code.declaration><![CDATA[uint8_t prev0;
+uint8_t prev1;
+uint8_t prev2;
+uint8_t prev3;
+uint8_t prev4;
+uint8_t prev5;
+uint8_t prev6;
+uint8_t prev7;
+uint8_t startnote;]]></code.declaration>
+      <code.krate><![CDATA[startnote = param_startnote + inlet_startnote;
+
+if (inlet_v0 != prev0) {
+MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1),startnote,inlet_v0);  prev0 = inlet_v0;
+}
+
+if (inlet_v1 != prev1) {
+MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1),startnote + 1,inlet_v1);  prev1 = inlet_v1;
+}
+
+if (inlet_v2 != prev2) {
+MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1),startnote + 2,inlet_v2);  prev2 = inlet_v2;
+}
+
+if (inlet_v3 != prev3) {
+MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1),startnote + 3,inlet_v3);  prev3 = inlet_v3;
+}
+
+if (inlet_v4 != prev4) {
+MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1),startnote + 4,inlet_v4);  prev4 = inlet_v4;
+}
+
+if (inlet_v5 != prev5) {
+MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1),startnote + 5,inlet_v5);  prev5 = inlet_v5;
+}
+
+if (inlet_v6 != prev6) {
+MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1),startnote + 6,inlet_v6);  prev6 = inlet_v6;
+}
+
+if (inlet_v7 != prev7) {
+MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1),startnote + 7,inlet_v7);  prev7 = inlet_v7;
+}]]></code.krate>
+   </obj.normal>
+</objdefs>

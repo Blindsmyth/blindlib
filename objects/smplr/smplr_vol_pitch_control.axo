@@ -1,0 +1,62 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="smplr_vol_pitch_control" uuid="7e8f9a0b-1c2d-3e4f-5a6b-7c8d9e0f1a2b">
+      <sDescription>Direct control of RBRT smplr volume and pitch parameters for slots 0-3. Unidirectional - inlets control smplr.prm directly.</sDescription>
+      <author>AI Assistant</author>
+      <license>BSD</license>
+      <inlets>
+         <frac32.positive name="vol0" description="Volume for slot 0 (0.0-1.0)"/>
+         <frac32 name="pitch0" description="Pitch for slot 0 (signed, centered at 0)"/>
+         <frac32.positive name="vol1" description="Volume for slot 1 (0.0-1.0)"/>
+         <frac32 name="pitch1" description="Pitch for slot 1 (signed, centered at 0)"/>
+         <frac32.positive name="vol2" description="Volume for slot 2 (0.0-1.0)"/>
+         <frac32 name="pitch2" description="Pitch for slot 2 (signed, centered at 0)"/>
+         <frac32.positive name="vol3" description="Volume for slot 3 (0.0-1.0)"/>
+         <frac32 name="pitch3" description="Pitch for slot 3 (signed, centered at 0)"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs/>
+      <includes>
+         <include>../../../Axolonatics/objects/rbrt_new/rbrt_classes/Smplr.h</include>
+      </includes>
+      <code.declaration><![CDATA[Smplr smplr;
+
+// RBRT parameter offsets (from Smplr.h documentation)
+#define VOL_OFFSET 8    // Volume parameter
+#define PBASE_OFFSET 7  // Base pitch parameter
+
+// Convert frac32 to RBRT format (pass through, already correct format)
+int32_t frac_to_rbrt_positive(int32_t frac_value) {
+    // Clamp to 0.0-1.0 range for volume
+    if (frac_value < 0) frac_value = 0;
+    if (frac_value > 0x08000000) frac_value = 0x08000000;
+    return frac_value;
+}
+
+// Pitch values are signed frac32, no conversion needed
+int32_t frac_to_rbrt_signed(int32_t frac_value) {
+    return frac_value;
+}]]></code.declaration>
+      <code.init><![CDATA[]]></code.init>
+      <code.krate><![CDATA[// Slot 0
+uint16_t adr0 = 0 * 128;
+smplr.prm[adr0 + VOL_OFFSET] = frac_to_rbrt_positive(inlet_vol0);
+smplr.prm[adr0 + PBASE_OFFSET] = frac_to_rbrt_signed(inlet_pitch0);
+
+// Slot 1
+uint16_t adr1 = 1 * 128;
+smplr.prm[adr1 + VOL_OFFSET] = frac_to_rbrt_positive(inlet_vol1);
+smplr.prm[adr1 + PBASE_OFFSET] = frac_to_rbrt_signed(inlet_pitch1);
+
+// Slot 2
+uint16_t adr2 = 2 * 128;
+smplr.prm[adr2 + VOL_OFFSET] = frac_to_rbrt_positive(inlet_vol2);
+smplr.prm[adr2 + PBASE_OFFSET] = frac_to_rbrt_signed(inlet_pitch2);
+
+// Slot 3
+uint16_t adr3 = 3 * 128;
+smplr.prm[adr3 + VOL_OFFSET] = frac_to_rbrt_positive(inlet_vol3);
+smplr.prm[adr3 + PBASE_OFFSET] = frac_to_rbrt_signed(inlet_pitch3);]]></code.krate>
+   </obj.normal>
+</objdefs>

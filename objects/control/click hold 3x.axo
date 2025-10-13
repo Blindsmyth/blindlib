@@ -1,0 +1,137 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="click hold 3x" uuid="a1b2c3d4-e5f6-7890-abcd-ef1234567890">
+      <sDescription>3-button click/hold detector. Each button can detect short clicks, long holds, and provides separate outputs for each state. Long hold threshold is configurable per button.</sDescription>
+      <author>Robert Schirmer / AI Assistant</author>
+      <license>BSD</license>
+      <helpPatch>control overview.axh</helpPatch>
+      <inlets>
+         <bool32.risingfalling name="button1" description="button 1 input"/>
+         <bool32.risingfalling name="button2" description="button 2 input"/>
+         <bool32.risingfalling name="button3" description="button 3 input"/>
+      </inlets>
+      <outlets>
+         <bool32.pulse name="click1" description="button 1 short click"/>
+         <bool32.pulse name="hold1" description="button 1 long hold"/>
+         <bool32.pulse name="click2" description="button 2 short click"/>
+         <bool32.pulse name="hold2" description="button 2 long hold"/>
+         <bool32.pulse name="click3" description="button 3 short click"/>
+         <bool32.pulse name="hold3" description="button 3 long hold"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="long1" description="long hold threshold for button 1 (ms)">
+            <MinValue>100</MinValue>
+            <MaxValue>5000</MaxValue>
+            <DefaultValue>800</DefaultValue>
+         </spinner>
+         <spinner name="long2" description="long hold threshold for button 2 (ms)">
+            <MinValue>100</MinValue>
+            <MaxValue>5000</MaxValue>
+            <DefaultValue>800</DefaultValue>
+         </spinner>
+         <spinner name="long3" description="long hold threshold for button 3 (ms)">
+            <MinValue>100</MinValue>
+            <MaxValue>5000</MaxValue>
+            <DefaultValue>800</DefaultValue>
+         </spinner>
+      </attribs>
+      <code.declaration><![CDATA[// Button 1 state
+bool btn1_pressed;
+bool btn1_long_triggered;
+uint32_t btn1_timer;
+
+// Button 2 state  
+bool btn2_pressed;
+bool btn2_long_triggered;
+uint32_t btn2_timer;
+
+// Button 3 state
+bool btn3_pressed;
+bool btn3_long_triggered;
+uint32_t btn3_timer;
+
+// Convert ms to ticks (assuming 48kHz sample rate)
+uint32_t long1_ticks = attr_long1 * 48;
+uint32_t long2_ticks = attr_long2 * 48;
+uint32_t long3_ticks = attr_long3 * 48;]]></code.declaration>
+      <code.krate><![CDATA[// Button 1 logic
+if (inlet_button1 && !btn1_pressed) {
+    // Button pressed
+    btn1_pressed = 1;
+    btn1_long_triggered = 0;
+    btn1_timer = 0;
+} else if (!inlet_button1 && btn1_pressed) {
+    // Button released
+    btn1_pressed = 0;
+    if (!btn1_long_triggered) {
+        // Short click
+        outlet_click1 = 1;
+    }
+    btn1_long_triggered = 0;
+} else if (btn1_pressed && !btn1_long_triggered) {
+    // Check for long hold
+    btn1_timer++;
+    if (btn1_timer >= long1_ticks) {
+        btn1_long_triggered = 1;
+        outlet_hold1 = 1;
+    }
+} else {
+    outlet_click1 = 0;
+    outlet_hold1 = 0;
+}
+
+// Button 2 logic
+if (inlet_button2 && !btn2_pressed) {
+    // Button pressed
+    btn2_pressed = 1;
+    btn2_long_triggered = 0;
+    btn2_timer = 0;
+} else if (!inlet_button2 && btn2_pressed) {
+    // Button released
+    btn2_pressed = 0;
+    if (!btn2_long_triggered) {
+        // Short click
+        outlet_click2 = 1;
+    }
+    btn2_long_triggered = 0;
+} else if (btn2_pressed && !btn2_long_triggered) {
+    // Check for long hold
+    btn2_timer++;
+    if (btn2_timer >= long2_ticks) {
+        btn2_long_triggered = 1;
+        outlet_hold2 = 1;
+    }
+} else {
+    outlet_click2 = 0;
+    outlet_hold2 = 0;
+}
+
+// Button 3 logic
+if (inlet_button3 && !btn3_pressed) {
+    // Button pressed
+    btn3_pressed = 1;
+    btn3_long_triggered = 0;
+    btn3_timer = 0;
+} else if (!inlet_button3 && btn3_pressed) {
+    // Button released
+    btn3_pressed = 0;
+    if (!btn3_long_triggered) {
+        // Short click
+        outlet_click3 = 1;
+    }
+    btn3_long_triggered = 0;
+} else if (btn3_pressed && !btn3_long_triggered) {
+    // Check for long hold
+    btn3_timer++;
+    if (btn3_timer >= long3_ticks) {
+        btn3_long_triggered = 1;
+        outlet_hold3 = 1;
+    }
+} else {
+    outlet_click3 = 0;
+    outlet_hold3 = 0;
+}]]></code.krate>
+      <code.srate><![CDATA[]]></code.srate>
+   </obj.normal>
+</objdefs>

@@ -1,0 +1,197 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sketchy_params_midi_send_lean" uuid="5224773f-18de-4231-8f92-b1f22bb9540A">
+      <sDescription>Lean version: Minimal RAM usage with responsive scanning. Redraw sends all pages with throttling.</sDescription>
+      <author>AI Assistant / Simon</author>
+      <license>BSD</license>
+      <inlets>
+         <int32 name="page" description="Current page to send (0-based)"/>
+         <int32 name="startcc" description="Starting CC number"/>
+         <bool32.rising name="redraw" description="Force resend all parameters"/>
+         <bool32 name="active" description="Enable/disable sending"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="channel" description="MIDI channel" MinValue="1" MaxValue="16" DefaultValue="1"/>
+         <spinner name="maxparams" description="Parameters per page" MinValue="1" MaxValue="8" DefaultValue="8"/>
+         <spinner name="maxpages" description="Maximum pages for redraw" MinValue="1" MaxValue="64" DefaultValue="9"/>
+      </attribs>
+      <includes/>
+      <depends>
+         <depend>SD2</depend>
+         <depend>sketchy_params</depend>
+         <depend>sketchy_dials</depend>
+      </depends>
+      <code.declaration><![CDATA[// Minimal RAM usage - only what's needed
+int32_t prev[8];
+int8_t last_page;
+uint8_t scan_idx;
+uint8_t redraw_active; // Currently resending all pages
+uint8_t redraw_idx;    // Combined page+param index for redraw
+uint8_t prev_redraw;   // For rising edge detection
+
+// Mode constants (matching sketchy_dials)
+#define MODE_DUPLICATE 6
+
+// Inline send to avoid function call overhead
+#define SEND_CC(ch, cc, val) \
+    if (sdGetTimeout(&SD2, TIME_IMMEDIATE) == MSG_TIMEOUT) { \
+        sdPut(&SD2, MIDI_CONTROL_CHANGE + (ch)); \
+        sdPut(&SD2, (cc)); \
+        sdPut(&SD2, (val)); \
+    }
+
+// Parse duplicate reference "page,param" → returns original CC number
+uint8_t get_original_cc(uint8_t page, uint8_t param, uint8_t startcc) {
+    // Safety check bounds
+    if (page >= 64 || param >= 8) {
+        return startcc + param + (page * attr_maxparams);
+    }
+    
+    // Access sketchy_dials instance
+    auto& config = parent->objectinstance_sketchy__dials_i.configs[page][param];
+    
+    // Check if this is a duplicate mode
+    if (config.mode == MODE_DUPLICATE) {
+        const char* opts = config.options;
+        
+        // Parse "page,param" format (e.g. "5,0" means page 5 param 0)
+        if (opts && opts[0] >= '0' && opts[0] <= '9') {
+            uint8_t ref_page = opts[0] - '0';
+            
+            // Check for comma and second digit
+            if (opts[1] == ',') {
+                uint8_t ref_param = 0;
+                
+                // Handle single or double digit param
+                if (opts[2] >= '0' && opts[2] <= '9') {
+                    ref_param = opts[2] - '0';
+                    
+                    // If there's another digit, it's a two-digit number
+                    if (opts[3] >= '0' && opts[3] <= '9') {
+                        ref_param = ref_param * 10 + (opts[3] - '0');
+                    }
+                    
+                    // Bounds check the reference
+                    if (ref_page < 64 && ref_param < attr_maxparams) {
+                        // Return CC number for the original parameter
+                        return startcc + ref_param + (ref_page * attr_maxparams);
+                    }
+                }
+            }
+        }
+    }
+    
+    // Not a duplicate or invalid reference - return normal CC
+    return startcc + param + (page * attr_maxparams);
+}]]></code.declaration>
+      <code.init><![CDATA[for (int i = 0; i < 8; i++) prev[i] = 0x7FFFFFFF;
+last_page = -1;
+scan_idx = 0;
+redraw_active = 0;
+redraw_idx = 0;
+prev_redraw = 0;]]></code.init>
+      <code.krate><![CDATA[if (!inlet_active) return;
+
+rootc::objectinstance_sketchy__params* ptbl = &parent->objectinstance_sketchy__params_i;
+uint8_t ch = attr_channel - 1;
+
+// --- REDRAW TRIGGER: Pulse/rising edge detection ---
+// On rising edge, start redraw process
+if ((inlet_redraw > 0) && !prev_redraw) {
+    redraw_active = 1;
+    redraw_idx = 0;
+}
+prev_redraw = inlet_redraw > 0;
+
+// --- REDRAW MODE: Send all pages until complete ---
+if (redraw_active) {
+    uint8_t total = attr_maxpages * attr_maxparams;
+    uint8_t startcc = inlet_startcc;
+    
+    // Send 2 params per cycle until all sent
+    for (int i = 0; i < 2 && redraw_idx < total; i++, redraw_idx++) {
+        uint8_t pg = redraw_idx / attr_maxparams;
+        uint8_t pm = redraw_idx % attr_maxparams;
+        
+        // Check if duplicate and get source page/param
+        uint8_t src_pg = pg;
+        uint8_t src_pm = pm;
+        
+        if (pg < 64 && pm < 8) {
+            auto& cfg = parent->objectinstance_sketchy__dials_i.configs[pg][pm];
+            if (cfg.mode == MODE_DUPLICATE && cfg.options) {
+                // Parse reference "page,param"
+                const char* opts = cfg.options;
+                if (opts[0] >= '0' && opts[0] <= '9' && opts[1] == ',' && opts[2] >= '0' && opts[2] <= '7') {
+                    src_pg = opts[0] - '0';
+                    src_pm = opts[2] - '0';
+                }
+            }
+        }
+        
+        // Get CC number for the original (not duplicate)
+        uint8_t cc = startcc + src_pm + (src_pg * attr_maxparams);
+        
+        if (cc <= 127) {
+            // Read value from the SOURCE location (not duplicate location)
+            uint8_t val = (uint8_t)(__USAT(ptbl->array[src_pg][src_pm] >> 20, 7));
+            SEND_CC(ch, cc, val);
+        }
+    }
+    // Finished all pages? Stop redraw
+    if (redraw_idx >= total) {
+        redraw_active = 0;
+    }
+    return; // Don't do normal scanning during redraw
+}
+
+// --- NORMAL: Scan current page ---
+int8_t pg = inlet_page;
+if (pg < 0) pg = 0;
+uint8_t startcc = inlet_startcc;
+
+if (pg != last_page) {
+    for (int i = 0; i < attr_maxparams; i++) prev[i] = 0x7FFFFFFF;
+    last_page = pg;
+    scan_idx = 0;
+}
+
+// Scan 2 params per cycle
+for (int i = 0; i < 2; i++) {
+    if (scan_idx >= attr_maxparams) scan_idx = 0;
+    
+    // Check if this is a duplicate parameter
+    uint8_t src_pg = pg;
+    uint8_t src_pm = scan_idx;
+    
+    if (pg < 64 && scan_idx < 8) {
+        auto& cfg = parent->objectinstance_sketchy__dials_i.configs[pg][scan_idx];
+        if (cfg.mode == MODE_DUPLICATE && cfg.options) {
+            // Parse reference "page,param"
+            const char* opts = cfg.options;
+            if (opts[0] >= '0' && opts[0] <= '9' && opts[1] == ',' && opts[2] >= '0' && opts[2] <= '7') {
+                src_pg = opts[0] - '0';
+                src_pm = opts[2] - '0';
+            }
+        }
+    }
+    
+    // Read value from SOURCE location (original for duplicates)
+    int32_t val = ptbl->array[src_pg][src_pm];
+    if (val != prev[scan_idx]) {
+        // Get CC number for the original
+        uint8_t cc = startcc + src_pm + (src_pg * attr_maxparams);
+        
+        if (cc <= 127) {
+            uint8_t mval = (uint8_t)(__USAT(val >> 20, 7));
+            SEND_CC(ch, cc, mval);
+            prev[scan_idx] = val;
+        }
+    }
+    scan_idx++;
+}]]></code.krate>
+   </obj.normal>
+</objdefs>
+

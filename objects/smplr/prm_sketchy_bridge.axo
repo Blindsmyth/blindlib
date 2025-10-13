@@ -1,0 +1,96 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="prm_sketchy_bridge" uuid="5224773f-18de-4231-8f92-b1f22bb953a2">
+      <sDescription>Bidirectional bridge between RBRT prm system and Sketchy parameter system. Continuously pushes encoder changes to RBRT, and pulls from RBRT when triggered (e.g., after reset).</sDescription>
+      <author>AI Assistant</author>
+      <license>BSD</license>
+      <inlets>
+         <int32 name="slot" description="RBRT slot number"/>
+         <int32 name="page" description="Sketchy page number"/>
+         <int32 name="param_start" description="RBRT parameter offset (0, 8, 16, etc.)"/>
+         <bool32.rising name="pull" description="Trigger pull from RBRT to Sketchy (e.g., after reset)"/>
+      </inlets>
+      <outlets>
+         <bool32.pulse name="pulled" description="Pulse when pull complete"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs/>
+      <includes>
+         <include>../../Axolonatics/objects/rbrt_new/rbrt_classes/Smplr.h</include>
+      </includes>
+      <code.declaration><![CDATA[Smplr smplr;
+
+// Cache for change detection (sketchy side)
+int32_t sketchy_cache[8];
+bool pull_trig;
+
+// Convert RBRT 27-bit fractional to Sketchy 0-64 unipolar
+int32_t rbrt_to_sketchy(int32_t rbrt_value) {
+    // RBRT: 0x00000000 = 0.0, 0x08000000 = 1.0
+    // Sketchy: 0 = 0.0, 64 = 1.0
+    return (rbrt_value >> 21);  // Divide by 2^21 to get 0-64 range
+}
+
+// Convert Sketchy 0-64 to RBRT 27-bit fractional
+int32_t sketchy_to_rbrt(int32_t sketchy_value) {
+    // Sketchy: 0-64
+    // RBRT: 0x00000000 to 0x08000000
+    return (sketchy_value << 21);  // Multiply by 2^21
+}
+
+// Pull from RBRT → Sketchy (on demand)
+void pull_rbrt_to_sketchy() {
+    uint16_t adr = inlet_slot * 128;
+    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
+    
+    for (int i = 0; i < 8; i++) {
+        int32_t rbrt_val = smplr.prm[adr + inlet_param_start + i];
+        int32_t sketchy_val = rbrt_to_sketchy(rbrt_val);
+        
+        // Update sketchy
+        param_table->array[inlet_page][i] = sketchy_val;
+        
+        // Update cache to prevent immediate push-back
+        sketchy_cache[i] = sketchy_val;
+    }
+}
+
+// Push from Sketchy → RBRT (continuous monitoring)
+void push_sketchy_to_rbrt() {
+    uint16_t adr = inlet_slot * 128;
+    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
+    
+    for (int i = 0; i < 8; i++) {
+        int32_t sketchy_val = param_table->array[inlet_page][i];
+        
+        // Only update if changed (check cache)
+        if (sketchy_val != sketchy_cache[i]) {
+            // Convert and write to RBRT
+            int32_t rbrt_val = sketchy_to_rbrt(sketchy_val);
+            smplr.prm[adr + inlet_param_start + i] = rbrt_val;
+            
+            // Update cache
+            sketchy_cache[i] = sketchy_val;
+        }
+    }
+}]]></code.declaration>
+      <code.init><![CDATA[// Initialize cache
+for (int i = 0; i < 8; i++) {
+    sketchy_cache[i] = 0;
+}
+pull_trig = false;]]></code.init>
+      <code.krate><![CDATA[outlet_pulled = 0;
+
+// Handle pull trigger (rising edge)
+if (inlet_pull && !pull_trig) {
+    pull_trig = 1;
+    pull_rbrt_to_sketchy();
+    outlet_pulled = 1;
+}
+if (!inlet_pull) pull_trig = 0;
+
+// Continuous push from Sketchy → RBRT (when user turns encoders)
+push_sketchy_to_rbrt();]]></code.krate>
+   </obj.normal>
+</objdefs>
+

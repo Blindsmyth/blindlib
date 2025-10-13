@@ -1,0 +1,89 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="sketchy_objects_compact" uuid="5224773f-18de-4231-8f92-b1f22bb9538E">
+      <sDescription>Memory-optimized object table with 8-bit fields where possible to save SRAM</sDescription>
+      <author>AI Assistant</author>
+      <license>MIT</license>
+      <inlets>
+         <bool32 name="print"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs>
+         <text name="init" description="Edit to pre-define some objects when patch starts"/>
+         <spinner name="entries" description="Maximum amount of display objects" MinValue="1" MaxValue="512" DefaultValue="64"/>
+      </attribs>
+      <code.declaration><![CDATA[static const uint16_t LENGTH = attr_entries;
+
+// Color constants
+static const uint8_t COLOR_BRIGHT = 0;
+static const uint8_t COLOR_DARK = 1;
+static const uint8_t COLOR_INVERT = 2;
+
+// Type constants
+static const uint8_t TYPE_INVISIBLE = 0;
+static const uint8_t TYPE_RECT = 1;
+static const uint8_t TYPE_FILLED_RECT = 2;
+static const uint8_t TYPE_ROUNDED_RECT = 3;
+static const uint8_t TYPE_FILLED_ROUNDED_RECT = 4;
+static const uint8_t TYPE_LINE = 5;
+static const uint8_t TYPE_TEXT = 6;
+static const uint8_t TYPE_TEXT_CENTER_X = 7;
+static const uint8_t TYPE_TEXT_CENTER_Y = 8;
+static const uint8_t TYPE_TEXT_CENTER_BOTH = 9;
+
+// Field indices
+static const uint8_t FIELD_TYPE = 0;     // uint8_t (0-255 types)
+static const uint8_t FIELD_X = 1;        // uint8_t (0-255 pixels, sufficient for 128px OLED)
+static const uint8_t FIELD_Y = 2;        // uint8_t (0-255 pixels, sufficient for 64px OLED)
+static const uint8_t FIELD_W = 3;        // uint8_t (0-255 pixels)
+static const uint8_t FIELD_H = 4;        // uint8_t (0-255 pixels)
+static const uint8_t FIELD_COLOR = 5;    // uint8_t (0-255 colors)
+static const uint8_t FIELD_SCALE = 6;    // uint8_t (0-255 scale)
+static const uint8_t FIELD_TEXT_ID = 7;  // uint8_t (0-255 text IDs)
+static const uint8_t FIELD_PAGE = 8;     // uint8_t (0-255 pages)
+static const uint8_t NUM_FIELDS = 9;
+
+// Memory-optimized: 8-bit fields instead of 16-bit, but keeping 2D array interface for compatibility
+uint8_t (*array)[NUM_FIELDS];
+bool pprint = false;
+bool dirty;
+uint16_t next_free_slot;
+
+uint16_t registerEntry() {
+    if (next_free_slot >= LENGTH) {
+        LogTextMessage("WARNING: object table is full! Reusing last available slot!");
+        return LENGTH - 1;  
+    }
+
+    uint16_t slot = next_free_slot;
+    next_free_slot++;
+    return slot;
+}]]></code.declaration>
+      <code.init><![CDATA[dirty = true;
+next_free_slot = 0;
+
+// Allocate in SDRAM to save SRAM - 50% memory reduction vs int16_t fields
+static uint8_t _array[LENGTH][NUM_FIELDS] __attribute__ ((section (".sdram")));
+array = _array;
+
+// Initialize all objects to invisible
+memset(_array, 0, sizeof(_array));
+
+attr_init;]]></code.init>
+      <code.krate><![CDATA[if (!pprint && inlet_print) {
+    for (uint16_t i = 0; i < next_free_slot; i++) {
+        LogTextMessage("object[%d] page: %d, type: %d, x: %d, y: %d, w: %d, h: %d", 
+            i, 
+            array[i][FIELD_PAGE], 
+            array[i][FIELD_TYPE], 
+            array[i][FIELD_X], 
+            array[i][FIELD_Y],
+            array[i][FIELD_W],
+            array[i][FIELD_H]);
+    }
+}
+
+pprint = inlet_print;]]></code.krate>
+   </obj.normal>
+</objdefs>

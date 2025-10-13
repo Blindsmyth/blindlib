@@ -1,0 +1,69 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="sketchy_texts_compact" uuid="5224773f-18de-4231-8f92-b1f22bb9538F">
+      <sDescription>Memory-optimized text table with reduced string lengths to save SRAM</sDescription>
+      <author>AI Assistant</author>
+      <license>MIT</license>
+      <inlets>
+         <bool32 name="print"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs>
+         <text name="init" description="Edit to pre-define some text when patch starts"/>
+         <spinner name="entries" description="Maximum amount of text strings" MinValue="1" MaxValue="256" DefaultValue="32"/>
+         <spinner name="length" description="Maximum length per string" MinValue="4" MaxValue="64" DefaultValue="16"/>
+      </attribs>
+      <code.declaration><![CDATA[static const uint16_t LENGTH = attr_entries;
+static const uint8_t TEXT_LENGTH = attr_length;
+
+// Compact text storage: reduced from typical 32-64 chars to configurable length
+char (*array)[TEXT_LENGTH];
+bool pprint = false;
+bool dirty;
+uint16_t next_free_slot;
+
+uint16_t registerEntry() {
+    if (next_free_slot >= LENGTH) {
+        LogTextMessage("WARNING: text table is full! Reusing last available slot!");
+        return LENGTH - 1;  
+    }
+
+    uint16_t slot = next_free_slot;
+    next_free_slot++;
+    return slot;
+}
+
+// Safe string operations
+void set_text(uint16_t index, const char* text) {
+    if (index >= LENGTH || !text) return;
+    
+    // Copy with length limit to prevent overflow
+    strncpy(array[index], text, TEXT_LENGTH - 1);
+    array[index][TEXT_LENGTH - 1] = '\0'; // Ensure null termination
+}
+
+const char* get_text(uint16_t index) {
+    if (index >= LENGTH) return "";
+    return array[index];
+}]]></code.declaration>
+      <code.init><![CDATA[dirty = true;
+next_free_slot = 0;
+
+// Allocate in SDRAM to save SRAM
+static char _array[LENGTH][TEXT_LENGTH] __attribute__ ((section (".sdram")));
+array = _array;
+
+// Initialize all strings to empty
+memset(_array, 0, sizeof(_array));
+
+attr_init;]]></code.init>
+      <code.krate><![CDATA[if (!pprint && inlet_print) {
+    for (uint16_t i = 0; i < next_free_slot; i++) {
+        LogTextMessage("text[%d]: '%s'", i, array[i]);
+    }
+}
+
+pprint = inlet_print;]]></code.krate>
+   </obj.normal>
+</objdefs>

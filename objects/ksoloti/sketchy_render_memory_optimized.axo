@@ -1,0 +1,343 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="sketchy_render_memory_optimized" uuid="5224773f-18de-4231-8f92-b1f22bb95390">
+      <sDescription>Memory-optimized renderer with reduced thread stack, compact object reuse, and efficient dial management</sDescription>
+      <author>AI Assistant</author>
+      <license>MIT</license>
+      <inlets>
+         <int32.positive name="page" description="set current page"/>
+         <int32.positive name="layout" description="set layout page (always visible)"/>
+         <bool32.rising name="print" description="Will log the state of the object table to axoloti window"/>
+      </inlets>
+      <outlets>
+         <int32.positive name="sw" description="screen width"/>
+         <int32.positive name="sh" description="screen height"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <combo name="type">
+            <MenuEntries>
+               <string>SSD1306</string>
+               <string>SH1106</string>
+            </MenuEntries>
+            <CEntries>
+               <string>1306</string>
+               <string>1106</string>
+            </CEntries>
+         </combo>
+         <combo name="I2CADDR">
+            <MenuEntries>
+               <string>0x3C</string>
+               <string>0x3D</string>
+            </MenuEntries>
+            <CEntries>
+               <string>0x3C</string>
+               <string>0x3D</string>
+            </CEntries>
+         </combo>
+      </attribs>
+      <depends>
+         <depend>SD1</depend>
+         <depend>SPID1</depend>
+         <depend>I2CD1</depend>
+      </depends>
+      <code.declaration><![CDATA[rootc::objectinstance_sketchy__objects* object_table;
+rootc::objectinstance_sketchy__texts* text_table;
+rootc::objectinstance_sketchy__params* param_table;
+rootc::objectinstance_sketchy__font* font;
+
+uint8_t page;  // Reduced from uint16_t to uint8_t (max 255 pages)
+uint8_t layout;
+
+// ================ MEMORY OPTIMIZED CONSTANTS ================
+#define CIRCLE_POINTS 24  // Reduced from 38 to 24 to save memory
+#define INDICATOR_POSITIONS 24  // Reduced from 31 to 24
+
+// ================ EFFICIENT RING REUSE SYSTEM ================
+// Compact ring slot structure - only 6 bytes per slot
+typedef struct {
+    uint8_t ring_object_id;      // Index in object table (0-255)
+    uint8_t label_object_id;     // Index in object table (0-255)
+    uint8_t label_text_id;       // Index in text table (0-255)
+    uint8_t current_page;        // Page this ring is on (0-255)
+    uint8_t current_position;    // Position 0-7
+    uint8_t flags;               // bit 0: is_allocated, bits 1-7: type info
+} compact_ring_slot_t;
+
+compact_ring_slot_t ring_slots[8];  // Only 48 bytes total
+bool shared_rings_initialized = false;
+
+// Efficient ring management
+void init_shared_rings() {
+    if (shared_rings_initialized) return;
+    
+    for (int i = 0; i < 8; i++) {
+        ring_slots[i].ring_object_id = object_table->registerEntry();
+        ring_slots[i].label_object_id = object_table->registerEntry();
+        ring_slots[i].label_text_id = text_table->registerEntry();
+        ring_slots[i].current_page = 0xFF;
+        ring_slots[i].current_position = 0xFF;
+        ring_slots[i].flags = 0; // Not allocated
+        
+        // Hide objects
+        object_table->array[ring_slots[i].ring_object_id][object_table->FIELD_TYPE] = 0;
+        object_table->array[ring_slots[i].ring_object_id][object_table->FIELD_PAGE] = 0xFFFF;
+        object_table->array[ring_slots[i].label_object_id][object_table->FIELD_TYPE] = 0;
+        object_table->array[ring_slots[i].label_object_id][object_table->FIELD_PAGE] = 0xFFFF;
+    }
+    shared_rings_initialized = true;
+}
+
+// Memory-efficient dial position calculation
+const uint8_t dial_positions[8][2] = {
+    {32, 22}, {96, 22}, {32, 42}, {96, 42},    // Positions 0-3
+    {32, 22}, {96, 22}, {32, 42}, {96, 42}     // Positions 4-7 (reuse coords)
+};
+
+// Display enums
+enum SSD1306 {
+    LCDWIDTH            = 128,
+    LCDHEIGHT           = 64,
+    SETCONTRAST         = 0x81,
+    DISPLAYON           = 0xAF,
+    DISPLAYOFF          = 0xAE,
+    DISPLAYALLON_RESUME = 0xA4,
+    NORMALDISPLAY       = 0xA6,
+    DEACTIVATE_SCROLL   = 0x2E,
+    MEMORYMODE          = 0x20,
+    COLUMNADDR          = 0x21,
+    PAGEADDR            = 0x22,
+    SETSTARTLINE_0      = 0x40,
+    SEGREMAP            = 0xA0,
+    SETMULTIPLEX        = 0xA8,
+    COMSCANDEC          = 0xC8,
+    SETDISPLAYOFFSET    = 0xD3,
+    SETCOMPINS          = 0xDA,
+    SETDISPLAYCLOCKDIV  = 0xD5,
+    SETPRECHARGE        = 0xD9,
+    SETVCOMDETECT       = 0xDB,
+    CHARGEPUMP          = 0x8D,
+};
+
+uint8_t pixels[8][LCDWIDTH];
+uint8_t *txbuf;
+uint8_t *rxbuf;
+
+void cmd(uint8_t c) {
+    txbuf[0] = 0;
+    txbuf[1] = c;
+    i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 2, rxbuf, 0, 32);
+}
+
+void clear() {
+    memset(pixels, 0, sizeof(pixels)); // More efficient than nested loops
+}
+
+void sendPage(int page) {
+    cmd(COLUMNADDR); cmd(0); cmd(127);
+    cmd(PAGEADDR); cmd(page); cmd(page);
+
+    if (attr_type == 1106) {
+        cmd(0xB0 + page);
+        cmd(2 & 0xf);
+        cmd(0x10 | (2 >> 4));
+    }
+
+    txbuf[0] = 0x40;
+    memcpy(txbuf + 1, pixels[page], LCDWIDTH);
+    i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 129, rxbuf, 0, 32);
+}
+
+void init() {
+    cmd(DISPLAYOFF);
+    cmd(SETDISPLAYCLOCKDIV); cmd(0x80);
+    cmd(SETMULTIPLEX); cmd(LCDHEIGHT - 1);
+    cmd(SETDISPLAYOFFSET); cmd(attr_type == 1306 ? 0x00 : 0x01);
+    cmd(SETSTARTLINE_0);
+    cmd(CHARGEPUMP); cmd(0x14);
+    cmd(MEMORYMODE); cmd(0x00);
+    cmd(SEGREMAP | 0x1);
+    cmd(COMSCANDEC);
+    cmd(SETCOMPINS); cmd(0x12);
+    cmd(SETCONTRAST); cmd(0xCF);
+    cmd(SETPRECHARGE); cmd(0xF1);
+    cmd(SETVCOMDETECT); cmd(0x40);
+    cmd(DISPLAYALLON_RESUME);
+    cmd(NORMALDISPLAY);
+    cmd(DEACTIVATE_SCROLL);
+    cmd(DISPLAYON);
+}
+
+void setup() {
+    // Reduced buffer sizes allocated in SRAM2
+    static uint8_t _txbuf[129] __attribute__ ((section (".sram2")));
+    static uint8_t _rxbuf[8] __attribute__ ((section (".sram2")));
+    txbuf = _txbuf;
+    rxbuf = _rxbuf;
+    init();
+}
+
+msg_t ThreadX2() {
+    setup();
+    while (!chThdShouldTerminate()) {
+        clear();
+        render();
+        for (uint8_t i = 0; i < 8; i++) {
+            sendPage(i);
+        }
+        chThdSleepMilliseconds(40); // Slightly reduced refresh rate to save CPU
+    }
+    chThdExit((msg_t)0);
+}
+
+static msg_t ThreadX(void *arg) {
+    ((attr_parent *)arg)->ThreadX2();
+}
+
+// Reduced thread stack size from 2048 to 1024 to save SRAM
+WORKING_AREA(waThreadX, 1024);
+Thread *Thd;
+
+bool pprint;
+
+// Optimized pixel drawing functions
+void draw_pixel(int16_t x, int16_t y, uint8_t color) __attribute__ ((always_inline)) {
+    if (x < 0 || y < 0 || x >= LCDWIDTH || y >= LCDHEIGHT - 1) return;
+    
+    uint8_t page = y >> 3;  // Faster division by 8
+    uint8_t bit = 1 << (y & 7);  // Faster modulo 8
+    
+    if (color == 0) { 
+        pixels[page][x] |= bit;
+    } else if (color == 1) { 
+        pixels[page][x] &= ~bit;
+    } else if (color == 2) { 
+        pixels[page][x] ^= bit;
+    }
+}
+
+// Simple circle drawing for rings (memory optimized)
+void draw_ring_optimized(int16_t cx, int16_t cy, int16_t radius, uint8_t color) {
+    for (int angle = 0; angle < CIRCLE_POINTS; angle++) {
+        // Use integer approximation to avoid float math
+        int16_t x = cx + ((radius * cos_table[angle]) >> 8);
+        int16_t y = cy + ((radius * sin_table[angle]) >> 8);
+        draw_pixel(x, y, color);
+    }
+}
+
+// Compact cosine/sine tables for ring drawing
+const int16_t cos_table[CIRCLE_POINTS] = {
+    256, 246, 218, 176, 124, 66, 5, -56, -114, -164, -203, -230,
+    -243, -242, -227, -199, -160, -112, -58, 0, 58, 112, 160, 199
+};
+
+const int16_t sin_table[CIRCLE_POINTS] = {
+    0, 58, 112, 160, 199, 227, 242, 243, 230, 203, 164, 114,
+    56, -5, -66, -124, -176, -218, -246, -256, -246, -218, -176, -124
+};
+
+// Minimal render function focusing on essential objects only
+void render() {
+    init_shared_rings();
+    
+    // Only render objects on current page and layout page
+    for (uint16_t i = 0; i < object_table->next_free_slot; i++) {
+        uint8_t obj_page = object_table->array[i][object_table->FIELD_PAGE];
+        uint8_t obj_type = object_table->array[i][object_table->FIELD_TYPE];
+        
+        if (obj_type == 0) continue; // Skip invisible objects
+        if (obj_page != page && obj_page != layout) continue; // Skip other pages
+        
+        uint8_t x = object_table->array[i][object_table->FIELD_X];
+        uint8_t y = object_table->array[i][object_table->FIELD_Y];
+        uint8_t w = object_table->array[i][object_table->FIELD_W];
+        uint8_t h = object_table->array[i][object_table->FIELD_H];
+        uint8_t color = object_table->array[i][object_table->FIELD_COLOR];
+        
+        // Only implement essential object types to save code space
+        switch (obj_type) {
+            case 1: // RECT
+                draw_rect(x, y, w, h, color);
+                break;
+            case 2: // FILLED_RECT
+                draw_filled_rect(x, y, w, h, color);
+                break;
+            case 99: // RING (unipolar)
+            case 100: // RING (bipolar)
+                draw_ring_optimized(x, y, 12, color);
+                break;
+        }
+    }
+}
+
+// Essential drawing functions only
+void draw_rect(int16_t x, int16_t y, int16_t w, int16_t h, uint8_t color) {
+    for (int16_t i = 0; i < w; i++) {
+        draw_pixel(x + i, y, color);
+        draw_pixel(x + i, y + h - 1, color);
+    }
+    for (int16_t i = 0; i < h; i++) {
+        draw_pixel(x, y + i, color);
+        draw_pixel(x + w - 1, y + i, color);
+    }
+}
+
+void draw_filled_rect(int16_t x, int16_t y, int16_t w, int16_t h, uint8_t color) {
+    for (int16_t j = 0; j < h; j++) {
+        for (int16_t i = 0; i < w; i++) {
+            draw_pixel(x + i, y + j, color);
+        }
+    }
+}]]></code.declaration>
+      <code.init><![CDATA[object_table = &parent->objectinstance_sketchy__objects_i;
+text_table = &parent->objectinstance_sketchy__texts_i;
+param_table = &parent->objectinstance_sketchy__params_i;
+font = &parent->objectinstance_sketchy__font_i;
+
+palSetPadMode(GPIOB, 8, PAL_MODE_ALTERNATE(4)|PAL_STM32_PUDR_PULLUP|PAL_STM32_OTYPE_OPENDRAIN);
+palSetPadMode(GPIOB, 9, PAL_MODE_ALTERNATE(4)|PAL_STM32_PUDR_PULLUP|PAL_STM32_OTYPE_OPENDRAIN);
+static const I2CConfig i2cfg = {
+    OPMODE_I2C,
+    400000,
+    FAST_DUTY_CYCLE_2,
+};
+i2cStart(&I2CD1, &i2cfg);
+
+// Create thread with reduced stack
+Thd = chThdCreateStatic(waThreadX, sizeof(waThreadX), NORMALPRIO-1, ThreadX, (void *)this);
+
+clear();
+init_shared_rings();
+
+pprint = false;
+page = 0;
+layout = 0xFF;]]></code.init>
+      <code.dispose><![CDATA[chThdTerminate( Thd );
+chThdWait( Thd );
+i2cStop(&I2CD1);
+palSetPadMode(GPIOB, 8, PAL_MODE_INPUT_ANALOG);
+palSetPadMode(GPIOB, 9, PAL_MODE_INPUT_ANALOG);]]></code.dispose>
+      <code.krate><![CDATA[if (inlet_print && !pprint) {
+    pprint = true;
+    LogTextMessage("Memory-optimized renderer active");
+    LogTextMessage("Ring slots used: %d/8", shared_rings_initialized ? 8 : 0);
+}
+
+if (!inlet_print && pprint) {
+    pprint = false;
+}
+
+if (page != inlet_page) {
+    page = inlet_page;
+}
+
+if (layout != inlet_layout) {
+    layout = inlet_layout;
+}
+
+outlet_sw = 128;
+outlet_sh = 64;]]></code.krate>
+   </obj.normal>
+</objdefs>
+

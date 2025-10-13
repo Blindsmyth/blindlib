@@ -1,0 +1,28 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="int param get half page kso" uuid="5224773f-18de-4231-8f92-b1f22bb95393">
+      <sDescription>Get 4 parameters from a page as separate outputs. Reads either first half (0-3) or second half (4-7) of param_table[page] based on half attribute.</sDescription>
+      <author>AI Assistant</author>
+      <license>GPL</license>
+      <inlets/>
+      <outlets>
+         <int32 name="value0"/>
+         <int32 name="value1"/>
+         <int32 name="value2"/>
+         <int32 name="value3"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="page" MinValue="-127" MaxValue="127" DefaultValue="0"/>
+         <spinner name="half" MinValue="0" MaxValue="1" DefaultValue="0"/>
+      </attribs>
+      <code.declaration><![CDATA[rootc::objectinstance_sketchy__params* param_table;]]></code.declaration>
+      <code.init><![CDATA[param_table = &parent->objectinstance_sketchy__params_i;]]></code.init>
+      <code.krate><![CDATA[// Get 4 parameters from the specified page and half
+int offset = attr_half * 4; // 0 for first half, 4 for second half
+outlet_value0 = param_table->array[attr_page][offset + 0];
+outlet_value1 = param_table->array[attr_page][offset + 1];
+outlet_value2 = param_table->array[attr_page][offset + 2];
+outlet_value3 = param_table->array[attr_page][offset + 3];]]></code.krate>
+   </obj.normal>
+</objdefs>

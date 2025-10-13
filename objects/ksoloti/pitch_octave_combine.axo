@@ -1,0 +1,25 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="pitch_octave_combine" uuid="561dc123-07e3-4d9f-98ee-9090d330afd0">
+      <license>GPL</license>
+      <inlets/>
+      <outlets>
+         <int32 name="pitchmod"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="page" MinValue="-127" MaxValue="127" DefaultValue="0"/>
+         <spinner name="octaveParam" MinValue="0" MaxValue="127" DefaultValue="0"/>
+         <spinner name="pitchParam" MinValue="0" MaxValue="127" DefaultValue="0"/>
+      </attribs>
+      <code.declaration><![CDATA[rootc::objectinstance_sketchy__params* param_table;]]></code.declaration>
+      <code.init><![CDATA[param_table = &parent->objectinstance_sketchy__params_i;]]></code.init>
+      <code.krate><![CDATA[// Read octave and pitch from parameter table (both are int32 semitone values)
+int32_t octave = param_table->array[attr_page][attr_octaveParam];
+int32_t pitch = param_table->array[attr_page][attr_pitchParam];
+
+// Multiply octave by 12 to get total semitones, then add pitch
+// Simple integer math: (octave * 12) + pitch
+outlet_pitchmod = (octave * 12) + pitch;]]></code.krate>
+   </obj.normal>
+</objdefs>

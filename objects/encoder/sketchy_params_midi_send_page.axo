@@ -1,0 +1,140 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sketchy_params_midi_send_page" uuid="6cd99543-c85d-558b-c269-853748286c53">
+      <sDescription>Sends CURRENT PAGE ONLY parameters from sketchy_param table as MIDI CC messages. Much lighter than full version - only sends 8 params instead of 64. Integer parameters are limited to range -63 to 64.</sDescription>
+      <author>AI Assistant (based on Robert Schirmer's tablesend)</author>
+      <license>BSD</license>
+      <inlets>
+         <int32 name="page" description="Current page number"/>
+         <int32 name="startcc" description="Starting CC number"/>
+         <bool32.rising name="redraw" description="Redraw all parameters on current page"/>
+         <bool32 name="active" description="Enable/disable sending"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="channel" description="MIDI channel" MinValue="1" MaxValue="16" DefaultValue="1"/>
+         <spinner name="maxparams" description="Parameters per page" MinValue="1" MaxValue="16" DefaultValue="8"/>
+      </attribs>
+      <includes/>
+      <depends>
+         <depend>SD2</depend>
+         <depend>sketchy_dials</depend>
+      </depends>
+      <code.declaration><![CDATA[int i;
+// Small arrays - only one page
+int32_t v[16];
+int32_t prev[16];
+int ntrig[16];
+int rtrig;
+int prev_page;
+
+// Mode constants (matching sketchy_dials)
+#define MODE_FRAC_UNIPOLAR 0
+#define MODE_FRAC_BIPOLAR  1
+#define MODE_INT           2
+#define MODE_LIST          3
+#define MODE_BAR_UNIPOLAR  4
+#define MODE_BAR_BIPOLAR   5
+#define MODE_DUPLICATE     6
+#define MODE_EMPTY         255
+
+void SendMidi3(uint8_t b0, uint8_t b1, uint8_t b2) {
+    sdPut(&SD2, b0);
+    sdPut(&SD2, b1);
+    sdPut(&SD2, b2);
+}
+
+uint8_t intValueToMidiCC(int32_t value, int32_t int_min, int32_t int_max) {
+    if (int_min == int_max) return (uint8_t)int_min;
+    if (value < int_min) value = int_min;
+    if (value > int_max) value = int_max;
+    uint8_t mapped = (uint8_t)(value - int_min);
+    if (mapped > 127) return 127;
+    return mapped;
+}
+
+uint8_t floatValueToMidiCC(int32_t value) {
+    return (uint8_t)(__USAT(value >> 20, 7));
+}]]></code.declaration>
+      <code.init><![CDATA[for (i = 0; i < 16; i++) {
+    prev[i] = -666;
+    ntrig[i] = 0;
+}
+rtrig = 0;
+prev_page = -1;]]></code.init>
+      <code.krate><![CDATA[// Only do anything if active
+if (!inlet_active) return;
+
+// Get param table instance
+rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
+
+// If page changed, reset all prev values to force resend
+if (inlet_page != prev_page) {
+    for (i = 0; i < attr_maxparams; i++) {
+        prev[i] = -666;
+        ntrig[i] = 0;
+    }
+    prev_page = inlet_page;
+}
+
+// Scan one parameter per k-rate cycle (only current page)
+static int i = 0;
+i += 1;
+if (i >= attr_maxparams) i = 0;
+
+int currentPage = inlet_page;
+int currentParam = i;
+
+if (currentPage >= 0 && currentPage < 64 && currentParam < attr_maxparams) {
+    // Get value from param table
+    v[i] = param_table->array[currentPage][currentParam];
+    
+    // Check if value has changed
+    if ((v[i] != prev[i]) && !ntrig[i]) {
+        uint8_t midiValue;
+        
+        // Get encoder configuration for this parameter
+        auto& config = parent->objectinstance_sketchy__dials_i.configs[currentPage][currentParam];
+        
+        // Convert based on encoder mode
+        if (config.mode == MODE_INT || config.mode == MODE_LIST) {
+            midiValue = intValueToMidiCC(v[i], config.int_min, config.int_max);
+        } else if (config.mode == MODE_FRAC_UNIPOLAR || config.mode == MODE_FRAC_BIPOLAR || 
+                   config.mode == MODE_BAR_UNIPOLAR || config.mode == MODE_BAR_BIPOLAR) {
+            midiValue = floatValueToMidiCC(v[i]);
+        } else {
+            midiValue = floatValueToMidiCC(v[i]);
+        }
+        
+        // Calculate CC number - param index + start CC
+        uint8_t ccNumber = (uint8_t)(currentParam + inlet_startcc);
+        
+        // Send MIDI CC (limit to valid CC range 0-127)
+        if (ccNumber <= 127) {
+            SendMidi3(MIDI_CONTROL_CHANGE + (attr_channel - 1), ccNumber, midiValue);
+            prev[i] = v[i];
+            ntrig[i] = 1;
+        }
+    }
+    
+    if (v[i] == prev[i]) {
+        ntrig[i] = 0;
+    }
+}
+
+// Re-initialize on redraw
+if ((inlet_redraw > 0) && !rtrig) {
+    rtrig = 1;
+    for (i = 0; i < attr_maxparams; i++) {
+        prev[i] = -666;
+        ntrig[i] = 0;
+    }
+}
+if (!(inlet_redraw > 0)) {
+    rtrig = 0;
+}]]></code.krate>
+   </obj.normal>
+</objdefs>
+
+

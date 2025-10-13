@@ -1,0 +1,178 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="launch fixed" uuid="928383a6-9eb0-4522-8db8-d2a2163e0355">
+      <sDescription>Fixed launchpad visual feedback object - displays table data and step position with trigger output</sDescription>
+      <author>Robert Schirmer / Fixed</author>
+      <license>BSD</license>
+      <helpPatch>launchpad.axh</helpPatch>
+      <rotatedParams>true</rotatedParams>
+      <inlets>
+         <int32 name="offset" description="offset in the table to read from"/>
+         <int32 name="start" description="display start modulation"/>
+         <int32 name="length" description="display length modulation"/>
+         <bool32.risingfalling name="active" description="active??"/>
+         <bool32.rising name="redraw"/>
+         <int32 name="step"/>
+         <int32 name="color"/>
+         <int32 name="coloron"/>
+         <int32 name="coloroff"/>
+         <int32 name="startnote"/>
+      </inlets>
+      <outlets>
+         <int32 name="offset" description="offset through"/>
+         <int32 name="start" description="start through"/>
+         <bool32.pulse name="trig" description="pulse output when step changes"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <objref name="table" description="name of the table to display"/>
+         <combo name="device">
+            <MenuEntries>
+               <string>din</string>
+               <string>usb host port 1</string>
+               <string>usb host port 2</string>
+               <string>usb host port 3</string>
+               <string>usb host port 4</string>
+               <string>internal port 1</string>
+               <string>internal port 2</string>
+               <string>usb device port 1</string>
+            </MenuEntries>
+            <CEntries>
+               <string>MIDI_DEVICE_DIN, 1</string>
+               <string>MIDI_DEVICE_USB_HOST, 1</string>
+               <string>MIDI_DEVICE_USB_HOST, 2</string>
+               <string>MIDI_DEVICE_USB_HOST, 3</string>
+               <string>MIDI_DEVICE_USB_HOST, 4</string>
+               <string>MIDI_DEVICE_INTERNAL, 1</string>
+               <string>MIDI_DEVICE_INTERNAL, 2</string>
+               <string>MIDI_DEVICE_USB_DEVICE, 1</string>
+            </CEntries>
+         </combo>
+         <spinner name="channel" MinValue="1" MaxValue="16" DefaultValue="9"/>
+      </attribs>
+      <includes/>
+      <code.declaration><![CDATA[
+// Table display variables
+int displayIndex;
+int prevTableValues[64];
+int displayLength;
+int displayActive;
+
+// Step position variables  
+int prevStep;
+int redrawTrig;
+int activeTrig;
+int stepTrig;
+
+// Input values
+uint32_t offset;
+uint8_t start;
+int32_t tableValue;
+]]></code.declaration>
+      <code.init><![CDATA[
+// Initialize all previous values to force initial update
+for(int i = 0; i < 64; i++) {
+    prevTableValues[i] = -666;
+}
+displayIndex = 0;
+prevStep = -1;
+redrawTrig = 0;
+activeTrig = 0;
+stepTrig = 0;
+]]></code.init>
+      <code.krate><![CDATA[
+// Default trigger output to 0
+outlet_trig = 0;
+
+// Get input values
+offset = inlet_offset;
+start = inlet_start;
+displayLength = inlet_length;
+if(displayLength > 64) displayLength = 64; // Safety clamp
+
+// Handle redraw trigger
+if ((inlet_redraw > 0) && !redrawTrig) {
+    redrawTrig = 1;
+    
+    // Reset all previous values to force complete redraw
+    for(int i = 0; i < 64; i++) {
+        prevTableValues[i] = -666;
+    }
+    
+    // Force redraw of all table values
+    for(int i = 0; i < displayLength; i++) {
+        tableValue = attr_table.array[__USAT((offset + i), attr_table.LENGTHPOW)] << attr_table.GAIN;
+        if(tableValue) {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1), (i + start), inlet_coloron);
+        } else {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1), (i + start), inlet_coloroff);
+        }
+        prevTableValues[i] = tableValue;
+    }
+    
+    // Update step position
+    MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1), (inlet_step + start), inlet_color);
+    prevStep = inlet_step;
+}
+if (!(inlet_redraw > 0)) redrawTrig = 0;
+
+// Handle active state changes
+if ((inlet_active > 0) && !activeTrig) {
+    activeTrig = 1;
+    displayActive = 1;
+} else if (!(inlet_active > 0) && activeTrig) {
+    activeTrig = 0;
+    displayActive = 0;
+}
+
+// Main display logic when active
+if (displayActive) {
+    // Update table display (cycling through positions)
+    displayIndex++;
+    if (displayIndex >= displayLength) displayIndex = 0;
+    
+    tableValue = attr_table.array[__USAT((offset + displayIndex), attr_table.LENGTHPOW)] << attr_table.GAIN;
+    
+    // Only send MIDI if value changed
+    if (prevTableValues[displayIndex] != tableValue) {
+        if(tableValue) {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1), (displayIndex + start), inlet_coloron);
+        } else {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1), (displayIndex + start), inlet_coloroff);
+        }
+        prevTableValues[displayIndex] = tableValue;
+    }
+    
+    // Handle step position changes
+    if (inlet_step != prevStep) {
+        // Turn off previous step LED (restore table value color)
+        if(prevStep >= 0 && prevStep < displayLength) {
+            int32_t prevTableValue = attr_table.array[__USAT((offset + prevStep), attr_table.LENGTHPOW)] << attr_table.GAIN;
+            if(prevTableValue) {
+                MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1), (prevStep + start), inlet_coloron);
+            } else {
+                MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1), (prevStep + start), inlet_coloroff);
+            }
+        }
+        
+        // Turn on current step LED
+        MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1), (inlet_step + start), inlet_color);
+        
+        // Check if current step has active value in table
+        int32_t currentStepValue = attr_table.array[__USAT((offset + inlet_step), attr_table.LENGTHPOW)] << attr_table.GAIN;
+        
+        // Generate trigger pulse only if step value is greater than 0
+        if(currentStepValue > 0) {
+            outlet_trig = 1;
+        }
+        
+        prevStep = inlet_step;
+    }
+}
+
+// Pass through outputs
+outlet_offset = offset;
+outlet_start = start;
+]]></code.krate>
+   </obj.normal>
+</objdefs>

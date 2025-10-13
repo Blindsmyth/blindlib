@@ -1,0 +1,22 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="param get subpatch" uuid="48aa061f-227d-57fc-b378-742759297d52">
+      <sDescription>Get parameter value from sketchy_params table. Works in subpatches by receiving value through inlet instead of accessing parent.</sDescription>
+      <license>GPL</license>
+      <inlets>
+         <frac32.positive name="value" description="Parameter value from parent patch"/>
+      </inlets>
+      <outlets>
+         <frac32.positive name="value"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="page" MinValue="-127" MaxValue="127" DefaultValue="0"/>
+         <spinner name="param" MinValue="0" MaxValue="127" DefaultValue="0"/>
+      </attribs>
+      <code.declaration><![CDATA[]]></code.declaration>
+      <code.init><![CDATA[]]></code.init>
+      <code.krate><![CDATA[outlet_value = inlet_value;]]></code.krate>
+   </obj.normal>
+</objdefs>
+

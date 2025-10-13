@@ -22,6 +22,7 @@
          <depend>sketchy_dials</depend>
       </depends>
       <code.declaration><![CDATA[int i, j;
+// Large arrays - will be allocated in CCMSRAM automatically
 int32_t v[512]; // Support up to 64 pages * 8 params
 int32_t prev[512];
 int ntrig[512];
@@ -85,72 +86,91 @@ for (i = 0; i < totalParams; i++) {
 // No need to initialize configs - we use the real ones from sketchy_dials
 
 rtrig = 0;]]></code.init>
-      <code.krate><![CDATA[if (inlet_active) {
-    // Get param table instance
-    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
+      <code.krate><![CDATA[// Only do anything if active
+if (!inlet_active) return;
+
+// Calculate max params once (used by both scanning and redraw)
+int maxParams = attr_maxpages * attr_maxparams;
+if (maxParams > 128) maxParams = 128; // Limit to prevent crashes
+
+// Get param table instance
+rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
+
+// HEAVY THROTTLE: Only scan every 10th k-rate cycle to avoid overwhelming MIDI
+static int throttle_counter = 0;
+throttle_counter++;
+if (throttle_counter < 10) return;
+throttle_counter = 0;
+
+// Scan through limited number of parameters like original tablesend
+// THROTTLE: Only scan 1 parameter per scan cycle to avoid MIDI buffer overflow
+static int i = 0;
+
+i += 1;
+if (i >= maxParams) i = 0;
     
-    // Scan through limited number of parameters like original tablesend
-    static int i = 0;
-    int maxParams = attr_maxpages * attr_maxparams;
-    if (maxParams > 128) maxParams = 128; // Limit to prevent crashes
+// Calculate page and param from index
+int currentPage = i / attr_maxparams;
+int currentParam = i % attr_maxparams;
+
+if (currentPage < attr_maxpages && currentParam < attr_maxparams) {
+    // Get value from param table
+    v[i] = param_table->array[currentPage][currentParam];
     
-    i += 1;
-    if (i >= maxParams) i = 0;
-    
-    // Calculate page and param from index
-    int currentPage = i / attr_maxparams;
-    int currentParam = i % attr_maxparams;
-    
-    if (currentPage < attr_maxpages && currentParam < attr_maxparams) {
-        // Get value from param table
-        v[i] = param_table->array[currentPage][currentParam];
+    // Check if value has changed
+    if ((v[i] != prev[i]) && !ntrig[i]) {
+        uint8_t midiValue;
         
-        // Check if value has changed
-        if ((v[i] != prev[i]) && !ntrig[i]) {
-            uint8_t midiValue;
-            
-            // Get encoder configuration for this parameter (using same pattern as other objects)
-            auto& config = parent->objectinstance_sketchy__dials_i.configs[currentPage][currentParam];
-            
-            // Convert based on encoder mode
-            if (config.mode == MODE_INT || config.mode == MODE_LIST) {
-                // Integer value: convert directly to 0-127 MIDI CC range
-                midiValue = intValueToMidiCC(v[i], config.int_min, config.int_max);
-            } else if (config.mode == MODE_FRAC_UNIPOLAR || config.mode == MODE_FRAC_BIPOLAR || 
-                       config.mode == MODE_BAR_UNIPOLAR || config.mode == MODE_BAR_BIPOLAR) {
-                // Float value: convert directly to 0-127 range
-                midiValue = floatValueToMidiCC(v[i]);
-            } else {
-                // Default to float conversion for unknown modes
-                midiValue = floatValueToMidiCC(v[i]);
-            }
-            
-            // Calculate CC number - logical order: param 0 page 0 = CC 0, param 1 page 0 = CC 1, etc.
-            uint8_t ccNumber = (uint8_t)(currentParam + (currentPage * attr_maxparams) + inlet_startcc);
-            
-            // Send MIDI CC (limit to valid CC range 0-127)
-            if (ccNumber <= 127) {
-                SendMidi3(MIDI_CONTROL_CHANGE + (attr_channel - 1), ccNumber, midiValue);
-            }
-            
+        // Get encoder configuration for this parameter (using same pattern as other objects)
+        auto& config = parent->objectinstance_sketchy__dials_i.configs[currentPage][currentParam];
+        
+        // Convert based on encoder mode
+        if (config.mode == MODE_INT || config.mode == MODE_LIST) {
+            // Integer value: convert directly to 0-127 MIDI CC range
+            midiValue = intValueToMidiCC(v[i], config.int_min, config.int_max);
+        } else if (config.mode == MODE_FRAC_UNIPOLAR || config.mode == MODE_FRAC_BIPOLAR || 
+                   config.mode == MODE_BAR_UNIPOLAR || config.mode == MODE_BAR_BIPOLAR) {
+            // Float value: convert directly to 0-127 range
+            midiValue = floatValueToMidiCC(v[i]);
+        } else {
+            // Default to float conversion for unknown modes
+            midiValue = floatValueToMidiCC(v[i]);
+        }
+        
+        // Calculate CC number - logical order: param 0 page 0 = CC 0, param 1 page 0 = CC 1, etc.
+        uint8_t ccNumber = (uint8_t)(currentParam + (currentPage * attr_maxparams) + inlet_startcc);
+        
+        // THROTTLE: Check if serial buffer has space before sending
+        // SD2 uses a 256-byte buffer, only send if buffer has room
+        if (ccNumber <= 127 && sdGetTimeout(&SD2, TIME_IMMEDIATE) == MSG_TIMEOUT) {
+            // Buffer not full, safe to send
+            SendMidi3(MIDI_CONTROL_CHANGE + (attr_channel - 1), ccNumber, midiValue);
             prev[i] = v[i];
             ntrig[i] = 1;
         }
-        
-        if (v[i] == prev[i]) {
-            ntrig[i] = 0;
-        }
+        // If buffer is full, don't update prev[i], try again next cycle
     }
-}
-
-// Re-initialize on redraw
-if ((inlet_redraw > 0) && !rtrig) {
-    rtrig = 1;
-    for (i = 0; i < 128; i++) {
-        prev[i] = -666;
+    
+    if (v[i] == prev[i]) {
         ntrig[i] = 0;
     }
 }
+
+// Re-initialize on redraw - but DON'T reset all at once to avoid buffer overflow
+// Instead, reset one parameter per k-rate cycle for gradual resend
+static int redraw_index = 0;
+if ((inlet_redraw > 0) && !rtrig) {
+    rtrig = 1;
+    redraw_index = 0; // Start from beginning
+}
+
+if (rtrig && redraw_index < maxParams) {
+    // Reset one parameter per k-rate cycle
+    prev[redraw_index] = -666;
+    ntrig[redraw_index] = 0;
+    redraw_index++;
+}
+
 if (!(inlet_redraw > 0)) {
     rtrig = 0;
 }]]></code.krate>

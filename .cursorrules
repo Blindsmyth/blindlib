@@ -41,6 +41,19 @@
   * ldub_no_params.axo: 5224773f-18de-4231-8f92-b1f22bb95388
   * midi_cc_send.axo: 5224773f-18de-4231-8f92-b1f22bb95389
   * sketchy_params_midi_send.axo: 5224773f-18de-4231-8f92-b1f22bb9538A
+  * midi_pitchbend_int.axo: 5224773f-18de-4231-8f92-b1f22bb9538B
+  * radio_selector_layered.axo: 5224773f-18de-4231-8f92-b1f22bb9538C
+  * threshold_fixed.axo: 5224773f-18de-4231-8f92-b1f22bb9538D
+  * sketchy_objects_compact.axo: 5224773f-18de-4231-8f92-b1f22bb9538E
+  * sketchy_texts_compact.axo: 5224773f-18de-4231-8f92-b1f22bb9538F
+  * sketchy_render_memory_optimized.axo: 5224773f-18de-4231-8f92-b1f22bb95390
+  * note_toggle_default_on.axo: 5224773f-18de-4231-8f92-b1f22bb95391
+  * poly_cc_output.axo: 5224773f-18de-4231-8f92-b1f22bb95392
+  * int param get half page kso.axo: 5224773f-18de-4231-8f92-b1f22bb95393
+  * sample_player_with_position.axo: 5224773f-18de-4231-8f92-b1f22bb95394
+  * play min dev.axo: 5224773f-18de-4231-8f92-b1f22bb95395
+  * play min pos.axo: 5224773f-18de-4231-8f92-b1f22bb95396
+  * pitch_octave_combine.axo: 5224773f-18de-4231-8f92-b1f22bb95397
 - **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
 - **MANDATORY**: Document all new UUIDs in this file immediately after creation
 

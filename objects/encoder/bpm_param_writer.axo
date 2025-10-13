@@ -1,4 +1,4 @@
-<objdefs appVersion="1.0.12">
+<objdefs appVersion="1.1.0">
    <obj.normal id="bpm_param_writer" uuid="5224773f-18de-4231-8f92-b1f22bb95387">
       <sDescription>Writes BPM values to the param table when they change from external sources (MIDI clock). Prevents feedback loops by only writing when BPM comes from external sources.</sDescription>
       <author>AI Assistant</author>
@@ -20,7 +20,7 @@ bool lastBpmChanged; // Track last bpmChanged state
 // Function to write BPM to param table
 void writeBpmToParamTable(int32_t bpm, int32_t page, int32_t param) {
     // Get param table instance
-    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
     
     // Write BPM value to specified page and param
     param_table->array[page][param] = bpm;
@@ -40,4 +40,4 @@ lastBpmChanged = false;]]></code.init>
       <code.krate><![CDATA[// Write BPM to param table when it changes from external source
 safeWriteBpm(inlet_bpm, inlet_bpmChanged, inlet_page, inlet_param);]]></code.krate>
    </obj.normal>
-</objdefs> 
+</objdefs>
