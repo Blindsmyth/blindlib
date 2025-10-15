@@ -1,0 +1,29 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="sum4_stereo" uuid="5224773f-18de-4231-8f92-b1f22bb95399">
+      <sDescription>Sum 4 stereo values at s-rate. Takes 4 stereo inputs and outputs stereo sum.</sDescription>
+      <author>AI Assistant</author>
+      <license>BSD</license>
+      <inlets>
+         <frac32buffer.bipolar name="in1L" description="Input 1 Left"/>
+         <frac32buffer.bipolar name="in1R" description="Input 1 Right"/>
+         <frac32buffer.bipolar name="in2L" description="Input 2 Left"/>
+         <frac32buffer.bipolar name="in2R" description="Input 2 Right"/>
+         <frac32buffer.bipolar name="in3L" description="Input 3 Left"/>
+         <frac32buffer.bipolar name="in3R" description="Input 3 Right"/>
+         <frac32buffer.bipolar name="in4L" description="Input 4 Left"/>
+         <frac32buffer.bipolar name="in4R" description="Input 4 Right"/>
+      </inlets>
+      <outlets>
+         <frac32buffer.bipolar name="outL" description="Output Left"/>
+         <frac32buffer.bipolar name="outR" description="Output Right"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs/>
+      <includes/>
+      <code.srate><![CDATA[
+      outlet_outL = inlet_in1L + inlet_in2L + inlet_in3L + inlet_in4L;
+      outlet_outR = inlet_in1R + inlet_in2R + inlet_in3R + inlet_in4R;
+    ]]></code.srate>
+   </obj.normal>
+</objdefs>

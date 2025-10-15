@@ -54,6 +54,10 @@
   * play min dev.axo: 5224773f-18de-4231-8f92-b1f22bb95395
   * play min pos.axo: 5224773f-18de-4231-8f92-b1f22bb95396
   * pitch_octave_combine.axo: 5224773f-18de-4231-8f92-b1f22bb95397
+  * state_to_velocity_midi.axo: 5224773f-18de-4231-8f92-b1f22bb95398
+  * sum4_stereo.axo: 5224773f-18de-4231-8f92-b1f22bb95399
+  * trellis_led_feedback.axo: 5224773f-18de-4231-8f92-b1f22bb9539A
+  * trellis_led_feedback_combined.axo: 5224773f-18de-4231-8f92-b1f22bb9539B
 - **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
 - **MANDATORY**: Document all new UUIDs in this file immediately after creation
 

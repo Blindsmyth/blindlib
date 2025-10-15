@@ -1,0 +1,98 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="state_to_velocity_midi" uuid="5224773f-18de-4231-8f92-b1f22bb95398">
+      <sDescription>Converts looper states to velocity values and sends them as MIDI notes. Combines state-to-velocity mapping with MIDI output.</sDescription>
+      <author>AI Assistant</author>
+      <license>BSD</license>
+      <helpPatch>midi_out.axh</helpPatch>
+      <inlets>
+         <bool32 name="active" description="Active state - only send MIDI when high"/>
+         <int32 name="state0" description="State of slot 0"/>
+         <int32 name="state1" description="State of slot 1"/>
+         <int32 name="state2" description="State of slot 2"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params>
+         <int32 name="startnote" noLabel="true">
+            <MinValue i="0"/>
+            <MaxValue i="127"/>
+         </int32>
+      </params>
+      <attribs>
+         <combo name="device">
+            <MenuEntries>
+               <string>din</string>
+               <string>usb host port 1</string>
+               <string>usb host port 2</string>
+               <string>usb host port 3</string>
+               <string>usb host port 4</string>
+               <string>internal port 1</string>
+               <string>internal port 2</string>
+               <string>usb device port 1</string>
+            </MenuEntries>
+            <CEntries>
+               <string>MIDI_DEVICE_DIN, 1</string>
+               <string>MIDI_DEVICE_USB_HOST, 1</string>
+               <string>MIDI_DEVICE_USB_HOST, 2</string>
+               <string>MIDI_DEVICE_USB_HOST, 3</string>
+               <string>MIDI_DEVICE_USB_HOST, 4</string>
+               <string>MIDI_DEVICE_INTERNAL, 1</string>
+               <string>MIDI_DEVICE_INTERNAL, 2</string>
+               <string>MIDI_DEVICE_USB_DEVICE, 1</string>
+            </CEntries>
+         </combo>
+         <spinner name="channel" MinValue="1" MaxValue="16" DefaultValue="1"/>
+      </attribs>
+      <code.declaration><![CDATA[// Define the array of velocity values for state mapping
+uint8_t velocities[5] = {0, 3, 0, 19, 60};
+
+// Previous velocity values for change detection
+uint8_t prev0;
+uint8_t prev1;
+uint8_t prev2;
+uint8_t startnote;
+
+// Previous active state for edge detection
+bool prev_active;]]></code.declaration>
+      <code.krate><![CDATA[startnote = param_startnote;
+bool active = inlet_active > 0;
+
+// Convert states to velocities
+uint8_t vel0 = velocities[inlet_state0];
+uint8_t vel1 = velocities[inlet_state1];
+uint8_t vel2 = velocities[inlet_state2];
+
+// Check for active state change (0 to 1)
+bool active_rising = active && !prev_active;
+
+// Send MIDI notes only when active and (velocity changes OR active rising edge)
+if (active) {
+    // On active rising edge, send all states regardless of previous values
+    if (active_rising) {
+        MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1), startnote, vel0);
+        MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1), startnote + 2, vel1);
+        MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1), startnote + 4, vel2);
+        prev0 = vel0;
+        prev1 = vel1;
+        prev2 = vel2;
+    } else {
+        // Normal operation: send only when velocity changes
+        if (vel0 != prev0) {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1), startnote, vel0);
+            prev0 = vel0;
+        }
+        if (vel1 != prev1) {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1), startnote + 2, vel1);
+            prev1 = vel1;
+        }
+        if (vel2 != prev2) {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_channel-1), startnote + 4, vel2);
+            prev2 = vel2;
+        }
+    }
+}
+
+// Update previous active state
+prev_active = active;]]></code.krate>
+   </obj.normal>
+</objdefs>

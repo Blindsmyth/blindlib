@@ -40,10 +40,14 @@ All button states available via individual outlets.</sDescription>
          <bool32.pulse name="reset2" description="layer 2 reset (rec+sel long hold)"/>
          <bool32.pulse name="reset3" description="layer 3 reset (rec+sel long hold)"/>
          <bool32.pulse name="reset4" description="layer 4 reset (rec+sel long hold)"/>
-         <bool32 name="reverse1" description="layer 1 reverse (rec OR sel + shift held)"/>
-         <bool32 name="reverse2" description="layer 2 reverse (rec OR sel + shift held)"/>
-         <bool32 name="reverse3" description="layer 3 reverse (rec OR sel + shift held)"/>
-         <bool32 name="reverse4" description="layer 4 reverse (rec OR sel + shift held)"/>
+         <bool32 name="reverse1" description="layer 1 reverse toggle (shift + sel to toggle, reset clears)"/>
+         <bool32 name="reverse2" description="layer 2 reverse toggle (shift + sel to toggle, reset clears)"/>
+         <bool32 name="reverse3" description="layer 3 reverse toggle (shift + sel to toggle, reset clears)"/>
+         <bool32 name="reverse4" description="layer 4 reverse toggle (shift + sel to toggle, reset clears)"/>
+         <bool32 name="alt1" description="layer 1 alt function toggle (shift + rec to toggle, reset clears)"/>
+         <bool32 name="alt2" description="layer 2 alt function toggle (shift + rec to toggle, reset clears)"/>
+         <bool32 name="alt3" description="layer 3 alt function toggle (shift + rec to toggle, reset clears)"/>
+         <bool32 name="alt4" description="layer 4 alt function toggle (shift + rec to toggle, reset clears)"/>
          <bool32.pulse name="indexTrig" description="pulse when any index button pressed"/>
          <bool32 name="tap" description="note 60 held"/>
          <bool32 name="play" description="note 61 held"/>
@@ -76,7 +80,15 @@ bool rec1_locked, rec2_locked, rec3_locked, rec4_locked;
 
 // Stop/reset timers - track how long combo is held
 uint16_t stop_timer1, stop_timer2, stop_timer3, stop_timer4;
-bool reset_triggered1, reset_triggered2, reset_triggered3, reset_triggered4;]]></code.declaration>
+bool reset_triggered1, reset_triggered2, reset_triggered3, reset_triggered4;
+
+// Toggle states for alt and reverse functions
+bool alt1_toggle, alt2_toggle, alt3_toggle, alt4_toggle;
+bool reverse1_toggle, reverse2_toggle, reverse3_toggle, reverse4_toggle;
+
+// Previous button states for edge detection
+bool prev_alt1_btn, prev_alt2_btn, prev_alt3_btn, prev_alt4_btn;
+bool prev_rev1_btn, prev_rev2_btn, prev_rev3_btn, prev_rev4_btn;]]></code.declaration>
       <code.init><![CDATA[current_index = 0; // Default to Main (index 0)
 
 // Initialize gate array
@@ -94,7 +106,13 @@ rec1_locked = rec2_locked = rec3_locked = rec4_locked = 0;
 
 // Initialize stop/reset timers
 stop_timer1 = stop_timer2 = stop_timer3 = stop_timer4 = 0;
-reset_triggered1 = reset_triggered2 = reset_triggered3 = reset_triggered4 = 0;]]></code.init>
+reset_triggered1 = reset_triggered2 = reset_triggered3 = reset_triggered4 = 0;
+
+// Initialize toggle states
+alt1_toggle = alt2_toggle = alt3_toggle = alt4_toggle = 0;
+reverse1_toggle = reverse2_toggle = reverse3_toggle = reverse4_toggle = 0;
+prev_alt1_btn = prev_alt2_btn = prev_alt3_btn = prev_alt4_btn = 0;
+prev_rev1_btn = prev_rev2_btn = prev_rev3_btn = prev_rev4_btn = 0;]]></code.init>
       <code.krate><![CDATA[// Shift button state (note 62)
 bool shift_held = gate[62];
 
@@ -117,6 +135,9 @@ if (combo1 && !shift_held) {
     // Trigger reset pulse when threshold reached
     if (stop_timer1 == attr_resetTime) {
         outlet_reset1 = 1;
+        // Reset toggle states on reset
+        alt1_toggle = 0;
+        reverse1_toggle = 0;
     } else {
         outlet_reset1 = 0;
     }
@@ -136,7 +157,22 @@ if (!rec1_held) {
 }
 
 outlet_rec1 = !shift_held && rec1_held && !sel1_held && !rec1_locked;
-outlet_reverse1 = shift_held && (rec1_held || sel1_held);
+
+// Toggle reverse on shift+sel rising edge
+bool rev1_btn = shift_held && sel1_held;
+if (rev1_btn && !prev_rev1_btn) {
+    reverse1_toggle = !reverse1_toggle;
+}
+prev_rev1_btn = rev1_btn;
+outlet_reverse1 = reverse1_toggle;
+
+// Toggle alt on shift+rec rising edge
+bool alt1_btn = shift_held && rec1_held;
+if (alt1_btn && !prev_alt1_btn) {
+    alt1_toggle = !alt1_toggle;
+}
+prev_alt1_btn = alt1_btn;
+outlet_alt1 = alt1_toggle;
 
 // Layer 2
 bool rec2_held = gate[38];
@@ -155,6 +191,9 @@ if (combo2 && !shift_held) {
     stop_timer2++;
     if (stop_timer2 == attr_resetTime) {
         outlet_reset2 = 1;
+        // Reset toggle states on reset
+        alt2_toggle = 0;
+        reverse2_toggle = 0;
     } else {
         outlet_reset2 = 0;
     }
@@ -172,7 +211,22 @@ if (!rec2_held) {
 }
 
 outlet_rec2 = !shift_held && rec2_held && !sel2_held && !rec2_locked;
-outlet_reverse2 = shift_held && (rec2_held || sel2_held);
+
+// Toggle reverse on shift+sel rising edge
+bool rev2_btn = shift_held && sel2_held;
+if (rev2_btn && !prev_rev2_btn) {
+    reverse2_toggle = !reverse2_toggle;
+}
+prev_rev2_btn = rev2_btn;
+outlet_reverse2 = reverse2_toggle;
+
+// Toggle alt on shift+rec rising edge
+bool alt2_btn = shift_held && rec2_held;
+if (alt2_btn && !prev_alt2_btn) {
+    alt2_toggle = !alt2_toggle;
+}
+prev_alt2_btn = alt2_btn;
+outlet_alt2 = alt2_toggle;
 
 // Layer 3
 bool rec3_held = gate[40];
@@ -191,6 +245,9 @@ if (combo3 && !shift_held) {
     stop_timer3++;
     if (stop_timer3 == attr_resetTime) {
         outlet_reset3 = 1;
+        // Reset toggle states on reset
+        alt3_toggle = 0;
+        reverse3_toggle = 0;
     } else {
         outlet_reset3 = 0;
     }
@@ -208,7 +265,22 @@ if (!rec3_held) {
 }
 
 outlet_rec3 = !shift_held && rec3_held && !sel3_held && !rec3_locked;
-outlet_reverse3 = shift_held && (rec3_held || sel3_held);
+
+// Toggle reverse on shift+sel rising edge
+bool rev3_btn = shift_held && sel3_held;
+if (rev3_btn && !prev_rev3_btn) {
+    reverse3_toggle = !reverse3_toggle;
+}
+prev_rev3_btn = rev3_btn;
+outlet_reverse3 = reverse3_toggle;
+
+// Toggle alt on shift+rec rising edge
+bool alt3_btn = shift_held && rec3_held;
+if (alt3_btn && !prev_alt3_btn) {
+    alt3_toggle = !alt3_toggle;
+}
+prev_alt3_btn = alt3_btn;
+outlet_alt3 = alt3_toggle;
 
 // Layer 4
 bool rec4_held = gate[42];
@@ -227,6 +299,9 @@ if (combo4 && !shift_held) {
     stop_timer4++;
     if (stop_timer4 == attr_resetTime) {
         outlet_reset4 = 1;
+        // Reset toggle states on reset
+        alt4_toggle = 0;
+        reverse4_toggle = 0;
     } else {
         outlet_reset4 = 0;
     }
@@ -244,7 +319,22 @@ if (!rec4_held) {
 }
 
 outlet_rec4 = !shift_held && rec4_held && !sel4_held && !rec4_locked;
-outlet_reverse4 = shift_held && (rec4_held || sel4_held);
+
+// Toggle reverse on shift+sel rising edge
+bool rev4_btn = shift_held && sel4_held;
+if (rev4_btn && !prev_rev4_btn) {
+    reverse4_toggle = !reverse4_toggle;
+}
+prev_rev4_btn = rev4_btn;
+outlet_reverse4 = reverse4_toggle;
+
+// Toggle alt on shift+rec rising edge
+bool alt4_btn = shift_held && rec4_held;
+if (alt4_btn && !prev_alt4_btn) {
+    alt4_toggle = !alt4_toggle;
+}
+prev_alt4_btn = alt4_btn;
+outlet_alt4 = alt4_toggle;
 
 // Store previous states for next iteration
 prev_shift = shift_held;

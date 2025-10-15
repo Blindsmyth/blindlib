@@ -25,11 +25,13 @@ Each layer has a Rec button (even notes) and Sel button (odd notes):
 | 4 | 42 | 43 | Rec/Stop/Reverse |
 
 **Button Functions per Layer:**
-- **Rec alone** → `rec` output (record)
-- **Rec + Sel** (both held) → `stop` output
-- **Shift + Rec** → `reverse` output
-- **Shift + Sel** → `reverse` output
+- **Rec alone** → `rec` output (record gate)
+- **Rec + Sel** (both held) → `stop` pulse (short hold) / `reset` pulse + clear toggles (long hold)
+- **Shift + Rec** → Toggle `alt` output on/off (alternate function)
+- **Shift + Sel** → Toggle `reverse` output on/off (reverse playback)
 - **Sel alone** (no shift) → Changes `index` to layer number (1-4)
+
+Note: `alt` and `reverse` are toggles - press once to turn on, press again to turn off. Triggering `reset` (long hold Rec+Sel) clears both toggles back to off.
 
 ### Row 2 (Notes 44-51) - Reserved
 Currently unused, available for future expansion.
@@ -56,9 +58,11 @@ Currently unused, available for future expansion.
 Gate outputs are **HIGH when button is held**, **LOW when released**:
 
 **Loop Control (4 layers):**
-- `rec1`, `rec2`, `rec3`, `rec4` - Record gates
-- `stop1`, `stop2`, `stop3`, `stop4` - Stop gates (Rec+Sel combo)
-- `reverse1`, `reverse2`, `reverse3`, `reverse4` - Reverse gates (Shift+Rec or Shift+Sel)
+- `rec1`, `rec2`, `rec3`, `rec4` - Record gates (Rec alone, gate follows button)
+- `stop1`, `stop2`, `stop3`, `stop4` - Stop pulses (Rec+Sel short hold)
+- `reset1`, `reset2`, `reset3`, `reset4` - Reset pulses (Rec+Sel long hold > resetTime, clears alt/reverse toggles)
+- `reverse1`, `reverse2`, `reverse3`, `reverse4` - Reverse toggles (Shift+Sel to toggle, reset clears)
+- `alt1`, `alt2`, `alt3`, `alt4` - Alt function toggles (Shift+Rec to toggle, reset clears)
 
 **Transport:**
 - `tap` - Tap tempo gate (note 60, no shift)
@@ -147,8 +151,10 @@ trellis_controller → rec1 → looper layer 1 rec inlet
 
 ### With Shift Functions
 ```
-Hold Shift (62) + Press Rec (36) → reverse1 output HIGH
-Hold Rec (36) + Press Sel (37) → stop1 output HIGH
+Hold Shift (62) + Press Rec (36) → alt1 toggles on/off
+Hold Shift (62) + Press Sel (37) → reverse1 toggles on/off
+Hold Rec (36) + Press Sel (37) short → stop1 pulse
+Hold Rec (36) + Press Sel (37) long → reset1 pulse, alt1 and reverse1 clear to off
 Press Sel (37) alone → index = 1, indexTrig pulse
 Press Main (63) alone → index = 0
 Press Main (63) + Shift → index = 9 (System)
@@ -201,6 +207,8 @@ Press Main (63) + Shift → index = 9 (System)
 
 ## Version History
 
+- **v1.2** - Changed `alt` and `reverse` to toggles (press to toggle on/off), reset clears toggles
+- **v1.1** - Added `alt1-4` outlets for Shift+Rec specifically (separate from reverse)
 - **v1.0** - Initial release with 4-layer control, shift functions, and lock-based debouncing
 
 ## Author

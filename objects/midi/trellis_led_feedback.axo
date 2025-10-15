@@ -1,0 +1,213 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="trellis_led_feedback" uuid="5224773f-18de-4231-8f92-b1f22bb9539A">
+      <sDescription>Trellis LED feedback for reverse and alt toggle states. Reads toggle states from inlets and sends MIDI notes to update LEDs.</sDescription>
+      <author>AI Assistant</author>
+      <license>BSD</license>
+      <helpPatch>midi.axh</helpPatch>
+      <inlets>
+         <bool32 name="shift" description="Shift state - only show LEDs when shift is pressed"/>
+         <bool32 name="reverse1" description="Layer 1 reverse state"/>
+         <bool32 name="reverse2" description="Layer 2 reverse state"/>
+         <bool32 name="reverse3" description="Layer 3 reverse state"/>
+         <bool32 name="reverse4" description="Layer 4 reverse state"/>
+         <bool32 name="alt1" description="Layer 1 alt state"/>
+         <bool32 name="alt2" description="Layer 2 alt state"/>
+         <bool32 name="alt3" description="Layer 3 alt state"/>
+         <bool32 name="alt4" description="Layer 4 alt state"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="revVelocity" MinValue="0" MaxValue="127" DefaultValue="19"/>
+         <spinner name="altVelocity" MinValue="0" MaxValue="127" DefaultValue="60"/>
+         <spinner name="midichannel" MinValue="1" MaxValue="16" DefaultValue="1"/>
+         <combo name="device">
+            <MenuEntries>
+               <string>din</string>
+               <string>usb host port 1</string>
+               <string>usb host port 2</string>
+               <string>usb host port 3</string>
+               <string>usb host port 4</string>
+               <string>internal port 1</string>
+               <string>internal port 2</string>
+               <string>usb device port 1</string>
+            </MenuEntries>
+            <CEntries>
+               <string>MIDI_DEVICE_DIN, 1</string>
+               <string>MIDI_DEVICE_USB_HOST, 1</string>
+               <string>MIDI_DEVICE_USB_HOST, 2</string>
+               <string>MIDI_DEVICE_USB_HOST, 3</string>
+               <string>MIDI_DEVICE_USB_HOST, 4</string>
+               <string>MIDI_DEVICE_INTERNAL, 1</string>
+               <string>MIDI_DEVICE_INTERNAL, 2</string>
+               <string>MIDI_DEVICE_USB_DEVICE, 1</string>
+            </CEntries>
+         </combo>
+      </attribs>
+      <includes/>
+      <code.declaration><![CDATA[// Previous toggle states for change detection
+bool prev_rev1, prev_rev2, prev_rev3, prev_rev4;
+bool prev_alt1, prev_alt2, prev_alt3, prev_alt4;
+
+// Previous shift state for rising edge detection
+bool prev_shift;]]></code.declaration>
+      <code.init><![CDATA[// Initialize previous states
+prev_rev1 = prev_rev2 = prev_rev3 = prev_rev4 = 0;
+prev_alt1 = prev_alt2 = prev_alt3 = prev_alt4 = 0;
+prev_shift = 0;]]></code.init>
+      <code.krate><![CDATA[// Convert inlets to bool
+bool shift_pressed = inlet_shift > 0;
+bool rev1 = inlet_reverse1 > 0;
+bool rev2 = inlet_reverse2 > 0;
+bool rev3 = inlet_reverse3 > 0;
+bool rev4 = inlet_reverse4 > 0;
+bool alt1 = inlet_alt1 > 0;
+bool alt2 = inlet_alt2 > 0;
+bool alt3 = inlet_alt3 > 0;
+bool alt4 = inlet_alt4 > 0;
+
+// Check for shift rising edge (0 to 1)
+bool shift_rising = shift_pressed && !prev_shift;
+
+// Only send LED feedback when shift is pressed
+if (shift_pressed) {
+    // On shift rising edge, send all current states (including OFF states with NOTE OFF)
+    if (shift_rising) {
+        // Send all reverse states
+        if (rev1) {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_midichannel-1), 37, attr_revVelocity);
+        } else {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 37, 0);
+        }
+        if (rev2) {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_midichannel-1), 39, attr_revVelocity);
+        } else {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 39, 0);
+        }
+        if (rev3) {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_midichannel-1), 41, attr_revVelocity);
+        } else {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 41, 0);
+        }
+        if (rev4) {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_midichannel-1), 43, attr_revVelocity);
+        } else {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 43, 0);
+        }
+        
+        // Send all alt states
+        if (alt1) {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_midichannel-1), 36, attr_altVelocity);
+        } else {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 36, 0);
+        }
+        if (alt2) {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_midichannel-1), 38, attr_altVelocity);
+        } else {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 38, 0);
+        }
+        if (alt3) {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_midichannel-1), 40, attr_altVelocity);
+        } else {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 40, 0);
+        }
+        if (alt4) {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_midichannel-1), 42, attr_altVelocity);
+        } else {
+            MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 42, 0);
+        }
+        
+        // Update previous states
+        prev_rev1 = rev1; prev_rev2 = rev2; prev_rev3 = rev3; prev_rev4 = rev4;
+        prev_alt1 = alt1; prev_alt2 = alt2; prev_alt3 = alt3; prev_alt4 = alt4;
+    } else {
+        // Normal operation: send only when states change
+        if (rev1 != prev_rev1) {
+            if (rev1) {
+                MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_midichannel-1), 37, attr_revVelocity);
+            } else {
+                MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 37, 0);
+            }
+            prev_rev1 = rev1;
+        }
+        if (rev2 != prev_rev2) {
+            if (rev2) {
+                MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_midichannel-1), 39, attr_revVelocity);
+            } else {
+                MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 39, 0);
+            }
+            prev_rev2 = rev2;
+        }
+        if (rev3 != prev_rev3) {
+            if (rev3) {
+                MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_midichannel-1), 41, attr_revVelocity);
+            } else {
+                MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 41, 0);
+            }
+            prev_rev3 = rev3;
+        }
+        if (rev4 != prev_rev4) {
+            if (rev4) {
+                MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_midichannel-1), 43, attr_revVelocity);
+            } else {
+                MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 43, 0);
+            }
+            prev_rev4 = rev4;
+        }
+        
+        if (alt1 != prev_alt1) {
+            if (alt1) {
+                MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_midichannel-1), 36, attr_altVelocity);
+            } else {
+                MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 36, 0);
+            }
+            prev_alt1 = alt1;
+        }
+        if (alt2 != prev_alt2) {
+            if (alt2) {
+                MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_midichannel-1), 38, attr_altVelocity);
+            } else {
+                MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 38, 0);
+            }
+            prev_alt2 = alt2;
+        }
+        if (alt3 != prev_alt3) {
+            if (alt3) {
+                MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_midichannel-1), 40, attr_altVelocity);
+            } else {
+                MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 40, 0);
+            }
+            prev_alt3 = alt3;
+        }
+        if (alt4 != prev_alt4) {
+            if (alt4) {
+                MidiSend3((midi_device_t) attr_device, MIDI_NOTE_ON + (attr_midichannel-1), 42, attr_altVelocity);
+            } else {
+                MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 42, 0);
+            }
+            prev_alt4 = alt4;
+        }
+    }
+} else {
+    // When shift is released, turn off all LEDs and reset previous states
+    if (prev_rev1 || prev_rev2 || prev_rev3 || prev_rev4 || prev_alt1 || prev_alt2 || prev_alt3 || prev_alt4) {
+        MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 37, 0); // rev1
+        MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 39, 0); // rev2
+        MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 41, 0); // rev3
+        MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 43, 0); // rev4
+        MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 36, 0); // alt1
+        MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 38, 0); // alt2
+        MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 40, 0); // alt3
+        MidiSend3((midi_device_t) attr_device, MIDI_NOTE_OFF + (attr_midichannel-1), 42, 0); // alt4
+        
+        // Reset previous states so LEDs will turn back on when shift is pressed again
+        prev_rev1 = prev_rev2 = prev_rev3 = prev_rev4 = 0;
+        prev_alt1 = prev_alt2 = prev_alt3 = prev_alt4 = 0;
+    }
+}
+
+// Update previous shift state
+prev_shift = shift_pressed;]]></code.krate>
+   </obj.normal>
+</objdefs>
