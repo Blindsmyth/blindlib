@@ -1,0 +1,24 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="voice_position_selector" uuid="5224773f-18de-4231-8f92-b1f22bb953A4">
+      <sDescription>Replaces demux+mux pattern in polyphonic subpatch. Each voice outputs its position only when selected, otherwise outputs 0. Eliminates redundant routing logic.</sDescription>
+      <author>Simon Reeve</author>
+      <license>GPL</license>
+      <inlets>
+         <frac32buffer name="pos" description="This voice's position"/>
+         <int32.positive name="voice" description="This voice's number (0-3)"/>
+         <int32.positive name="selected" description="Selected slot number"/>
+      </inlets>
+      <outlets>
+         <frac32buffer name="out" description="Position if selected, 0 otherwise"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs/>
+      <code.declaration><![CDATA[bool is_selected;]]></code.declaration>
+      <code.krate><![CDATA[// Determine if this voice is selected (k-rate check)
+is_selected = (inlet_voice == inlet_selected);]]></code.krate>
+      <code.srate><![CDATA[// Output position only if selected (use cached k-rate result)
+outlet_out = is_selected ? inlet_pos : 0;]]></code.srate>
+   </obj.normal>
+</objdefs>
+
