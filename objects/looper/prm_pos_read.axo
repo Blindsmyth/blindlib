@@ -1,0 +1,26 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="prm_pos_read" uuid="5224773f-18de-4231-8f92-b1f22bb953A3">
+      <sDescription>Reads loop position from RBRT prm system for a selected slot. Replaces wasteful demux/mux pattern in polyphonic looper subpatches.</sDescription>
+      <author>Simon Reeve</author>
+      <license>GPL</license>
+      <inlets>
+         <int32 name="slot" description="Slot to read position from (0-3)"/>
+      </inlets>
+      <outlets>
+         <int32 name="pos" description="Loop position in samples from selected slot"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="parameter" MinValue="0" MaxValue="127" DefaultValue="64" description="Parameter index in prm array (must match writer)"/>
+      </attribs>
+      <includes>
+         <include>../../../Axolonatics/objects/rbrt_new/rbrt_classes/Smplr.h</include>
+      </includes>
+      <code.declaration><![CDATA[Smplr smplr;]]></code.declaration>
+      <code.krate><![CDATA[// Read position from prm array at selected slot address
+uint16_t adr = inlet_slot * 128;
+outlet_pos = smplr.prm[adr + attr_parameter];]]></code.krate>
+   </obj.normal>
+</objdefs>
+
