@@ -1,0 +1,25 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="prm_pos_write" uuid="5224773f-18de-4231-8f92-b1f22bb953A2">
+      <sDescription>Writes loop position to RBRT prm system for the current voice slot. Use in polyphonic subpatch.</sDescription>
+      <author>Simon Reeve</author>
+      <license>GPL</license>
+      <inlets>
+         <int32 name="slot" description="Voice slot number (0-3)"/>
+         <int32 name="pos" description="Loop position in samples"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="parameter" MinValue="0" MaxValue="127" DefaultValue="64" description="Parameter index in prm array"/>
+      </attribs>
+      <includes>
+         <include>../../../Axolonatics/objects/rbrt_new/rbrt_classes/Smplr.h</include>
+      </includes>
+      <code.declaration><![CDATA[Smplr smplr;]]></code.declaration>
+      <code.krate><![CDATA[// Write position to prm array at slot address
+uint16_t adr = inlet_slot * 128;
+smplr.prm[adr + attr_parameter] = inlet_pos;]]></code.krate>
+   </obj.normal>
+</objdefs>
+

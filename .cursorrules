@@ -68,6 +68,7 @@
   * euclidean 1track.axo: 5224773f-18de-4231-8f92-b1f22bb9539F
   * sketchy_config_save.axo: 5224773f-18de-4231-8f92-b1f22bb953A0
   * sketchy_config_load.axo: 5224773f-18de-4231-8f92-b1f22bb953A1
+  * prm_pos_write.axo: 5224773f-18de-4231-8f92-b1f22bb953A2
 - **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
 - **MANDATORY**: Document all new UUIDs in this file immediately after creation
 
