@@ -1,0 +1,185 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sketchy_config_save" uuid="5224773f-18de-4231-8f92-b1f22bb953A0">
+      <sDescription>Saves sketchy_dials config structs to SD card. Frees SRAM by enabling config loading from SD instead of hardcoded init data.</sDescription>
+      <author>AI Assistant / Simon</author>
+      <license>BSD</license>
+      <inlets>
+         <charptr32 name="filename" description="Config file name (e.g. config_dials.bin)"/>
+         <bool32.rising name="trig" description="Trigger save operation"/>
+      </inlets>
+      <outlets>
+         <int32 name="status" description="0=idle, 1=saving, 2=success, -1=error"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs/>
+      <includes>
+         <include>chibios/ext/fatfs/src/ff.h</include>
+      </includes>
+      <depends>
+         <depend>fatfs</depend>
+         <depend>sketchy_dials</depend>
+      </depends>
+      <code.declaration><![CDATA[// File format constants
+#define CONFIG_MAGIC "AXOCFG01"
+#define CONFIG_COUNT 64
+#define MAX_STRING_SIZE 2048
+
+// Binary config structure (for file storage)
+typedef struct {
+    uint8_t mode;
+    uint8_t show_value;
+    uint16_t label_offset;
+    uint16_t options_offset;
+    float default_value;
+    int16_t int_min;
+    int16_t int_max;
+    uint8_t reserved[12];
+} __attribute__((packed)) config_binary_t;
+
+// File header
+typedef struct {
+    char magic[8];
+    uint16_t config_count;
+    uint32_t string_offset;
+    uint16_t string_size;
+} __attribute__((packed)) config_header_t;
+
+int ntrig;
+int32_t status;
+
+// String collection buffer (in SDRAM to avoid SRAM usage)
+char string_buffer[MAX_STRING_SIZE] __attribute__ ((section (".sdram")));
+config_binary_t binary_configs[CONFIG_COUNT] __attribute__ ((section (".sdram")));
+
+// Build string section and populate offsets
+uint16_t build_string_section() {
+    uint16_t offset = 0;
+    
+    for (int pg = 0; pg < 8; pg++) {
+        for (int dial = 0; dial < 8; dial++) {
+            int idx = pg * 8 + dial;
+            auto& cfg = parent->objectinstance_sketchy__dials_i.configs[pg][dial];
+            
+            // Store label
+            binary_configs[idx].label_offset = offset;
+            if (cfg.label && cfg.label[0] != '\0') {
+                // Copy string and null terminator
+                const char* src = cfg.label;
+                while (*src && offset < MAX_STRING_SIZE - 1) {
+                    string_buffer[offset++] = *src++;
+                }
+                string_buffer[offset++] = '\0';
+            } else {
+                string_buffer[offset++] = '\0'; // Empty string
+            }
+            
+            // Store options
+            if (cfg.options && cfg.options[0] != '\0') {
+                binary_configs[idx].options_offset = offset;
+                const char* src = cfg.options;
+                while (*src && offset < MAX_STRING_SIZE - 1) {
+                    string_buffer[offset++] = *src++;
+                }
+                string_buffer[offset++] = '\0';
+            } else {
+                binary_configs[idx].options_offset = 0xFFFF; // NULL marker
+            }
+            
+            // Copy other fields
+            binary_configs[idx].mode = cfg.mode;
+            binary_configs[idx].show_value = cfg.show_value ? 1 : 0;
+            binary_configs[idx].default_value = cfg.default_value;
+            binary_configs[idx].int_min = cfg.int_min;
+            binary_configs[idx].int_max = cfg.int_max;
+            
+            // Clear reserved bytes
+            for (int i = 0; i < 12; i++) {
+                binary_configs[idx].reserved[i] = 0;
+            }
+        }
+    }
+    
+    return offset; // Total string section size
+}]]></code.declaration>
+      <code.init><![CDATA[ntrig = 0;
+status = 0;]]></code.init>
+      <code.krate><![CDATA[outlet_status = status;
+
+if ((inlet_trig > 0) && !ntrig) {
+    ntrig = 1;
+    status = 1; // Saving
+    
+    FIL FileObject;
+    FRESULT err;
+    UINT bytes_written;
+    
+    // Build string section
+    uint16_t string_size = build_string_section();
+    
+    // Prepare header
+    config_header_t header;
+    memcpy(header.magic, CONFIG_MAGIC, 8);
+    header.config_count = CONFIG_COUNT;
+    header.string_offset = sizeof(config_header_t) + (CONFIG_COUNT * sizeof(config_binary_t));
+    header.string_size = string_size;
+    
+    // Open file for writing
+    codec_clearbuffer();
+    err = f_open(&FileObject, inlet_filename, FA_WRITE | FA_CREATE_ALWAYS);
+    if (err != FR_OK) {
+        report_fatfs_error(err, inlet_filename);
+        status = -1; // Error
+        ntrig = 0;
+        return;
+    }
+    
+    // Write header
+    err = f_write(&FileObject, &header, sizeof(config_header_t), &bytes_written);
+    if (err != FR_OK || bytes_written != sizeof(config_header_t)) {
+        report_fatfs_error(err, inlet_filename);
+        f_close(&FileObject);
+        status = -1;
+        ntrig = 0;
+        return;
+    }
+    
+    // Write config data
+    err = f_write(&FileObject, binary_configs, CONFIG_COUNT * sizeof(config_binary_t), &bytes_written);
+    if (err != FR_OK || bytes_written != (CONFIG_COUNT * sizeof(config_binary_t))) {
+        report_fatfs_error(err, inlet_filename);
+        f_close(&FileObject);
+        status = -1;
+        ntrig = 0;
+        return;
+    }
+    
+    // Write string section
+    err = f_write(&FileObject, string_buffer, string_size, &bytes_written);
+    if (err != FR_OK || bytes_written != string_size) {
+        report_fatfs_error(err, inlet_filename);
+        f_close(&FileObject);
+        status = -1;
+        ntrig = 0;
+        return;
+    }
+    
+    // Close file
+    err = f_close(&FileObject);
+    if (err != FR_OK) {
+        report_fatfs_error(err, inlet_filename);
+        status = -1;
+        ntrig = 0;
+        return;
+    }
+    
+    status = 2; // Success!
+    ntrig = 0;
+}
+else if (!(inlet_trig > 0)) {
+    ntrig = 0;
+    if (status == 2) status = 0; // Reset success to idle after trigger released
+}]]></code.krate>
+   </obj.normal>
+</objdefs>
+

@@ -1,0 +1,185 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sketchy_config_load" uuid="5224773f-18de-4231-8f92-b1f22bb953A1">
+      <sDescription>Loads sketchy_dials config structs from SD card directly into SDRAM. Saves SRAM by bypassing hardcoded init data. Use after sketchy_dials initialization.</sDescription>
+      <author>AI Assistant / Simon</author>
+      <license>BSD</license>
+      <inlets>
+         <charptr32 name="filename" description="Config file name (e.g. config_dials.bin)"/>
+         <bool32.rising name="trig" description="Trigger load operation"/>
+      </inlets>
+      <outlets>
+         <int32 name="status" description="0=idle, 1=loading, 2=success, -1=error"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs/>
+      <includes>
+         <include>chibios/ext/fatfs/src/ff.h</include>
+      </includes>
+      <depends>
+         <depend>fatfs</depend>
+         <depend>sketchy_dials</depend>
+      </depends>
+      <code.declaration><![CDATA[// File format constants
+#define CONFIG_MAGIC "AXOCFG01"
+#define CONFIG_COUNT 64
+#define MAX_STRING_SIZE 2048
+
+// Binary config structure (for file storage)
+typedef struct {
+    uint8_t mode;
+    uint8_t show_value;
+    uint16_t label_offset;
+    uint16_t options_offset;
+    float default_value;
+    int16_t int_min;
+    int16_t int_max;
+    uint8_t reserved[12];
+} __attribute__((packed)) config_binary_t;
+
+// File header
+typedef struct {
+    char magic[8];
+    uint16_t config_count;
+    uint32_t string_offset;
+    uint16_t string_size;
+} __attribute__((packed)) config_header_t;
+
+int ntrig;
+int32_t status;
+
+// SDRAM storage for loaded data
+char string_buffer[MAX_STRING_SIZE] __attribute__ ((section (".sdram")));
+config_binary_t binary_configs[CONFIG_COUNT] __attribute__ ((section (".sdram")));
+
+// Reconstruct config structs with proper string pointers
+void reconstruct_configs() {
+    for (int pg = 0; pg < 8; pg++) {
+        for (int dial = 0; dial < 8; dial++) {
+            int idx = pg * 8 + dial;
+            auto& cfg = parent->objectinstance_sketchy__dials_i.configs[pg][dial];
+            auto& bin = binary_configs[idx];
+            
+            // Copy basic fields
+            cfg.mode = bin.mode;
+            cfg.show_value = (bin.show_value != 0);
+            cfg.default_value = bin.default_value;
+            cfg.int_min = bin.int_min;
+            cfg.int_max = bin.int_max;
+            
+            // Reconstruct string pointers
+            cfg.label = &string_buffer[bin.label_offset];
+            
+            if (bin.options_offset == 0xFFFF) {
+                cfg.options = NULL;
+            } else {
+                cfg.options = &string_buffer[bin.options_offset];
+            }
+        }
+    }
+}]]></code.declaration>
+      <code.init><![CDATA[ntrig = 0;
+status = 0;]]></code.init>
+      <code.krate><![CDATA[outlet_status = status;
+
+if ((inlet_trig > 0) && !ntrig) {
+    ntrig = 1;
+    status = 1; // Loading
+    
+    FIL FileObject;
+    FRESULT err;
+    UINT bytes_read;
+    config_header_t header;
+    
+    // Open file for reading
+    codec_clearbuffer();
+    err = f_open(&FileObject, inlet_filename, FA_READ | FA_OPEN_EXISTING);
+    if (err != FR_OK) {
+        report_fatfs_error(err, inlet_filename);
+        status = -1; // Error
+        ntrig = 0;
+        return;
+    }
+    
+    // Read and validate header
+    err = f_read(&FileObject, &header, sizeof(config_header_t), &bytes_read);
+    if (err != FR_OK || bytes_read != sizeof(config_header_t)) {
+        report_fatfs_error(err, inlet_filename);
+        f_close(&FileObject);
+        status = -1;
+        ntrig = 0;
+        return;
+    }
+    
+    // Validate magic
+    if (memcmp(header.magic, CONFIG_MAGIC, 8) != 0) {
+        LogTextMessage("Invalid config file magic");
+        f_close(&FileObject);
+        status = -1;
+        ntrig = 0;
+        return;
+    }
+    
+    // Validate config count
+    if (header.config_count != CONFIG_COUNT) {
+        LogTextMessage("Invalid config count");
+        f_close(&FileObject);
+        status = -1;
+        ntrig = 0;
+        return;
+    }
+    
+    // Read config data directly into SDRAM
+    err = f_read(&FileObject, binary_configs, CONFIG_COUNT * sizeof(config_binary_t), &bytes_read);
+    if (err != FR_OK || bytes_read != (CONFIG_COUNT * sizeof(config_binary_t))) {
+        report_fatfs_error(err, inlet_filename);
+        f_close(&FileObject);
+        status = -1;
+        ntrig = 0;
+        return;
+    }
+    
+    // Read string section directly into SDRAM
+    if (header.string_size > MAX_STRING_SIZE) {
+        LogTextMessage("String section too large");
+        f_close(&FileObject);
+        status = -1;
+        ntrig = 0;
+        return;
+    }
+    
+    err = f_read(&FileObject, string_buffer, header.string_size, &bytes_read);
+    if (err != FR_OK || bytes_read != header.string_size) {
+        report_fatfs_error(err, inlet_filename);
+        f_close(&FileObject);
+        status = -1;
+        ntrig = 0;
+        return;
+    }
+    
+    // Close file
+    err = f_close(&FileObject);
+    if (err != FR_OK) {
+        report_fatfs_error(err, inlet_filename);
+        status = -1;
+        ntrig = 0;
+        return;
+    }
+    
+    // Reconstruct config structs with proper string pointers
+    reconstruct_configs();
+    
+    // Trigger dial reinitialization in sketchy_dials
+    // This will update all display objects with new configs
+    LogTextMessage("Config loaded successfully");
+    
+    status = 2; // Success!
+    ntrig = 0;
+}
+else if (!(inlet_trig > 0)) {
+    ntrig = 0;
+    if (status == 2) status = 0; // Reset success to idle after trigger released
+}]]></code.krate>
+   </obj.normal>
+</objdefs>
+

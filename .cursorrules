@@ -8,16 +8,21 @@
 - **CRITICAL**: UUID conflicts will cause compilation failures and object loading issues
 
 ### UUID WORKFLOW - MUST FOLLOW IN ORDER:
-1. **BEFORE creating any object**: Check the UUID registry below for conflicts
+1. **BEFORE creating any object**: 
+   - Check the UUID registry below for conflicts
+   - Run `./check_uuid_conflicts.sh` to verify no conflicts exist
 2. **WHEN creating object**: Use the next available UUID in sequence
 3. **IMMEDIATELY after creating object**: Update this UUID registry
-4. **NEVER create object without following steps 1-3**
+4. **AFTER creating object**: Run `./check_uuid_conflicts.sh` again to verify
+5. **NEVER create object without following steps 1-4**
 
 ### UUID ASSIGNMENT RULES:
 - **ALWAYS increment the last digit**: If last UUID ends in 85, next must be 86
 - **NEVER reuse UUIDs**: Even if object is deleted, UUID is permanently retired
 - **ALWAYS document immediately**: Update registry before any other work
 - **CHECK TWICE**: Verify no conflicts before and after assignment
+- **VALIDATE FORMAT**: Must be 8-4-4-4-12 hex format (e.g., 5224773f-18de-4231-8f92-b1f22bb9539C)
+- **CHECK EXTERNAL OBJECTS**: Verify against Axolonatics objects to prevent conflicts
 - Current UUID registry:
   * sketchy_render.axo: 5224773f-18de-4231-8f92-b1f22bb95372
   * sketchy_render_exp.axo: 5224773f-18de-4231-8f92-b1f22bb95373
@@ -55,9 +60,14 @@
   * play min pos.axo: 5224773f-18de-4231-8f92-b1f22bb95396
   * pitch_octave_combine.axo: 5224773f-18de-4231-8f92-b1f22bb95397
   * state_to_velocity_midi.axo: 5224773f-18de-4231-8f92-b1f22bb95398
-  * sum4_stereo.axo: 5224773f-18de-4231-8f92-b1f22bb95399
+  * sum4_stereo.axo: 5224773f-18de-4231-8f92-b1f22bb9539C
   * trellis_led_feedback.axo: 5224773f-18de-4231-8f92-b1f22bb9539A
   * trellis_led_feedback_combined.axo: 5224773f-18de-4231-8f92-b1f22bb9539B
+  * tap.io.extended.axo: 5224773f-18de-4231-8f92-b1f22bb9539D
+  * sync_clock_musical.axo: 5224773f-18de-4231-8f92-b1f22bb9539E
+  * euclidean 1track.axo: 5224773f-18de-4231-8f92-b1f22bb9539F
+  * sketchy_config_save.axo: 5224773f-18de-4231-8f92-b1f22bb953A0
+  * sketchy_config_load.axo: 5224773f-18de-4231-8f92-b1f22bb953A1
 - **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
 - **MANDATORY**: Document all new UUIDs in this file immediately after creation
 
