@@ -38,10 +38,10 @@ encoder_dial_config_t (*configs)[8];  // Pointer to 2D array in SDRAM
 
 // Display structures for each type - 64 total (8 pages x 8 dials)
 // Using SDRAM to save precious SRAM
-rootc::instancesketchy__render::dial_t *dials;
-rootc::instancesketchy__render::intdisplay_t *intdisplays;
-rootc::instancesketchy__render::select_t *selects;
-rootc::instancesketchy__render::bar_t *bars;
+rootc::objectinstance_sketchy__render::dial_t *dials;
+rootc::objectinstance_sketchy__render::intdisplay_t *intdisplays;
+rootc::objectinstance_sketchy__render::select_t *selects;
+rootc::objectinstance_sketchy__render::bar_t *bars;
 
 // Fixed layout positions
 const uint8_t DIAL_WIDTH = 24;
@@ -189,7 +189,7 @@ void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* co
             if (encoder_pos < 0.0f) encoder_pos = 0.0f;
             if (encoder_pos > 1.0f) encoder_pos = 1.0f;
             dials[array_index].default_value = (int32_t)(encoder_pos * (float)(1 << 27));
-            parent->instancesketchy__render_i.dial_init(&dials[array_index]);
+            parent->objectinstance_sketchy__render_i.dial_init(&dials[array_index]);
             break;
             
         case MODE_BAR_UNIPOLAR:
@@ -208,7 +208,7 @@ void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* co
             if (encoder_pos < 0.0f) encoder_pos = 0.0f;
             if (encoder_pos > 1.0f) encoder_pos = 1.0f;
             bars[array_index].default_value = (int32_t)(encoder_pos * (float)(1 << 27));
-            parent->instancesketchy__render_i.bar_init(&bars[array_index]);
+            parent->objectinstance_sketchy__render_i.bar_init(&bars[array_index]);
             break;
             
         case MODE_INT:
@@ -219,7 +219,7 @@ void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* co
             intdisplays[array_index].width = DIAL_WIDTH;
             intdisplays[array_index].height = DIAL_HEIGHT;
             intdisplays[array_index].label = config->label;
-            parent->instancesketchy__render_i.intdisplay_init(&intdisplays[array_index]);
+            parent->objectinstance_sketchy__render_i.intdisplay_init(&intdisplays[array_index]);
             break;
             
         case MODE_LIST:
@@ -232,7 +232,7 @@ void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* co
             selects[array_index].is_int = true;
             selects[array_index].param_label = config->label;  // Parameter name
             selects[array_index].options = config->options;    // Options list
-            parent->instancesketchy__render_i.select_init(&selects[array_index]);
+            parent->objectinstance_sketchy__render_i.select_init(&selects[array_index]);
             break;
             
         case MODE_DUPLICATE:
@@ -284,20 +284,20 @@ void update_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* 
     switch (config->mode) {
         case MODE_FRAC_UNIPOLAR:
         case MODE_FRAC_BIPOLAR:
-            parent->instancesketchy__render_i.dial_update(&dials[array_index]);
+            parent->objectinstance_sketchy__render_i.dial_update(&dials[array_index]);
             break;
             
         case MODE_BAR_UNIPOLAR:
         case MODE_BAR_BIPOLAR:
-            parent->instancesketchy__render_i.bar_update(&bars[array_index]);
+            parent->objectinstance_sketchy__render_i.bar_update(&bars[array_index]);
             break;
             
         case MODE_INT:
-            parent->instancesketchy__render_i.intdisplay_update(&intdisplays[array_index]);
+            parent->objectinstance_sketchy__render_i.intdisplay_update(&intdisplays[array_index]);
             break;
             
         case MODE_LIST:
-            parent->instancesketchy__render_i.select_update(&selects[array_index]);
+            parent->objectinstance_sketchy__render_i.select_update(&selects[array_index]);
             break;
             
         case MODE_DUPLICATE:
@@ -314,17 +314,17 @@ void update_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* 
                     switch (ref_config->mode) {
                         case MODE_FRAC_UNIPOLAR:
                         case MODE_FRAC_BIPOLAR:
-                            parent->instancesketchy__render_i.dial_update(&dials[array_index]);
+                            parent->objectinstance_sketchy__render_i.dial_update(&dials[array_index]);
                             break;
                         case MODE_BAR_UNIPOLAR:
                         case MODE_BAR_BIPOLAR:
-                            parent->instancesketchy__render_i.bar_update(&bars[array_index]);
+                            parent->objectinstance_sketchy__render_i.bar_update(&bars[array_index]);
                             break;
                         case MODE_INT:
-                            parent->instancesketchy__render_i.intdisplay_update(&intdisplays[array_index]);
+                            parent->objectinstance_sketchy__render_i.intdisplay_update(&intdisplays[array_index]);
                             break;
                         case MODE_LIST:
-                            parent->instancesketchy__render_i.select_update(&selects[array_index]);
+                            parent->objectinstance_sketchy__render_i.select_update(&selects[array_index]);
                             break;
                     }
                 }
@@ -335,7 +335,7 @@ void update_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* 
 
 // Initialize param table with default values
 void init_param_table() {
-    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
     
     for (int page = 0; page < 8; page++) {
         for (int enc = 0; enc < 8; enc++) {
@@ -358,10 +358,10 @@ void init_param_table() {
     }
 }]]></code.declaration>
       <code.init><![CDATA[// Create SDRAM shadow arrays for display structures
-static rootc::instancesketchy__render::dial_t _dials[64] __attribute__ ((section (".sdram")));
-static rootc::instancesketchy__render::intdisplay_t _intdisplays[64] __attribute__ ((section (".sdram")));
-static rootc::instancesketchy__render::select_t _selects[64] __attribute__ ((section (".sdram")));
-static rootc::instancesketchy__render::bar_t _bars[64] __attribute__ ((section (".sdram")));
+static rootc::objectinstance_sketchy__render::dial_t _dials[64] __attribute__ ((section (".sdram")));
+static rootc::objectinstance_sketchy__render::intdisplay_t _intdisplays[64] __attribute__ ((section (".sdram")));
+static rootc::objectinstance_sketchy__render::select_t _selects[64] __attribute__ ((section (".sdram")));
+static rootc::objectinstance_sketchy__render::bar_t _bars[64] __attribute__ ((section (".sdram")));
 
 // SDRAM STRATEGY: Create shadow array for configuration data
 static encoder_dial_config_t _configs[8][8] __attribute__ ((section (".sdram")));
