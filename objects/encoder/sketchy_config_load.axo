@@ -48,9 +48,9 @@ typedef struct {
 int ntrig;
 int32_t status;
 
-// SDRAM storage for loaded data
-char string_buffer[MAX_STRING_SIZE] __attribute__ ((section (".sdram")));
-config_binary_t binary_configs[CONFIG_COUNT] __attribute__ ((section (".sdram")));
+// Pointers to SDRAM buffers (allocated in init)
+char* string_buffer;
+config_binary_t* binary_configs;
 
 // Reconstruct config structs with proper string pointers
 void reconstruct_configs() {
@@ -78,7 +78,15 @@ void reconstruct_configs() {
         }
     }
 }]]></code.declaration>
-      <code.init><![CDATA[ntrig = 0;
+      <code.init><![CDATA[// Allocate SDRAM buffers as static arrays
+static char _string_buffer[MAX_STRING_SIZE] __attribute__ ((section (".sdram")));
+static config_binary_t _binary_configs[CONFIG_COUNT] __attribute__ ((section (".sdram")));
+
+// Point instance pointers to SDRAM
+string_buffer = _string_buffer;
+binary_configs = _binary_configs;
+
+ntrig = 0;
 status = 0;]]></code.init>
       <code.krate><![CDATA[outlet_status = status;
 
