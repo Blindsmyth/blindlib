@@ -1,6 +1,6 @@
 <objdefs appVersion="1.0.12">
    <obj.normal id="sketchy_params_midi_send_lean" uuid="5224773f-18de-4231-8f92-b1f22bb9540A">
-      <sDescription>Lean version: Minimal RAM usage with responsive scanning. Redraw sends all pages with throttling.</sDescription>
+      <sDescription>Lean version with proper thread safety: Sends MIDI from low-priority thread to avoid blocking audio/display. Throttled to 100Hz.</sDescription>
       <author>AI Assistant / Simon</author>
       <license>BSD</license>
       <inlets>
@@ -31,19 +31,101 @@ uint8_t redraw_active; // Currently resending all pages
 uint8_t redraw_idx;    // Combined page+param index for redraw
 uint8_t prev_redraw;   // For rising edge detection
 
+// Thread-safe communication
+volatile int8_t current_page;
+volatile uint8_t current_startcc;
+volatile uint8_t trigger_redraw;
+volatile uint8_t is_active;
+
+// Thread for MIDI sending
+static THD_WORKING_AREA(waMidiThread, 512);
+static Thread *thd;
+
 // Mode constants (matching sketchy_dials)
+#define MODE_FRAC_UNIPOLAR 0
+#define MODE_FRAC_BIPOLAR 1
+#define MODE_INT 2
+#define MODE_LIST 3
+#define MODE_BAR_UNIPOLAR 4
+#define MODE_BAR_BIPOLAR 5
 #define MODE_DUPLICATE 6
 
-// Inline send to avoid function call overhead
-#define SEND_CC(ch, cc, val) \
-    if (sdGetTimeout(&SD2, TIME_IMMEDIATE) == MSG_TIMEOUT) { \
-        sdPut(&SD2, MIDI_CONTROL_CHANGE + (ch)); \
-        sdPut(&SD2, (cc)); \
-        sdPut(&SD2, (val)); \
+// Safe MIDI send with timeout (called from thread, not k-rate)
+inline void send_cc_safe(uint8_t ch, uint8_t cc, uint8_t val) {
+    // Wait up to 10ms for serial to be ready
+    if (sdGetTimeout(&SD2, MS2ST(10)) == MSG_OK) {
+        sdPut(&SD2, MIDI_CONTROL_CHANGE + ch);
+        sdPut(&SD2, cc);
+        sdPut(&SD2, val);
     }
+}
+
+// Convert parameter value to MIDI CC (0-127) based on mode
+inline uint8_t param_to_midi(int32_t param_value, uint8_t page, uint8_t param) {
+    if (page >= 64 || param >= 8) {
+        // Out of bounds - default to fractional conversion
+        return (uint8_t)(__USAT(param_value >> 20, 7));
+    }
+    
+    auto& config = parent->objectinstance_sketchy__dials_i.configs[page][param];
+    
+    // Handle duplicate mode - get the source parameter
+    if (config.mode == MODE_DUPLICATE && config.options) {
+        const char* opts = config.options;
+        if (opts[0] >= '0' && opts[0] <= '9' && opts[1] == ',') {
+            uint8_t src_pg = opts[0] - '0';
+            uint8_t src_pm = 0;
+            if (opts[2] >= '0' && opts[2] <= '9') {
+                src_pm = opts[2] - '0';
+                if (opts[3] >= '0' && opts[3] <= '9') {
+                    src_pm = src_pm * 10 + (opts[3] - '0');
+                }
+                if (src_pg < 64 && src_pm < 8) {
+                    // Recurse with the source parameter's config
+                    return param_to_midi(param_value, src_pg, src_pm);
+                }
+            }
+        }
+    }
+    
+    // Convert based on mode
+    switch (config.mode) {
+        case MODE_INT:
+        case MODE_LIST: {
+            // INT mode: map [int_min, int_max] to [0, max_val-min_val]
+            int32_t val = param_value;
+            int32_t min_val = config.int_min;
+            int32_t max_val = config.int_max;
+            
+            // Clamp to range
+            if (val < min_val) val = min_val;
+            if (val > max_val) val = max_val;
+            
+            // Map to actual range: [min_val, max_val] → [0, max_val-min_val]
+            if (max_val > min_val) {
+                int32_t range = max_val - min_val;
+                int32_t normalized = val - min_val;
+                
+                // Clip at 127 if out of range
+                if (normalized > 127) normalized = 127;
+                return (uint8_t)__USAT(normalized, 7);
+            } else {
+                return 0;
+            }
+        }
+        
+        case MODE_FRAC_UNIPOLAR:
+        case MODE_FRAC_BIPOLAR:
+        case MODE_BAR_UNIPOLAR:
+        case MODE_BAR_BIPOLAR:
+        default:
+            // Fractional modes: shift right by 20 bits
+            return (uint8_t)(__USAT(param_value >> 20, 7));
+    }
+}
 
 // Parse duplicate reference "page,param" → returns original CC number
-uint8_t get_original_cc(uint8_t page, uint8_t param, uint8_t startcc) {
+inline uint8_t get_original_cc(uint8_t page, uint8_t param, uint8_t startcc) {
     // Safety check bounds
     if (page >= 64 || param >= 8) {
         return startcc + param + (page * attr_maxparams);
@@ -85,112 +167,145 @@ uint8_t get_original_cc(uint8_t page, uint8_t param, uint8_t startcc) {
     
     // Not a duplicate or invalid reference - return normal CC
     return startcc + param + (page * attr_maxparams);
+}
+
+// MIDI sending thread - runs at 100Hz (10ms intervals)
+static msg_t midiThread(void *arg) {
+    setName("midi_send");
+    
+    while (!chThdShouldTerminate()) {
+        chThdSleepMilliseconds(10); // 100Hz throttle
+        
+        if (!is_active) continue;
+        
+        rootc::objectinstance_sketchy__params* ptbl = &parent->objectinstance_sketchy__params_i;
+        uint8_t ch = attr_channel - 1;
+        uint8_t startcc = current_startcc;
+        
+        // Handle redraw mode
+        if (redraw_active) {
+            uint8_t total = attr_maxpages * attr_maxparams;
+            
+            // Send 4 params per thread cycle (100Hz * 4 = 400 params/sec)
+            for (int i = 0; i < 4 && redraw_idx < total; i++, redraw_idx++) {
+                uint8_t pg = redraw_idx / attr_maxparams;
+                uint8_t pm = redraw_idx % attr_maxparams;
+                
+                // Check if duplicate and get source page/param
+                uint8_t src_pg = pg;
+                uint8_t src_pm = pm;
+                
+                if (pg < 64 && pm < 8) {
+                    auto& cfg = parent->objectinstance_sketchy__dials_i.configs[pg][pm];
+                    if (cfg.mode == MODE_DUPLICATE && cfg.options) {
+                        const char* opts = cfg.options;
+                        if (opts[0] >= '0' && opts[0] <= '9' && opts[1] == ',' && opts[2] >= '0' && opts[2] <= '7') {
+                            src_pg = opts[0] - '0';
+                            src_pm = opts[2] - '0';
+                        }
+                    }
+                }
+                
+                uint8_t cc = startcc + src_pm + (src_pg * attr_maxparams);
+                
+                if (cc <= 127) {
+                    int32_t param_val = ptbl->array[src_pg][src_pm];
+                    uint8_t val = param_to_midi(param_val, src_pg, src_pm);
+                    send_cc_safe(ch, cc, val);
+                }
+            }
+            
+            if (redraw_idx >= total) {
+                redraw_active = 0;
+            }
+            continue;
+        }
+        
+        // Normal mode: scan current page
+        int8_t pg = current_page;
+        if (pg < 0) pg = 0;
+        
+        // Scan 2 params per thread cycle (100Hz * 2 = 200 params/sec)
+        for (int i = 0; i < 2; i++) {
+            if (scan_idx >= attr_maxparams) scan_idx = 0;
+            
+            // Check if duplicate parameter
+            uint8_t src_pg = pg;
+            uint8_t src_pm = scan_idx;
+            
+            if (pg < 64 && scan_idx < 8) {
+                auto& cfg = parent->objectinstance_sketchy__dials_i.configs[pg][scan_idx];
+                if (cfg.mode == MODE_DUPLICATE && cfg.options) {
+                    const char* opts = cfg.options;
+                    if (opts[0] >= '0' && opts[0] <= '9' && opts[1] == ',' && opts[2] >= '0' && opts[2] <= '7') {
+                        src_pg = opts[0] - '0';
+                        src_pm = opts[2] - '0';
+                    }
+                }
+            }
+            
+            // Read value from SOURCE location
+            int32_t val = ptbl->array[src_pg][src_pm];
+            if (val != prev[scan_idx]) {
+                uint8_t cc = startcc + src_pm + (src_pg * attr_maxparams);
+                
+                if (cc <= 127) {
+                    uint8_t mval = param_to_midi(val, src_pg, src_pm);
+                    send_cc_safe(ch, cc, mval);
+                    prev[scan_idx] = val;
+                }
+            }
+            scan_idx++;
+        }
+    }
+    return 0;
 }]]></code.declaration>
       <code.init><![CDATA[for (int i = 0; i < 8; i++) prev[i] = 0x7FFFFFFF;
 last_page = -1;
 scan_idx = 0;
 redraw_active = 0;
 redraw_idx = 0;
-prev_redraw = 0;]]></code.init>
-      <code.krate><![CDATA[if (!inlet_active) return;
+prev_redraw = 0;
 
-rootc::objectinstance_sketchy__params* ptbl = &parent->objectinstance_sketchy__params_i;
-uint8_t ch = attr_channel - 1;
+// Initialize thread-safe variables
+current_page = 0;
+current_startcc = 0;
+trigger_redraw = 0;
+is_active = 0;
 
-// --- REDRAW TRIGGER: Pulse/rising edge detection ---
-// On rising edge, start redraw process
+// Start low-priority MIDI thread
+thd = chThdCreateStatic(waMidiThread, sizeof(waMidiThread), NORMALPRIO - 1, midiThread, NULL);]]></code.init>
+      <code.dispose><![CDATA[// Stop thread gracefully
+if (thd) {
+    chThdTerminate(thd);
+    chThdWait(thd);
+    thd = NULL;
+}]]></code.dispose>
+      <code.krate><![CDATA[// K-rate code: ONLY update shared variables, NO MIDI sending
+// The thread handles all actual MIDI communication
+
+// Update activity state
+is_active = inlet_active > 0;
+
+if (!is_active) return;
+
+// Update page and CC start
+current_page = inlet_page < 0 ? 0 : inlet_page;
+current_startcc = inlet_startcc;
+
+// Handle redraw trigger (rising edge detection)
 if ((inlet_redraw > 0) && !prev_redraw) {
     redraw_active = 1;
     redraw_idx = 0;
 }
 prev_redraw = inlet_redraw > 0;
 
-// --- REDRAW MODE: Send all pages until complete ---
-if (redraw_active) {
-    uint8_t total = attr_maxpages * attr_maxparams;
-    uint8_t startcc = inlet_startcc;
-    
-    // Send 2 params per cycle until all sent
-    for (int i = 0; i < 2 && redraw_idx < total; i++, redraw_idx++) {
-        uint8_t pg = redraw_idx / attr_maxparams;
-        uint8_t pm = redraw_idx % attr_maxparams;
-        
-        // Check if duplicate and get source page/param
-        uint8_t src_pg = pg;
-        uint8_t src_pm = pm;
-        
-        if (pg < 64 && pm < 8) {
-            auto& cfg = parent->objectinstance_sketchy__dials_i.configs[pg][pm];
-            if (cfg.mode == MODE_DUPLICATE && cfg.options) {
-                // Parse reference "page,param"
-                const char* opts = cfg.options;
-                if (opts[0] >= '0' && opts[0] <= '9' && opts[1] == ',' && opts[2] >= '0' && opts[2] <= '7') {
-                    src_pg = opts[0] - '0';
-                    src_pm = opts[2] - '0';
-                }
-            }
-        }
-        
-        // Get CC number for the original (not duplicate)
-        uint8_t cc = startcc + src_pm + (src_pg * attr_maxparams);
-        
-        if (cc <= 127) {
-            // Read value from the SOURCE location (not duplicate location)
-            uint8_t val = (uint8_t)(__USAT(ptbl->array[src_pg][src_pm] >> 20, 7));
-            SEND_CC(ch, cc, val);
-        }
-    }
-    // Finished all pages? Stop redraw
-    if (redraw_idx >= total) {
-        redraw_active = 0;
-    }
-    return; // Don't do normal scanning during redraw
-}
-
-// --- NORMAL: Scan current page ---
-int8_t pg = inlet_page;
-if (pg < 0) pg = 0;
-uint8_t startcc = inlet_startcc;
-
+// Reset scan when page changes
+int8_t pg = current_page;
 if (pg != last_page) {
     for (int i = 0; i < attr_maxparams; i++) prev[i] = 0x7FFFFFFF;
     last_page = pg;
     scan_idx = 0;
-}
-
-// Scan 2 params per cycle
-for (int i = 0; i < 2; i++) {
-    if (scan_idx >= attr_maxparams) scan_idx = 0;
-    
-    // Check if this is a duplicate parameter
-    uint8_t src_pg = pg;
-    uint8_t src_pm = scan_idx;
-    
-    if (pg < 64 && scan_idx < 8) {
-        auto& cfg = parent->objectinstance_sketchy__dials_i.configs[pg][scan_idx];
-        if (cfg.mode == MODE_DUPLICATE && cfg.options) {
-            // Parse reference "page,param"
-            const char* opts = cfg.options;
-            if (opts[0] >= '0' && opts[0] <= '9' && opts[1] == ',' && opts[2] >= '0' && opts[2] <= '7') {
-                src_pg = opts[0] - '0';
-                src_pm = opts[2] - '0';
-            }
-        }
-    }
-    
-    // Read value from SOURCE location (original for duplicates)
-    int32_t val = ptbl->array[src_pg][src_pm];
-    if (val != prev[scan_idx]) {
-        // Get CC number for the original
-        uint8_t cc = startcc + src_pm + (src_pg * attr_maxparams);
-        
-        if (cc <= 127) {
-            uint8_t mval = (uint8_t)(__USAT(val >> 20, 7));
-            SEND_CC(ch, cc, mval);
-            prev[scan_idx] = val;
-        }
-    }
-    scan_idx++;
 }]]></code.krate>
    </obj.normal>
 </objdefs>
