@@ -72,6 +72,7 @@
   * prm_pos_read.axo: 5224773f-18de-4231-8f92-b1f22bb953A3
   * voice_position_selector.axo: 5224773f-18de-4231-8f92-b1f22bb953A4
   * sketchy_dials_sd.axo: 5224773f-18de-4231-8f92-b1f22bb953A5
+  * brain_lpr_v2.axo: 5224773f-18de-4231-8f92-b1f22bb953A6
 - **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
 - **MANDATORY**: Document all new UUIDs in this file immediately after creation
 
