@@ -12,13 +12,14 @@
       </outlets>
       <displays/>
       <params/>
-      <attribs/>
+      <attribs>
+         <objref name="dials" description="Reference to sketchy_dials or sketchy_dials_sd instance"/>
+      </attribs>
       <includes>
          <include>chibios/ext/fatfs/src/ff.h</include>
       </includes>
       <depends>
          <depend>fatfs</depend>
-         <depend>sketchy_dials</depend>
       </depends>
       <code.declaration><![CDATA[// File format constants
 #define CONFIG_MAGIC "AXOCFG01"
@@ -59,7 +60,7 @@ uint16_t build_string_section() {
     for (int pg = 0; pg < 8; pg++) {
         for (int dial = 0; dial < 8; dial++) {
             int idx = pg * 8 + dial;
-            auto& cfg = parent->objectinstance_sketchy__dials_i.configs[pg][dial];
+            auto& cfg = attr_dials.configs[pg][dial];
             
             // Store label
             binary_configs[idx].label_offset = offset;

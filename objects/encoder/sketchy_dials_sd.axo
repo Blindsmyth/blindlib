@@ -1,0 +1,315 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sketchy_dials_sd" uuid="5224773f-18de-4231-8f92-b1f22bb953A5">
+      <sDescription>Minimal SD card version: Dial configuration and display coordination WITHOUT hardcoded init data. Load configs from SD card using sketchy_config_load. Saves ~2KB SRAM.</sDescription>
+      <author>AI Assistant / Simon</author>
+      <license>BSD</license>
+      <helpPatch>logic.axh</helpPatch>
+      <inlets>
+         <int32 name="page"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs/>
+      <code.declaration><![CDATA[// Dial configuration structure
+typedef struct {
+    uint8_t mode;           // 0=frac unipolar, 1=frac bipolar, 2=int, 3=list, 4=bar unipolar, 5=bar bipolar, 6=duplicate
+    bool show_value;        // Show/hide value (for fractional modes)
+    const char* label;      // Label text
+    const char* options;    // List options (for mode 3) OR duplicate reference "page,dial" (for mode 6)
+    float default_value;    // Default value
+    int16_t int_min;        // Minimum value (for int/list modes)
+    int16_t int_max;        // Maximum value (for int/list modes)
+} encoder_dial_config_t;
+
+// Configuration for 8 pages, 8 encoders each (64 total configurations)
+// USING SDRAM STRATEGY: Pointer instead of static array
+// Making this public so other objects can access it via parent->instancesketchy__dials__sd_i.configs
+encoder_dial_config_t (*configs)[8];  // Pointer to 2D array in SDRAM
+
+// Mode constants
+#define MODE_FRAC_UNIPOLAR 0  // 0.0 to 1.0, positive only
+#define MODE_FRAC_BIPOLAR  1  // -1.0 to 1.0, bipolar
+#define MODE_INT           2  // min to max, integer
+#define MODE_LIST          3  // selector mode
+#define MODE_BAR_UNIPOLAR  4  // 0.0 to 1.0, vertical bar
+#define MODE_BAR_BIPOLAR   5  // -1.0 to 1.0, vertical bar
+#define MODE_DUPLICATE     6  // duplicate another parameter
+
+// Display structures for each type - 64 total (8 pages x 8 dials)
+// Using SDRAM to save precious SRAM
+rootc::instancesketchy__render::dial_t *dials;
+rootc::instancesketchy__render::intdisplay_t *intdisplays;
+rootc::instancesketchy__render::select_t *selects;
+rootc::instancesketchy__render::bar_t *bars;
+
+// Fixed layout positions
+const uint8_t DIAL_WIDTH = 24;
+const uint8_t DIAL_HEIGHT = 24;
+const uint8_t ROW1_Y = 13;
+const uint8_t ROW2_Y = 39;
+const uint8_t COL_X[4] = {26, 52, 78, 104};
+
+// NO init_config_data() function - configs loaded from SD card!
+
+// Convert from display value to encoder position (0-1)
+float displayToEncoderValue(float displayValue, int mode) {
+    switch(mode) {
+        case MODE_FRAC_UNIPOLAR:
+        case MODE_BAR_UNIPOLAR:
+            // 0-64 display maps to 0-1 encoder
+            return displayValue / 64.0f;
+        case MODE_FRAC_BIPOLAR:
+        case MODE_BAR_BIPOLAR:
+            // -64 to +64 display maps to 0-1 encoder (-64 = 0.0, 0 = 0.5, +64 = 1.0)
+            return (displayValue + 64.0f) / 128.0f;
+        case MODE_INT:
+        case MODE_LIST:
+            // Not used for these modes
+            return 0.0f;
+        default:
+            return displayValue;
+    }
+}
+
+// Parse duplicate reference "page,dial" into page and dial indices
+void parse_duplicate_reference(const char* options, uint8_t* ref_page, uint8_t* ref_dial) {
+    *ref_page = 0;
+    *ref_dial = 0;
+    
+    // Simple parsing: expect "page,dial" format
+    if (options && strlen(options) >= 3) {
+        *ref_page = options[0] - '0';  // Convert first char to number
+        if (options[1] == ',' && options[2] >= '0' && options[2] <= '7') {
+            *ref_dial = options[2] - '0';  // Convert third char to number
+        }
+    }
+}
+
+// Initialize a single dial based on its configuration
+void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* config) {
+    uint8_t array_index = page * 8 + dial_index;
+    float encoder_pos;  // Declare variable outside switch
+    
+    switch (config->mode) {
+        case MODE_FRAC_UNIPOLAR:
+        case MODE_FRAC_BIPOLAR:
+            dials[array_index].page = page;
+            dials[array_index].param = dial_index;
+            dials[array_index].is_bipolar = (config->mode == MODE_FRAC_BIPOLAR);
+            dials[array_index].x = COL_X[dial_index % 4];
+            dials[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+            dials[array_index].width = DIAL_WIDTH;
+            dials[array_index].height = DIAL_HEIGHT;
+            dials[array_index].label = config->label;
+            dials[array_index].show_value = config->show_value;
+            // Convert config default to encoder position (0-1), then to display format for renderer
+            encoder_pos = displayToEncoderValue(config->default_value, config->mode);
+            if (encoder_pos < 0.0f) encoder_pos = 0.0f;
+            if (encoder_pos > 1.0f) encoder_pos = 1.0f;
+            dials[array_index].default_value = (int32_t)(encoder_pos * (float)(1 << 27));
+            parent->instancesketchy__render_i.dial_init(&dials[array_index]);
+            break;
+            
+        case MODE_BAR_UNIPOLAR:
+        case MODE_BAR_BIPOLAR:
+            bars[array_index].page = page;
+            bars[array_index].param = dial_index;
+            bars[array_index].is_bipolar = (config->mode == MODE_BAR_BIPOLAR);
+            bars[array_index].x = COL_X[dial_index % 4];
+            bars[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+            bars[array_index].width = DIAL_WIDTH;
+            bars[array_index].height = DIAL_HEIGHT;
+            bars[array_index].label = config->label;
+            bars[array_index].show_value = config->show_value;
+            // Convert config default to encoder position (0-1), then to display format for renderer
+            encoder_pos = displayToEncoderValue(config->default_value, config->mode);
+            if (encoder_pos < 0.0f) encoder_pos = 0.0f;
+            if (encoder_pos > 1.0f) encoder_pos = 1.0f;
+            bars[array_index].default_value = (int32_t)(encoder_pos * (float)(1 << 27));
+            parent->instancesketchy__render_i.bar_init(&bars[array_index]);
+            break;
+            
+        case MODE_INT:
+            intdisplays[array_index].page = page;
+            intdisplays[array_index].param = dial_index;
+            intdisplays[array_index].x = COL_X[dial_index % 4];
+            intdisplays[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+            intdisplays[array_index].width = DIAL_WIDTH;
+            intdisplays[array_index].height = DIAL_HEIGHT;
+            intdisplays[array_index].label = config->label;
+            parent->instancesketchy__render_i.intdisplay_init(&intdisplays[array_index]);
+            break;
+            
+        case MODE_LIST:
+            selects[array_index].page = page;
+            selects[array_index].param = dial_index;
+            selects[array_index].x = COL_X[dial_index % 4];
+            selects[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+            selects[array_index].width = DIAL_WIDTH;
+            selects[array_index].height = DIAL_HEIGHT;
+            selects[array_index].is_int = true;
+            selects[array_index].param_label = config->label;  // Parameter name
+            selects[array_index].options = config->options;    // Options list
+            parent->instancesketchy__render_i.select_init(&selects[array_index]);
+            break;
+            
+        case MODE_DUPLICATE:
+            // Parse the duplicate reference from options field: "page,dial"
+            uint8_t ref_page, ref_dial;
+            parse_duplicate_reference(config->options, &ref_page, &ref_dial);
+            
+            // Get the referenced configuration and initialize with it
+            if (ref_page < 8 && ref_dial < 8) {
+                const encoder_dial_config_t* ref_config = &configs[ref_page][ref_dial];
+                
+                // Avoid infinite recursion - don't duplicate another duplicate
+                if (ref_config->mode != MODE_DUPLICATE) {
+                    // Initialize this dial with the referenced config's mode
+                    encoder_dial_config_t temp_config = *ref_config;
+                    init_dial(page, dial_index, &temp_config);
+                    
+                    // Override the param and page to point to the same parameter as the original
+                    switch (temp_config.mode) {
+                        case MODE_FRAC_UNIPOLAR:
+                        case MODE_FRAC_BIPOLAR:
+                            dials[array_index].param = ref_dial;  // Point to original param
+                            dials[array_index].page = ref_page;   // Point to original page
+                            break;
+                        case MODE_BAR_UNIPOLAR:
+                        case MODE_BAR_BIPOLAR:
+                            bars[array_index].param = ref_dial;   // Point to original param
+                            bars[array_index].page = ref_page;    // Point to original page
+                            break;
+                        case MODE_INT:
+                            intdisplays[array_index].param = ref_dial;  // Point to original param
+                            intdisplays[array_index].page = ref_page;   // Point to original page
+                            break;
+                        case MODE_LIST:
+                            selects[array_index].param = ref_dial;     // Point to original param
+                            selects[array_index].page = ref_page;      // Point to original page
+                            break;
+                    }
+                }
+            }
+            break;
+    }
+}
+
+// Update a single dial based on its configuration
+void update_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* config) {
+    uint8_t array_index = page * 8 + dial_index;
+    
+    switch (config->mode) {
+        case MODE_FRAC_UNIPOLAR:
+        case MODE_FRAC_BIPOLAR:
+            parent->instancesketchy__render_i.dial_update(&dials[array_index]);
+            break;
+            
+        case MODE_BAR_UNIPOLAR:
+        case MODE_BAR_BIPOLAR:
+            parent->instancesketchy__render_i.bar_update(&bars[array_index]);
+            break;
+            
+        case MODE_INT:
+            parent->instancesketchy__render_i.intdisplay_update(&intdisplays[array_index]);
+            break;
+            
+        case MODE_LIST:
+            parent->instancesketchy__render_i.select_update(&selects[array_index]);
+            break;
+            
+        case MODE_DUPLICATE:
+            // Parse the duplicate reference and update with the referenced config
+            uint8_t ref_page, ref_dial;
+            parse_duplicate_reference(config->options, &ref_page, &ref_dial);
+            
+            if (ref_page < 8 && ref_dial < 8) {
+                const encoder_dial_config_t* ref_config = &configs[ref_page][ref_dial];
+                
+                // Avoid infinite recursion - don't duplicate another duplicate
+                if (ref_config->mode != MODE_DUPLICATE) {
+                    // Update this dial with the referenced config's mode
+                    switch (ref_config->mode) {
+                        case MODE_FRAC_UNIPOLAR:
+                        case MODE_FRAC_BIPOLAR:
+                            parent->instancesketchy__render_i.dial_update(&dials[array_index]);
+                            break;
+                        case MODE_BAR_UNIPOLAR:
+                        case MODE_BAR_BIPOLAR:
+                            parent->instancesketchy__render_i.bar_update(&bars[array_index]);
+                            break;
+                        case MODE_INT:
+                            parent->instancesketchy__render_i.intdisplay_update(&intdisplays[array_index]);
+                            break;
+                        case MODE_LIST:
+                            parent->instancesketchy__render_i.select_update(&selects[array_index]);
+                            break;
+                    }
+                }
+            }
+            break;
+    }
+}
+
+// Initialize param table with default values (called after config load)
+void init_param_table() {
+    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+    
+    for (int page = 0; page < 8; page++) {
+        for (int enc = 0; enc < 8; enc++) {
+            const encoder_dial_config_t* config = &configs[page][enc];
+            
+            if (config->mode == MODE_INT || config->mode == MODE_LIST) {
+                // Initialize integer/list modes to their default values (clamped to range)
+                int default_int = (int)config->default_value;
+                if (default_int < config->int_min) default_int = config->int_min;
+                if (default_int > config->int_max) default_int = config->int_max;
+                param_table->array[page][enc] = default_int;
+            } else {
+                // Initialize fractional modes (knobs and bars): store encoder position (0-1) directly
+                float encoder_pos = displayToEncoderValue(config->default_value, config->mode);
+                if (encoder_pos < 0.0f) encoder_pos = 0.0f;
+                if (encoder_pos > 1.0f) encoder_pos = 1.0f;
+                param_table->array[page][enc] = (int32_t)(encoder_pos * (float)(1 << 27));
+            }
+        }
+    }
+}]]></code.declaration>
+      <code.init><![CDATA[// Create SDRAM shadow arrays for display structures
+static rootc::instancesketchy__render::dial_t _dials[64] __attribute__ ((section (".sdram")));
+static rootc::instancesketchy__render::intdisplay_t _intdisplays[64] __attribute__ ((section (".sdram")));
+static rootc::instancesketchy__render::select_t _selects[64] __attribute__ ((section (".sdram")));
+static rootc::instancesketchy__render::bar_t _bars[64] __attribute__ ((section (".sdram")));
+
+// SDRAM STRATEGY: Create shadow array for configuration data
+static encoder_dial_config_t _configs[8][8] __attribute__ ((section (".sdram")));
+
+// Point pointers to SDRAM arrays
+dials = &_dials[0];
+intdisplays = &_intdisplays[0];
+selects = &_selects[0];
+bars = &_bars[0];
+configs = _configs;  // Point configs to SDRAM array
+
+// SD CARD MODE: Skip initialization - configs will be loaded from SD card
+// Clear SDRAM arrays to prevent garbage data
+memset(_configs, 0, sizeof(_configs));
+memset(_dials, 0, sizeof(_dials));
+memset(_intdisplays, 0, sizeof(_intdisplays));
+memset(_selects, 0, sizeof(_selects));
+memset(_bars, 0, sizeof(_bars));
+
+LogTextMessage("sketchy_dials_sd: Ready. Load config from SD card using sketchy_config_load.");]]></code.init>
+      <code.krate><![CDATA[int page = inlet_page;
+
+// Update displays for current page only
+// All encoder processing is now handled by 8encoder_input
+if (page >= 0 && page < 8) {
+    for (uint8_t dial = 0; dial < 8; dial++) {
+        update_dial(page, dial, &configs[page][dial]);
+    }
+}]]></code.krate>
+   </obj.normal>
+</objdefs>
+
