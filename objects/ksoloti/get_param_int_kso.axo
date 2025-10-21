@@ -1,5 +1,5 @@
 <objdefs appVersion="1.1.0">
-   <obj.normal id="get_param_int_kso" uuid="5224773f-18de-4231-8f92-b1f22bb95380">
+   <obj.normal id="get_param_int_kso" uuid="5224773f-18de-4231-8f92-b1f22bb953A7">
       <sDescription>Get single integer parameter value from specified page and parameter index</sDescription>
       <author>AI Assistant</author>
       <license>GPL</license>

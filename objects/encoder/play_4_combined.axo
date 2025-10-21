@@ -1,5 +1,5 @@
 <objdefs appVersion="1.1.0">
-   <obj.normal id="play_4_combined" uuid="5224773f-18de-4231-8f92-b1f22bb95386">
+   <obj.normal id="play_4_combined" uuid="5224773f-18de-4231-8f92-b1f22bb953A8">
       <sDescription>4 combined sample players with pitch control - saves SRAM by reusing functionality</sDescription>
       <author>Combined player for memory efficiency</author>
       <license>BSD</license>

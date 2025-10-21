@@ -73,6 +73,11 @@
   * voice_position_selector.axo: 5224773f-18de-4231-8f92-b1f22bb953A4
   * sketchy_dials_sd.axo: 5224773f-18de-4231-8f92-b1f22bb953A5
   * brain_lpr_v2.axo: 5224773f-18de-4231-8f92-b1f22bb953A6
+  * get_param_int_kso.axo: 5224773f-18de-4231-8f92-b1f22bb953A7
+  * play_4_combined.axo: 5224773f-18de-4231-8f92-b1f22bb953A8
+  * bpm_param_writer.axo: 5224773f-18de-4231-8f92-b1f22bb953A9
+  * sketchy_params_midi_send_fixed.axo: 5224773f-18de-4231-8f92-b1f22bb953AA
+  * midi_clock_intern.axo: 5224773f-18de-4231-8f92-b1f22bb953AB
 - **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
 - **MANDATORY**: Document all new UUIDs in this file immediately after creation
 

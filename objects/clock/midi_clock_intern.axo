@@ -1,0 +1,21 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="midi_clock_intern" uuid="5224773f-18de-4231-8f92-b1f22bb953AB">
+      <sDescription>Simple MIDI clock transmitter. Sends MIDI timing clock messages over serial pins when triggered by 24ppq input.</sDescription>
+      <author>Simon Reeve</author>
+      <license>GPL</license>
+      <inlets>
+         <bool32.rising name="24ppq" description="24 pulses per quarter note trigger"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs/>
+      <depends>
+         <depend>SD2</depend>
+      </depends>
+      <code.krate><![CDATA[// Send MIDI timing clock on 24ppq trigger
+if (inlet_24ppq) {
+    sdPut(&SD2, MIDI_TIMING_CLOCK);
+}]]></code.krate>
+   </obj.normal>
+</objdefs>

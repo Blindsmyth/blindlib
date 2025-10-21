@@ -1,5 +1,5 @@
 <objdefs appVersion="1.1.0">
-   <obj.normal id="bpm_param_writer" uuid="5224773f-18de-4231-8f92-b1f22bb95387">
+   <obj.normal id="bpm_param_writer" uuid="5224773f-18de-4231-8f92-b1f22bb953A9">
       <sDescription>Writes BPM values to the param table when they change from external sources (MIDI clock). Prevents feedback loops by only writing when BPM comes from external sources.</sDescription>
       <author>AI Assistant</author>
       <license>MIT</license>

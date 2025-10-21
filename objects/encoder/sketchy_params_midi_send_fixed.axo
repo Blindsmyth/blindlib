@@ -1,5 +1,5 @@
 <objdefs appVersion="1.0.12">
-   <obj.normal id="sketchy_params_midi_send_fixed" uuid="5224773f-18de-4231-8f92-b1f22bb9539A">
+   <obj.normal id="sketchy_params_midi_send_fixed" uuid="5224773f-18de-4231-8f92-b1f22bb953AA">
       <sDescription>Fixed version: Sends parameters from sketchy_param table as MIDI CC messages with improved throttling and no duplicate sends. Only scans the active page for better responsiveness.</sDescription>
       <author>AI Assistant / Simon</author>
       <license>BSD</license>
