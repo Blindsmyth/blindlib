@@ -1,0 +1,249 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="tap_tempo_musical" uuid="5224773f-18de-4231-8f92-b1f22bb953B1">
+      <sDescription>Tap tempo with musical time signature awareness. CRITICAL: Connect sync_clock_musical isPlaying outlet to isPlaying inlet. Reset: only when isPlaying ON; pulses on first tap after pause and on every bar 1. Start: when Count in ON and isPlaying OFF; tap full bar then next tap starts clock. Debug: beatOne shows when on beat 1, counted shows recorded beats.</sDescription>
+      <author>Simon Reeve</author>
+      <license>GPL</license>
+      <inlets>
+         <bool32.rising name="tap" description="Tap tempo input"/>
+         <bool32 name="countIn" description="When on: first full bar is count-in; next tap (beat 1) sends start"/>
+         <bool32 name="isPlaying" description="Clock play state (from sync_clock_musical isPlaying); start only pulses when off"/>
+         <int32 name="beats" description="Time signature numerator (e.g., 4 in 4/4)"/>
+         <int32 name="measure" description="Time signature denominator (e.g., 4 in 4/4)"/>
+         <int32 name="bpm" description="BPM input (updates output if changed, can override tap tempo)"/>
+      </inlets>
+      <outlets>
+         <int32 name="bpm" description="Calculated BPM value (connect to sync_clock_musical bpmValue inlet)"/>
+         <bool32.pulse name="setBPM" description="Trigger pulse when BPM changes (connect to sync_clock_musical setBPM inlet)"/>
+         <bool32.pulse name="reset" description="Reset pulse on first tap of bar (connect to sync_clock_musical resetPhase)"/>
+         <bool32.pulse name="start" description="After count-in: pulse on beat 1 (connect to sync_clock_musical play inlet)"/>
+         <bool32 name="tapping" description="Active tapping state (true when within timeout window)"/>
+         <bool32 name="beatOne" description="Debug: true when on beat 1 (tapTimePoolIndex == 0)"/>
+         <int32 name="counted" description="Debug: number of beats recorded in pool"/>
+         <bool32 name="wasTimeout" description="Debug: true when tap was a timeout (reset pool)"/>
+         <int32 name="poolIndex" description="Debug: current tapTimePoolIndex value"/>
+         <bool32 name="tapRising" description="Debug: true when tap rising edge detected"/>
+         <int32 name="tapTimerVal" description="Debug: current tapTimer value (samples since last tap)"/>
+         <bool32 name="bpmReset" description="Debug: true when BPM inlet changed and reset pool"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs/>
+      <includes/>
+      <code.declaration><![CDATA[// Tap tempo variables
+int32_t tapTimer;
+const int tapTimePoolSize = 16; // Max beats supported (1-16)
+int32_t tapTimePool[16];
+int tapTimePoolIndex;
+bool lastInletTap;
+const int waitSamplesForTap = 96000; // 2 seconds at 48kHz
+bool tapping_active; // Tapping state output
+int32_t tapAverage; // Average tap interval in samples
+int32_t last_output_bpm; // Track last BPM output to detect changes
+int32_t current_beats; // Current time signature numerator
+int32_t last_inlet_bpm; // Track last BPM inlet value to detect changes
+int32_t current_bpm; // Current BPM value (from tap or inlet)
+// Count-in: 0 = no full bar yet, 1 = count-in bar done (next bar send start), 2 = after start (send reset)
+int count_in_phase;
+// Hold pulses for several k-rate cycles so receiver sees them (execution order safe)
+int start_pulse_hold;
+int reset_pulse_hold;
+// Debug outputs
+int debug_counted;
+bool debug_beat_one;
+bool debug_was_timeout;]]></code.declaration>
+      <code.init><![CDATA[tapTimer = waitSamplesForTap;
+lastInletTap = false;
+tapping_active = false;
+tapAverage = 24000; // Default to 120 BPM quarter note
+tapTimePoolIndex = 0;
+last_output_bpm = 0;
+last_inlet_bpm = 0;
+current_bpm = 120; // Default to 120 BPM
+current_beats = 4; // Default to 4/4
+count_in_phase = 0;
+start_pulse_hold = 0;
+reset_pulse_hold = 0;
+debug_counted = 0;
+debug_beat_one = false;
+debug_was_timeout = false;
+for (int i = 0; i < tapTimePoolSize; i++) {
+    tapTimePool[i] = 0;
+}]]></code.init>
+      <code.krate><![CDATA[// Update current beats from inlet (use default if 0)
+current_beats = (inlet_beats > 0 && inlet_beats <= 16) ? inlet_beats : 4;
+
+// Ignore external BPM while we're in the tapping window AND external BPM value is not changing.
+// Use external BPM when: it just changed, or we're not tapping (outside tapping window).
+bool in_tapping_window = (tapTimer < waitSamplesForTap);
+
+// Handle BPM input
+bool bpm_changed = false;
+bool bpm_from_inlet = false;
+if (inlet_bpm > 0 && inlet_bpm != last_inlet_bpm) {
+    // BPM inlet changed - check if it's our own feedback or external change
+    // Only reset pool if it's a DIFFERENT value than what we calculated (external source)
+    bool is_feedback = (inlet_bpm == current_bpm);  // Matches our calculated BPM = feedback loop
+    
+    if (!is_feedback) {
+        // External BPM change - reset pool and use new BPM
+        current_bpm = inlet_bpm;
+        if (current_bpm < 40) current_bpm = 40;
+        if (current_bpm > 300) current_bpm = 300;
+        bpm_changed = true;
+        for (int i = 0; i < current_beats; i++) {
+            tapTimePool[i] = 0;
+        }
+        tapTimePoolIndex = 0;
+        tapping_active = false;
+    }
+    // Update last_inlet_bpm regardless (to detect next change)
+    last_inlet_bpm = inlet_bpm;
+    bpm_from_inlet = !is_feedback;  // Only block tap tempo if external source
+} else if (inlet_bpm > 0 && !in_tapping_window) {
+    // External BPM stable and we're not tapping - use external BPM
+    current_bpm = inlet_bpm;
+    if (current_bpm < 40) current_bpm = 40;
+    if (current_bpm > 300) current_bpm = 300;
+    last_inlet_bpm = inlet_bpm;
+    bpm_from_inlet = true;
+} else if (inlet_bpm > 0) {
+    // In tapping window and external BPM unchanged - ignore external, let tap control
+    last_inlet_bpm = inlet_bpm;
+    bpm_from_inlet = false;
+} else {
+    // BPM inlet is 0 or negative - allow tap tempo to control
+    last_inlet_bpm = 0;
+    bpm_from_inlet = false;
+}
+
+// Handle tap tempo input (rising edge detection)
+bool tap_rising = inlet_tap && !lastInletTap;
+lastInletTap = inlet_tap;
+
+// Debug: check if BPM inlet is interfering
+bool bpm_inlet_changed = (inlet_bpm > 0 && inlet_bpm != last_inlet_bpm);
+
+// When count-in is off, reset count-in state for next time
+if (!inlet_countIn) {
+    count_in_phase = 0;
+}
+
+// Default outputs; hold pulses so receiver sees them regardless of execution order
+outlet_setBPM = 0;
+outlet_reset = (reset_pulse_hold > 0) ? 1 : 0;
+outlet_start = (start_pulse_hold > 0) ? 1 : 0;
+if (reset_pulse_hold > 0) reset_pulse_hold--;
+if (start_pulse_hold > 0) start_pulse_hold--;
+
+debug_was_timeout = false;
+
+if (tap_rising) {
+    if (tapTimer >= waitSamplesForTap) {
+        // First tap after pause (timeout): reset pool, count-in state, and send reset so clock syncs to this tap
+        debug_was_timeout = true;
+        for (int i = 0; i < current_beats; i++) {
+            tapTimePool[i] = 0;
+        }
+        tapTimePoolIndex = 0;
+        count_in_phase = 0;
+        tapAverage = 24000; // Reset to default
+        tapping_active = false;
+        last_output_bpm = 0; // Reset to force update on next tap
+        if (inlet_isPlaying) { outlet_reset = 1; reset_pulse_hold = 8; } // Only when clock playing
+    } else {
+        // Record tap interval
+        tapTimePool[tapTimePoolIndex] = tapTimer;
+        tapTimePoolIndex++;
+        tapTimePoolIndex %= current_beats;
+        
+        // Check if we just wrapped to 0 (bar boundary) AFTER incrementing
+        bool is_beat_one = (tapTimePoolIndex == 0);
+        debug_beat_one = is_beat_one;
+        
+        // Calculate average
+        int32_t sum = 0;
+        int counted = 0;
+        for (int i = 0; i < current_beats; i++) {
+            if (tapTimePool[i] != 0) {
+                sum += tapTimePool[i];
+                counted++;
+            }
+        }
+        debug_counted = counted;
+        
+        if (counted > 0) {
+            tapAverage = sum / counted;
+            
+            // Convert tap average to BPM
+            // tapAverage is samples per beat
+            // BPM = (60 seconds * sample_rate) / (samples_per_beat)
+            int32_t tap_bpm = (60 * 48000) / tapAverage;
+            
+            // Clamp BPM to reasonable range
+            if (tap_bpm < 40) tap_bpm = 40;
+            if (tap_bpm > 300) tap_bpm = 300;
+            
+            // Update current BPM from tap tempo (only if not controlled by inlet)
+            if (!bpm_from_inlet) {
+                current_bpm = tap_bpm;
+                bpm_changed = true;
+            }
+            
+            // Beat 1 of bar: reset only when isPlaying; start immediately after count-in
+            if (is_beat_one && counted >= current_beats) {  // Only after we have a full bar
+                if (inlet_countIn) {
+                    // Count-in mode
+                    if (count_in_phase == 0 && !inlet_isPlaying) {
+                        // First beat 1 after count-in bar completes → START immediately
+                        outlet_start = 1;
+                        start_pulse_hold = 8;
+                        count_in_phase = 1;  // Count-in done, started
+                    } else if (inlet_isPlaying) {
+                        // Clock playing, send reset on every beat 1
+                        outlet_reset = 1;
+                        reset_pulse_hold = 8;
+                    }
+                } else if (inlet_isPlaying) {
+                    // Not count-in, clock playing: reset on every beat 1
+                    outlet_reset = 1;
+                    reset_pulse_hold = 8;
+                }
+            }
+        }
+    }
+    tapTimer = 0;
+    tapping_active = true;
+}
+
+// Update tapping state based on timer
+if (tapTimer < waitSamplesForTap) {
+    tapping_active = true;
+} else {
+    tapping_active = false;
+}
+
+// Output BPM value (from tap tempo or inlet)
+outlet_bpm = current_bpm;
+
+// Trigger setBPM pulse when BPM changes (from either tap or inlet)
+if (bpm_changed && current_bpm != last_output_bpm) {
+    outlet_setBPM = 1;
+    last_output_bpm = current_bpm;
+}
+
+// Output tapping state
+outlet_tapping = tapping_active;
+
+// Debug outputs
+outlet_beatOne = debug_beat_one;
+outlet_counted = debug_counted;
+outlet_wasTimeout = debug_was_timeout;
+outlet_poolIndex = tapTimePoolIndex;
+outlet_tapRising = tap_rising;
+outlet_tapTimerVal = tapTimer;]]></code.krate>
+      <code.srate><![CDATA[// Increment tap timer (runs every sample)
+if (tapTimer < waitSamplesForTap) {
+    tapTimer++;
+}]]></code.srate>
+   </obj.normal>
+</objdefs>
