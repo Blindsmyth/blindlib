@@ -1,0 +1,91 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="euclidean 1track" uuid="5224773f-18de-4231-8f92-b1f22bb9539F">
+      <sDescription>Single-track Euclidean pattern generator that writes to table (32 steps)</sDescription>
+      <author>Simon Reeve</author>
+      <license>BSD</license>
+      <inlets>
+         <int32 name="steps" description="number of steps in pattern (1-32)"/>
+         <int32 name="hits" description="number of hits to distribute (0-steps)"/>
+         <int32 name="offset" description="pattern rotation offset (0-steps-1)"/>
+         <int32 name="index" description="table index offset"/>
+      </inlets>
+      <outlets>
+         <bool32.pulse name="changed" description="pulse when any parameter changes"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <objref name="table"/>
+      </attribs>
+      <code.declaration><![CDATA[bool pattern[32]; // 32 steps
+int lastSteps;
+int lastHits;
+int lastOffset;
+bool anyChanged;]]></code.declaration>
+      <code.init><![CDATA[// Initialize tracking variables
+lastSteps = -1;
+lastHits = -1;
+lastOffset = -1;
+for(int i = 0; i < 32; i++) {
+    pattern[i] = false;
+}
+anyChanged = false;]]></code.init>
+      <code.krate><![CDATA[// Get current parameter values
+int currentSteps = inlet_steps;
+int currentHits = inlet_hits;
+int currentOffset = inlet_offset;
+
+// Clamp values to valid ranges
+if(currentSteps < 1) currentSteps = 1;
+if(currentSteps > 32) currentSteps = 32;
+if(currentHits < 0) currentHits = 0;
+if(currentHits > currentSteps) currentHits = currentSteps;
+if(currentOffset < 0) currentOffset = 0;
+if(currentOffset >= currentSteps) currentOffset = currentSteps - 1;
+
+// Check if any parameters changed
+anyChanged = false;
+
+// Generate pattern if parameters changed
+if (currentSteps != lastSteps || 
+    currentHits != lastHits || 
+    currentOffset != lastOffset) {
+    
+    anyChanged = true;
+    
+    // Clear pattern first
+    for(int i = 0; i < 32; i++) {
+        pattern[i] = false;
+    }
+    
+    // Generate euclidean rhythm using Bresenham-like algorithm
+    if (currentHits > 0 && currentSteps > 0) {
+        int bucket = 0;
+        for(int i = 0; i < currentSteps; i++) {
+            bucket += currentHits;
+            if(bucket >= currentSteps) {
+                bucket -= currentSteps;
+                // Apply offset with +1 correction for expected behavior
+                pattern[(i + currentOffset + 1) % currentSteps] = true;
+            }
+        }
+    }
+    
+    // Write pattern to table
+    int tableOffset = inlet_index;
+    for(int i = 0; i < 32 && (tableOffset + i) < attr_table.LENGTH; i++) {
+        int value = (i < currentSteps && pattern[i]) ? (1 << 27) : 0;
+        attr_table.array[tableOffset + i] = __SSAT(value, 28) >> attr_table.GAIN;
+    }
+    
+    lastSteps = currentSteps;
+    lastHits = currentHits;
+    lastOffset = currentOffset;
+}
+
+// Output change pulse
+outlet_changed = anyChanged ? (1<<27) : 0;]]></code.krate>
+   </obj.normal>
+</objdefs>
+
+

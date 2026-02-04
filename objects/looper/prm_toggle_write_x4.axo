@@ -1,0 +1,61 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="prm_toggle_write_x4" uuid="5224773f-18de-4231-8f92-b1f22bb953B0">
+      <sDescription>Writes toggle values to RBRT prm system for 4 loop layers. When toggle is high, writes 64.0. When toggle is low, writes -64.0.</sDescription>
+      <author>AI Assistant / Simon</author>
+      <license>GPL</license>
+      <inlets>
+         <bool32 name="toggle1" description="Toggle for layer 1"/>
+         <bool32 name="toggle2" description="Toggle for layer 2"/>
+         <bool32 name="toggle3" description="Toggle for layer 3"/>
+         <bool32 name="toggle4" description="Toggle for layer 4"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="parameter" MinValue="0" MaxValue="127" DefaultValue="6" description="Parameter index in prm array"/>
+         <spinner name="slot1" MinValue="0" MaxValue="3" DefaultValue="0" description="Slot number for layer 1"/>
+         <spinner name="slot2" MinValue="0" MaxValue="3" DefaultValue="1" description="Slot number for layer 2"/>
+         <spinner name="slot3" MinValue="0" MaxValue="3" DefaultValue="2" description="Slot number for layer 3"/>
+         <spinner name="slot4" MinValue="0" MaxValue="3" DefaultValue="3" description="Slot number for layer 4"/>
+         <spinner name="valueHigh" MinValue="-127" MaxValue="127" DefaultValue="64" description="Value to write when toggle is high"/>
+         <spinner name="valueLow" MinValue="-127" MaxValue="127" DefaultValue="-64" description="Value to write when toggle is low"/>
+      </attribs>
+      <includes>
+         <include>../../../Axolonatics/objects/rbrt_new/rbrt_classes/Smplr.h</include>
+      </includes>
+      <code.declaration><![CDATA[Smplr smplr;
+// Track previous toggle states to avoid unnecessary writes
+bool prevToggle1;
+bool prevToggle2;
+bool prevToggle3;
+bool prevToggle4;
+
+// Write value to prm array for a specific slot
+void writeValueToPrm(int32_t slot, int32_t param, float value) {
+    uint16_t adr = slot * 128;
+    smplr.prm[adr + param] = value;
+}
+
+// Process toggle: write value based on toggle state
+void processToggle(int32_t toggle, bool* prevToggle, int32_t slot, int32_t param, int32_t valueHigh, int32_t valueLow) {
+    bool toggleState = toggle > 0;
+    if (toggleState != *prevToggle) {
+        float value = toggleState ? (float)valueHigh : (float)valueLow;
+        writeValueToPrm(slot, param, value);
+        *prevToggle = toggleState;
+    }
+}]]></code.declaration>
+      <code.init><![CDATA[// Initialize previous toggle states
+prevToggle1 = 0;
+prevToggle2 = 0;
+prevToggle3 = 0;
+prevToggle4 = 0;]]></code.init>
+      <code.krate><![CDATA[// Process each toggle and write to prm array
+processToggle(inlet_toggle1, &prevToggle1, attr_slot1, attr_parameter, attr_valueHigh, attr_valueLow);
+processToggle(inlet_toggle2, &prevToggle2, attr_slot2, attr_parameter, attr_valueHigh, attr_valueLow);
+processToggle(inlet_toggle3, &prevToggle3, attr_slot3, attr_parameter, attr_valueHigh, attr_valueLow);
+processToggle(inlet_toggle4, &prevToggle4, attr_slot4, attr_parameter, attr_valueHigh, attr_valueLow);]]></code.krate>
+   </obj.normal>
+</objdefs>
+

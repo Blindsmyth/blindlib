@@ -1,0 +1,35 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="prm i write x4" uuid="c9f5e1g4-6d0f-13fg-1c43-5e9f5h8g6f9c">
+      <sDescription>RBRT smplr parameter writer for slots 0-3. Writes integer values to a specific parameter offset for each slot.</sDescription>
+      <license>GPL</license>
+      <inlets>
+         <int32 name="value0" description="Integer value for slot 0"/>
+         <int32 name="value1" description="Integer value for slot 1"/>
+         <int32 name="value2" description="Integer value for slot 2"/>
+         <int32 name="value3" description="Integer value for slot 3"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="param" MinValue="0" MaxValue="127" DefaultValue="0" description="Parameter offset (0-127)"/>
+      </attribs>
+      <includes>
+         <include>../../../Axolonatics/objects/rbrt_new/rbrt_classes/Smplr.h</include>
+      </includes>
+      <code.declaration><![CDATA[Smplr smplr;]]></code.declaration>
+      <code.krate><![CDATA[// Write integer values to smplr.prm for each slot
+// Slot 0
+smplr.prm[(0 << 7) + attr_param] = inlet_value0;  // slot 0 * 128 + param
+
+// Slot 1  
+smplr.prm[(1 << 7) + attr_param] = inlet_value1;  // slot 1 * 128 + param
+
+// Slot 2
+smplr.prm[(2 << 7) + attr_param] = inlet_value2;  // slot 2 * 128 + param
+
+// Slot 3
+smplr.prm[(3 << 7) + attr_param] = inlet_value3;  // slot 3 * 128 + param]]></code.krate>
+   </obj.normal>
+</objdefs>
+
