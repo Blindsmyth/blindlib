@@ -1,17 +1,17 @@
-<objdefs appVersion="1.0.12">
-   <obj.normal id="sketchy_dials_sd" uuid="5224773f-18de-4231-8f92-b1f22bb953A5">
-      <sDescription>Minimal SD card version: Dial configuration and display coordination WITHOUT hardcoded init data. Load configs from SD card using sketchy_config_load. Saves ~2KB SRAM.</sDescription>
-      <author>AI Assistant / Simon</author>
-      <license>BSD</license>
-      <helpPatch>logic.axh</helpPatch>
-      <inlets>
-         <int32 name="page"/>
-      </inlets>
-      <outlets/>
-      <displays/>
-      <params/>
-      <attribs/>
-      <code.declaration><![CDATA[// Dial configuration structure
+<objdefs appVersion="1.1.0">
+  <obj.normal id="sketchy_dials_sd" uuid="5224773f-18de-4231-8f92-b1f22bb953A5">
+    <sDescription>Minimal SD card version: Dial configuration and display coordination WITHOUT hardcoded init data. Load configs from SD card using sketchy_config_load. Saves ~2KB SRAM.</sDescription>
+    <author>AI Assistant / Simon</author>
+    <license>BSD</license>
+    <helpPatch>logic.axh</helpPatch>
+    <inlets>
+      <int32 name="page"/>
+    </inlets>
+    <outlets/>
+    <displays/>
+    <params/>
+    <attribs/>
+    <code.declaration><![CDATA[// Dial configuration structure
 typedef struct {
     uint8_t mode;           // 0=frac unipolar, 1=frac bipolar, 2=int, 3=list, 4=bar unipolar, 5=bar bipolar, 6=duplicate
     bool show_value;        // Show/hide value (for fractional modes)
@@ -22,7 +22,7 @@ typedef struct {
     int16_t int_max;        // Maximum value (for int/list modes)
 } encoder_dial_config_t;
 
-// Configuration for 8 pages, 8 encoders each (64 total configurations)
+// Configuration for up to 16 pages, 8 encoders each (128 total configurations)
 // USING SDRAM STRATEGY: Pointer instead of static array
 // Making this public so other objects can access it via parent->instancesketchy__dials__sd_i.configs
 encoder_dial_config_t (*configs)[8];  // Pointer to 2D array in SDRAM
@@ -36,7 +36,7 @@ encoder_dial_config_t (*configs)[8];  // Pointer to 2D array in SDRAM
 #define MODE_BAR_BIPOLAR   5  // -1.0 to 1.0, vertical bar
 #define MODE_DUPLICATE     6  // duplicate another parameter
 
-// Display structures for each type - 64 total (8 pages x 8 dials)
+// Display structures for each type - 128 total (16 pages x 8 dials)
 // Using SDRAM to save precious SRAM
 rootc::objectinstance_sketchy__render::dial_t *dials;
 rootc::objectinstance_sketchy__render::intdisplay_t *intdisplays;
@@ -160,7 +160,7 @@ void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* co
             parse_duplicate_reference(config->options, &ref_page, &ref_dial);
             
             // Get the referenced configuration and initialize with it
-            if (ref_page < 8 && ref_dial < 8) {
+            if (ref_page < 16 && ref_dial < 8) {
                 const encoder_dial_config_t* ref_config = &configs[ref_page][ref_dial];
                 
                 // Avoid infinite recursion - don't duplicate another duplicate
@@ -224,7 +224,7 @@ void update_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* 
             uint8_t ref_page, ref_dial;
             parse_duplicate_reference(config->options, &ref_page, &ref_dial);
             
-            if (ref_page < 8 && ref_dial < 8) {
+            if (ref_page < 16 && ref_dial < 8) {
                 const encoder_dial_config_t* ref_config = &configs[ref_page][ref_dial];
                 
                 // Avoid infinite recursion - don't duplicate another duplicate
@@ -256,7 +256,7 @@ void update_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* 
 void init_param_table() {
     rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
     
-    for (int page = 0; page < 8; page++) {
+    for (int page = 0; page < 16; page++) {
         for (int enc = 0; enc < 8; enc++) {
             const encoder_dial_config_t* config = &configs[page][enc];
             
@@ -276,14 +276,14 @@ void init_param_table() {
         }
     }
 }]]></code.declaration>
-      <code.init><![CDATA[// Create SDRAM shadow arrays for display structures
-static rootc::objectinstance_sketchy__render::dial_t _dials[64] __attribute__ ((section (".sdram")));
-static rootc::objectinstance_sketchy__render::intdisplay_t _intdisplays[64] __attribute__ ((section (".sdram")));
-static rootc::objectinstance_sketchy__render::select_t _selects[64] __attribute__ ((section (".sdram")));
-static rootc::objectinstance_sketchy__render::bar_t _bars[64] __attribute__ ((section (".sdram")));
+    <code.init><![CDATA[// Create SDRAM shadow arrays for display structures
+static rootc::objectinstance_sketchy__render::dial_t _dials[128] __attribute__ ((section (".sdram")));
+static rootc::objectinstance_sketchy__render::intdisplay_t _intdisplays[128] __attribute__ ((section (".sdram")));
+static rootc::objectinstance_sketchy__render::select_t _selects[128] __attribute__ ((section (".sdram")));
+static rootc::objectinstance_sketchy__render::bar_t _bars[128] __attribute__ ((section (".sdram")));
 
-// SDRAM STRATEGY: Create shadow array for configuration data
-static encoder_dial_config_t _configs[8][8] __attribute__ ((section (".sdram")));
+// SDRAM STRATEGY: Create shadow array for configuration data - support up to 16 pages
+static encoder_dial_config_t _configs[16][8] __attribute__ ((section (".sdram")));
 
 // Point pointers to SDRAM arrays
 dials = &_dials[0];
@@ -301,15 +301,14 @@ memset(_selects, 0, sizeof(_selects));
 memset(_bars, 0, sizeof(_bars));
 
 LogTextMessage("sketchy_dials_sd: Ready. Load config from SD card using sketchy_config_load.");]]></code.init>
-      <code.krate><![CDATA[int page = inlet_page;
+    <code.krate><![CDATA[int page = inlet_page;
 
 // Update displays for current page only
 // All encoder processing is now handled by 8encoder_input
-if (page >= 0 && page < 8) {
+if (page >= 0 && page < 16) {
     for (uint8_t dial = 0; dial < 8; dial++) {
         update_dial(page, dial, &configs[page][dial]);
     }
 }]]></code.krate>
-   </obj.normal>
+  </obj.normal>
 </objdefs>
-

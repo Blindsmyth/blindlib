@@ -16,7 +16,7 @@
       <params/>
       <attribs/>
       <includes>
-         <include>../../Axolonatics/objects/rbrt_new/rbrt_classes/Smplr.h</include>
+         <include>../../../Axolonatics/objects/rbrt_new/rbrt_classes/Smplr.h</include>
       </includes>
       <code.declaration><![CDATA[Smplr smplr;
 
@@ -93,4 +93,6 @@ if (!inlet_pull) pull_trig = 0;
 push_sketchy_to_rbrt();]]></code.krate>
    </obj.normal>
 </objdefs>
+
+
 

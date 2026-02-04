@@ -15,7 +15,7 @@
       <params/>
       <attribs/>
       <includes>
-         <include>../../../../Axolonatics/objects/rbrt_new/rbrt_classes/Smplr.h</include>
+         <include>../../../Axolonatics/objects/rbrt_new/rbrt_classes/Smplr.h</include>
       </includes>
       <code.declaration><![CDATA[Smplr smplr;
 int32_t prev_vol, prev_pitch;]]></code.declaration>

@@ -1,30 +1,32 @@
-<objdefs appVersion="1.0.12">
-   <obj.normal id="sketchy_config_load" uuid="5224773f-18de-4231-8f92-b1f22bb953A1">
-      <sDescription>Loads sketchy_dials config structs from SD card directly into SDRAM. Saves SRAM by bypassing hardcoded init data. Use after sketchy_dials initialization.</sDescription>
-      <author>AI Assistant / Simon</author>
-      <license>BSD</license>
-      <inlets>
-         <charptr32 name="filename" description="Config file name (e.g. config_dials.bin)"/>
-         <bool32.rising name="trig" description="Trigger load operation"/>
-      </inlets>
-      <outlets>
-         <int32 name="status" description="0=idle, 1=loading, 2=success, -1=error"/>
-      </outlets>
-      <displays/>
-      <params/>
-      <attribs>
-         <objref name="dials" description="Reference to sketchy_dials or sketchy_dials_sd instance"/>
-      </attribs>
-      <includes>
-         <include>chibios/ext/fatfs/src/ff.h</include>
-      </includes>
-      <depends>
-         <depend>fatfs</depend>
-      </depends>
-      <code.declaration><![CDATA[// File format constants
+<objdefs appVersion="1.1.0">
+  <obj.normal id="sketchy_config_load" uuid="5224773f-18de-4231-8f92-b1f22bb953A1">
+    <sDescription>Loads sketchy_dials config structs from SD card directly into SDRAM. Saves SRAM by bypassing hardcoded init data. Use after sketchy_dials initialization.</sDescription>
+    <author>AI Assistant / Simon</author>
+    <license>BSD</license>
+    <helpPatch></helpPatch>
+    <inlets>
+      <charptr32 name="filename" description="Config file name (e.g. config_dials.bin)"/>
+      <bool32.rising name="trig" description="Trigger load operation"/>
+    </inlets>
+    <outlets>
+      <int32 name="status" description="0=idle, 1=loading, 2=success, -1=error"/>
+    </outlets>
+    <displays/>
+    <params/>
+    <attribs>
+      <objref name="dials" description="Reference to sketchy_dials or sketchy_dials_sd instance"/>
+      <spinner name="maxpages" description="Maximum number of pages to load (1-64)" MinValue="1" MaxValue="64" DefaultValue="8"/>
+    </attribs>
+    <includes>
+      <include>chibios/ext/fatfs/src/ff.h</include>
+    </includes>
+    <depends>
+      <depend>fatfs</depend>
+    </depends>
+    <code.declaration><![CDATA[// File format constants
 #define CONFIG_MAGIC "AXOCFG01"
-#define CONFIG_COUNT 64
 #define MAX_STRING_SIZE 2048
+// CONFIG_COUNT is now dynamic based on file header
 
 // Binary config structure (for file storage)
 typedef struct {
@@ -55,7 +57,9 @@ config_binary_t* binary_configs;
 
 // Reconstruct config structs with proper string pointers
 void reconstruct_configs() {
-    for (int pg = 0; pg < 8; pg++) {
+    // Use actual page count from maxpages attribute
+    uint16_t total_pages = attr_maxpages;
+    for (int pg = 0; pg < total_pages; pg++) {
         for (int dial = 0; dial < 8; dial++) {
             int idx = pg * 8 + dial;
             auto& cfg = attr_dials.configs[pg][dial];
@@ -83,15 +87,15 @@ void reconstruct_configs() {
     attr_dials.init_param_table();
     
     // Initialize all dial displays with loaded configs
-    for (uint8_t pg = 0; pg < 8; pg++) {
+    for (uint8_t pg = 0; pg < attr_maxpages; pg++) {
         for (uint8_t dial = 0; dial < 8; dial++) {
             attr_dials.init_dial(pg, dial, &attr_dials.configs[pg][dial]);
         }
     }
 }]]></code.declaration>
-      <code.init><![CDATA[// Allocate SDRAM buffers as static arrays
-static char _string_buffer[MAX_STRING_SIZE] __attribute__ ((section (".sdram")));
-static config_binary_t _binary_configs[CONFIG_COUNT] __attribute__ ((section (".sdram")));
+    <code.init><![CDATA[// Allocate SDRAM buffers as static arrays - use max possible size for 64 pages
+static char _string_buffer[MAX_STRING_SIZE] __attribute__ ((section (".sram3")));
+static config_binary_t _binary_configs[512] __attribute__ ((section (".sram3"))); // 64 pages * 8 dials = 512 max
 
 // Point instance pointers to SDRAM
 string_buffer = _string_buffer;
@@ -99,7 +103,7 @@ binary_configs = _binary_configs;
 
 ntrig = 0;
 status = 0;]]></code.init>
-      <code.krate><![CDATA[outlet_status = status;
+    <code.krate><![CDATA[outlet_status = status;
 
 if ((inlet_trig > 0) && !ntrig) {
     ntrig = 1;
@@ -139,8 +143,9 @@ if ((inlet_trig > 0) && !ntrig) {
         return;
     }
     
-    // Validate config count
-    if (header.config_count != CONFIG_COUNT) {
+    // Validate config count - check if it matches expected page count
+    uint16_t expected_configs = attr_maxpages * 8;
+    if (header.config_count != expected_configs) {
         LogTextMessage("Invalid config count");
         f_close(&FileObject);
         status = -1;
@@ -149,8 +154,8 @@ if ((inlet_trig > 0) && !ntrig) {
     }
     
     // Read config data directly into SDRAM
-    err = f_read(&FileObject, binary_configs, CONFIG_COUNT * sizeof(config_binary_t), &bytes_read);
-    if (err != FR_OK || bytes_read != (CONFIG_COUNT * sizeof(config_binary_t))) {
+    err = f_read(&FileObject, binary_configs, header.config_count * sizeof(config_binary_t), &bytes_read);
+    if (err != FR_OK || bytes_read != (header.config_count * sizeof(config_binary_t))) {
         report_fatfs_error(err, inlet_filename);
         f_close(&FileObject);
         status = -1;
@@ -199,6 +204,5 @@ else if (!(inlet_trig > 0)) {
     ntrig = 0;
     if (status == 2) status = 0; // Reset success to idle after trigger released
 }]]></code.krate>
-   </obj.normal>
+  </obj.normal>
 </objdefs>
-

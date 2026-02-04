@@ -21,6 +21,7 @@
       <depends>
          <depend>SD2</depend>
          <depend>sketchy_params</depend>
+         <depend>sketchy_dials</depend>
       </depends>
       <code.declaration><![CDATA[// Track current page parameters for normal operation
 int32_t prev[8];
@@ -33,6 +34,9 @@ uint8_t redraw_active;
 uint16_t redraw_page;
 uint8_t redraw_param;
 
+// Mode constants for duplicate detection
+#define MODE_DUPLICATE     6
+
 void SendMidi3(uint8_t b0, uint8_t b1, uint8_t b2) {
     sdPut(&SD2, b0);
     sdPut(&SD2, b1);
@@ -44,6 +48,51 @@ uint8_t paramValueToMidiCC(int32_t value) {
     // Convert frac32 format (27-bit) to 7-bit MIDI CC
     // value range: 0 to (1<<27) maps to 0-127
     return (uint8_t)(__USAT(value >> 20, 7));
+}
+
+// Parse duplicate reference "page,dial" into page and dial indices
+void parse_duplicate_reference(const char* options, uint8_t* ref_page, uint8_t* ref_dial) {
+    *ref_page = 0;
+    *ref_dial = 0;
+    
+    // Parse "page,dial" format - supports multi-digit pages
+    if (options && strlen(options) >= 3) {
+        // Parse page number (can be multi-digit)
+        int page_val = 0;
+        int i = 0;
+        while (options[i] >= '0' && options[i] <= '9') {
+            page_val = page_val * 10 + (options[i] - '0');
+            i++;
+        }
+        *ref_page = page_val;
+        
+        // Find comma and parse dial number (single digit)
+        if (options[i] == ',' && options[i+1] >= '0' && options[i+1] <= '7') {
+            *ref_dial = options[i+1] - '0';
+        }
+    }
+}
+
+// Resolve duplicate reference to get actual page/dial for MIDI CC calculation
+// Returns true if this is a duplicate, false otherwise
+bool resolve_duplicate_for_midi(int page, int dial, int* target_page, int* target_dial) {
+    auto& config = parent->objectinstance_sketchy__dials_i.configs[page][dial];
+    
+    if (config.mode == MODE_DUPLICATE) {
+        uint8_t ref_page, ref_dial;
+        parse_duplicate_reference(config.options, &ref_page, &ref_dial);
+        
+        if (ref_page < 64 && ref_dial < 8) {
+            *target_page = ref_page;
+            *target_dial = ref_dial;
+            return true;  // This is a duplicate
+        }
+    }
+    
+    // Not a duplicate, use current
+    *target_page = page;
+    *target_dial = dial;
+    return false;
 }]]></code.declaration>
       <code.init><![CDATA[// Initialize tracking arrays
 for (int i = 0; i < 8; i++) {
@@ -94,13 +143,17 @@ if (redraw_active) {
             }
         }
         
-        // Get value from param table
-        int32_t value = param_table->array[redraw_page][redraw_param];
+        // Resolve duplicate reference if this is a duplicate parameter
+        int target_page, target_dial;
+        resolve_duplicate_for_midi(redraw_page, redraw_param, &target_page, &target_dial);
+        
+        // Get value from param table (use target location for duplicates)
+        int32_t value = param_table->array[target_page][target_dial];
         uint8_t midiValue = paramValueToMidiCC(value);
         
-        // Calculate CC number: page 0 param 0 = startcc, page 0 param 1 = startcc+1
-        // page 1 param 0 = startcc+8, etc.
-        uint8_t ccNumber = (uint8_t)(inlet_startcc + redraw_param + (redraw_page * attr_maxparams));
+        // Calculate CC number based on target page/dial (original for duplicates)
+        // This ensures duplicates send the CC for the parameter they're duplicating
+        uint8_t ccNumber = (uint8_t)(inlet_startcc + target_dial + (target_page * attr_maxparams));
         
         // Send if valid CC and buffer has space
         if (ccNumber <= 127 && sdGetTimeout(&SD2, TIME_IMMEDIATE) == MSG_TIMEOUT) {
@@ -136,16 +189,21 @@ for (int scan_count = 0; scan_count < 2; scan_count++) {
         scan_index = 0;
     }
     
-    // Get current value from param table
-    int32_t current_value = param_table->array[current_page][scan_index];
+    // Resolve duplicate reference if this is a duplicate parameter
+    int target_page, target_dial;
+    bool is_duplicate = resolve_duplicate_for_midi(current_page, scan_index, &target_page, &target_dial);
+    
+    // Get current value from param table (use target location for duplicates)
+    int32_t current_value = param_table->array[target_page][target_dial];
     
     // Check if value changed and not already triggered
     if ((current_value != prev[scan_index]) && !ntrig[scan_index]) {
         // Convert to MIDI CC range
         uint8_t midiValue = paramValueToMidiCC(current_value);
         
-        // Calculate CC number for current page: param 0 = startcc, param 1 = startcc+1, etc.
-        uint8_t ccNumber = (uint8_t)(inlet_startcc + scan_index + (current_page * attr_maxparams));
+        // Calculate CC number based on target page/dial (original for duplicates)
+        // This ensures duplicates send the CC for the parameter they're duplicating
+        uint8_t ccNumber = (uint8_t)(inlet_startcc + target_dial + (target_page * attr_maxparams));
         
         // Only send if CC number is valid and buffer has space
         if (ccNumber <= 127 && sdGetTimeout(&SD2, TIME_IMMEDIATE) == MSG_TIMEOUT) {

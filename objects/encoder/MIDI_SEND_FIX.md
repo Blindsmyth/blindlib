@@ -153,3 +153,9 @@ This pattern should be used for:
 - SD card access
 - Any slow I/O operation
 
+
+
+
+
+
+
