@@ -1,6 +1,6 @@
 <objdefs appVersion="1.0.12">
    <obj.normal id="clock_master" uuid="5224773f-18de-4231-8f92-b1f22bb953B4">
-      <sDescription>Unified clock: sync_clock_musical + tap tempo in one object. Same RBRT sync inlets/outlets as sync_clock_musical; add tap and countIn for tap tempo. Tap BPM and setBPM/reset/start feed into the clock when used. Connect isPlaying back to external UI if needed.</sDescription>
+      <sDescription>Unified clock: sync_clock_musical + tap tempo + external MIDI clock. RBRT sync inlets/outlets; tap and countIn for tap tempo; clockMode for Auto/Ext/Int. Modes: 0=Auto (switch to external when available), 1=Ext (external only), 2=Int (internal only). Receives MIDI clock/start/stop; dropout detection ~250ms. MIDI START always restarts clock and sends reset pulse. extSync outlet indicates external sync status. When syncing to external, tap tempo and BPM inlet are disabled.</sDescription>
       <author>Simon Reeve</author>
       <license>GPL</license>
       <inlets>
@@ -26,6 +26,7 @@
          <int32 name="bpmValue"/>
          <bool32.rising name="tap" description="Tap tempo input"/>
          <bool32 name="countIn" description="Count-in: first bar then next tap starts clock"/>
+         <int32 name="clockMode" description="0=Auto, 1=Ext, 2=Int"/>
       </inlets>
       <outlets>
          <int32.positive name="syncSlot"/>
@@ -38,6 +39,7 @@
          <int32 name="bpm"/>
          <int32 name="detectedBars"/>
          <int32 name="ppqPerBar"/>
+         <bool32 name="extSync" description="High when syncing to external MIDI clock"/>
       </outlets>
       <displays/>
       <params/>
@@ -134,6 +136,55 @@ bool eff_setBPM;
 bool eff_resetPhase;
 bool eff_play;
 
+// External MIDI clock handling (from tap.io)
+int isClockIncoming;        // Flag for external clock presence
+int16_t midi_timer;         // Timer for clock dropout detection
+int shouldTrigger24Ppq_ext; // External clock pulse trigger
+const int clockDropoutSamples = 12000; // ~250ms at 48kHz
+bool midiStartReceived;     // Track MIDI START message
+bool midiStopReceived;      // Track MIDI STOP message
+int midi_start_reset_hold;  // Hold reset pulse for MIDI START
+
+// Clock mode state
+int current_clock_mode;     // 0=Auto, 1=Ext, 2=Int
+
+// External clock timing measurement
+const int ext_clock_avg_steps = 96;
+int16_t ext_clock_pool[96];
+int ext_clock_pool_index;
+float ext_clock_avg;
+
+// Measure external MIDI clock timing (called on each MIDI_TIMING_CLOCK)
+void measureExternalClock() {
+    isClockIncoming = true;
+    
+    // Record the time since last clock pulse
+    ext_clock_pool[ext_clock_pool_index] = midi_timer;
+    midi_timer = 0; // Reset timer for next pulse
+    ext_clock_pool_index++;
+    if (ext_clock_pool_index >= ext_clock_avg_steps) ext_clock_pool_index = 0;
+    
+    // Calculate average interval over last 96 pulses
+    float sum = 0;
+    for (int i = 0; i < ext_clock_avg_steps; i++) {
+        sum += ext_clock_pool[i];
+    }
+    ext_clock_avg = sum / ext_clock_avg_steps;
+    
+    // Calculate BPM from average (24ppq means 24 pulses = 1 quarter note)
+    // BPM = (60 * sample_rate) / (samples_per_quarter_note)
+    // samples_per_quarter_note = ext_clock_avg * 24
+    if (ext_clock_avg > 0) {
+        float samples_per_qn = ext_clock_avg * 24.0;
+        int32_t ext_bpm = (int32_t)((60.0 * 48000.0) / samples_per_qn + 0.5);
+        if (ext_bpm >= 40 && ext_bpm <= 300) {
+            current_bpm = ext_bpm; // Update BPM from external clock
+        }
+    }
+    
+    shouldTrigger24Ppq_ext = true;
+}
+
 // Musical helpers (from sync_clock_musical)
 int32_t interpretLoopLength(uint32_t loop_samples, int32_t lower_bpm, int32_t beats, int32_t measure) {
     float quarter_note_duration = 60.0 / (float)lower_bpm;
@@ -203,6 +254,20 @@ tap_start_hold = 0;
 tap_reset_hold = 0;
 for (int i = 0; i < tap_pool_size; i++) {
     tap_pool[i] = 0;
+}
+
+// External MIDI clock state
+isClockIncoming = false;
+midi_timer = 0;
+shouldTrigger24Ppq_ext = false;
+midiStartReceived = false;
+midiStopReceived = false;
+midi_start_reset_hold = 0;
+current_clock_mode = 0; // Default to Auto
+ext_clock_pool_index = 0;
+ext_clock_avg = 500.0; // Default interval (~120 BPM)
+for (int i = 0; i < ext_clock_avg_steps; i++) {
+    ext_clock_pool[i] = 500;
 }]]></code.init>
       <code.krate><![CDATA[bool trig = 0;
 bool ttrig = 0;
@@ -211,16 +276,39 @@ outlet_reset = 0;
 
 uint16_t adr = inlet_toSlot * 128;
 
+// Update clock mode from inlet
+current_clock_mode = inlet_clockMode;
+if (current_clock_mode < 0) current_clock_mode = 0;
+if (current_clock_mode > 2) current_clock_mode = 2;
+
+// Handle MIDI START reset pulse
+if (midi_start_reset_hold > 0) {
+    outlet_reset = 1;
+    midi_start_reset_hold--;
+}
+
+// Determine if using external sync (actually receiving and using external clock)
+bool use_external = (current_clock_mode == 1 && isClockIncoming) || // Ext mode WITH clock
+                    (current_clock_mode == 0 && isClockIncoming); // Auto + clock present
+
+// Set extSync outlet
+outlet_extSync = use_external;
+
 // --- Tap tempo block: run first, use clock_playing as isPlaying ---
+// Read BPM inlet for tap tempo processing
+int32_t inlet_bpm = inlet_bpmValue;
+
+// Skip tap tempo and BPM inlet when syncing to external clock
 int tap_beats = (inlet_beats > 0 && inlet_beats <= 16) ? inlet_beats : 4;
 bool in_tap_window = (tap_timer < tap_wait_samples);
 
 bool bpm_changed = false;
 bool bpm_from_inlet = false;
-if (current_bpm > 0 && current_bpm != tap_last_inlet_bpm) {
-    bool is_feedback = (current_bpm == tap_bpm);
+
+if (!use_external && inlet_bpm > 0 && inlet_bpm != tap_last_inlet_bpm) {
+    bool is_feedback = (inlet_bpm == tap_bpm);
     if (!is_feedback) {
-        tap_bpm = current_bpm;
+        tap_bpm = inlet_bpm;
         if (tap_bpm < 40) tap_bpm = 40;
         if (tap_bpm > 300) tap_bpm = 300;
         bpm_changed = true;
@@ -228,23 +316,23 @@ if (current_bpm > 0 && current_bpm != tap_last_inlet_bpm) {
         tap_pool_index = 0;
         tap_active = false;
     }
-    tap_last_inlet_bpm = current_bpm;
+    tap_last_inlet_bpm = inlet_bpm;
     bpm_from_inlet = !is_feedback;
-} else if (current_bpm > 0 && !in_tap_window) {
-    tap_bpm = current_bpm;
+} else if (!use_external && inlet_bpm > 0 && !in_tap_window) {
+    tap_bpm = inlet_bpm;
     if (tap_bpm < 40) tap_bpm = 40;
     if (tap_bpm > 300) tap_bpm = 300;
-    tap_last_inlet_bpm = current_bpm;
+    tap_last_inlet_bpm = inlet_bpm;
     bpm_from_inlet = true;
-} else if (current_bpm > 0) {
-    tap_last_inlet_bpm = current_bpm;
+} else if (inlet_bpm > 0) {
+    tap_last_inlet_bpm = inlet_bpm;
     bpm_from_inlet = false;
 } else {
     tap_last_inlet_bpm = 0;
     bpm_from_inlet = false;
 }
 
-bool tap_rising = inlet_tap && !tap_last_inlet;
+bool tap_rising = (!use_external && inlet_tap) && !tap_last_inlet;
 tap_last_inlet = inlet_tap;
 
 if (!inlet_countIn) tap_count_phase = 0;
@@ -307,13 +395,25 @@ if (tap_rising) {
 if (tap_timer < tap_wait_samples) tap_active = true;
 else tap_active = false;
 
+// Convert tap tempo output to effective inputs for sync clock
+// bpm_changed is set by tap tempo logic OR by BPM inlet logic above
 if (bpm_changed && tap_bpm != tap_last_out_bpm) {
     eff_setBPM = true;
+    eff_bpmValue = tap_bpm;
     tap_last_out_bpm = tap_bpm;
 }
 
-eff_bpmValue = eff_setBPM ? tap_bpm : inlet_bpmValue;
-eff_setBPM = eff_setBPM || inlet_setBPM;
+// Also respond to setBPM inlet trigger (for direct BPM setting)
+if (inlet_setBPM && inlet_bpmValue > 0) {
+    eff_setBPM = true;
+    eff_bpmValue = inlet_bpmValue;
+}
+
+// When syncing to external clock, ignore all internal BPM changes
+if (use_external) {
+    eff_setBPM = false;
+}
+
 eff_resetPhase = eff_resetPhase || inlet_resetPhase;
 eff_play = eff_play || inlet_play;
 
@@ -485,17 +585,32 @@ if (resync){
     resync--;
 } else sync.resync = 0;
 
+// 24ppq clock generation - mode-dependent
 if (clock_playing) {
-    float actual_bars = (float)detected_bars / 16.0;
-    uint32_t total_ppq = (uint32_t)(ppq_per_bar * actual_bars);
-    uint32_t current_tick = (sync.syncer_pos * total_ppq) >> 27;
-    uint32_t prev_tick = (prev_clock_pos * total_ppq) >> 27;
-    if (current_tick != prev_tick || ro) {
-        outlet_clock24ppq = 1;
-        if (ro) clock_count = 0;
-        else clock_count = (clock_count + 1) % total_ppq;
+    // In Ext mode (1), NEVER run internal clock if no external clock
+    if (current_clock_mode == 1 && !isClockIncoming) {
+        outlet_clock24ppq = 0; // No clock output in Ext mode without external clock
+    } else if (current_clock_mode == 1 && isClockIncoming) {
+        // Ext mode with external clock: use external MIDI clock pulse
+        outlet_clock24ppq = shouldTrigger24Ppq_ext;
+        shouldTrigger24Ppq_ext = false; // Clear for next cycle
+    } else if (current_clock_mode == 0 && isClockIncoming) {
+        // Auto mode with external clock: use external MIDI clock pulse
+        outlet_clock24ppq = shouldTrigger24Ppq_ext;
+        shouldTrigger24Ppq_ext = false; // Clear for next cycle
     } else {
-        outlet_clock24ppq = 0;
+        // Auto mode without external clock OR Int mode: use internal sync clock
+        float actual_bars = (float)detected_bars / 16.0;
+        uint32_t total_ppq = (uint32_t)(ppq_per_bar * actual_bars);
+        uint32_t current_tick = (sync.syncer_pos * total_ppq) >> 27;
+        uint32_t prev_tick = (prev_clock_pos * total_ppq) >> 27;
+        if (current_tick != prev_tick || ro) {
+            outlet_clock24ppq = 1;
+            if (ro) clock_count = 0;
+            else clock_count = (clock_count + 1) % total_ppq;
+        } else {
+            outlet_clock24ppq = 0;
+        }
     }
 } else {
     outlet_clock24ppq = 0;
@@ -508,6 +623,52 @@ outlet_detectedBars = detected_bars;
 outlet_ppqPerBar = ppq_per_bar;]]></code.krate>
       <code.srate><![CDATA[if (tap_timer < tap_wait_samples) {
     tap_timer++;
+}
+
+// External MIDI clock dropout detection
+if (isClockIncoming) {
+    midi_timer++;
+    if (midi_timer >= clockDropoutSamples) {
+        isClockIncoming = false; // Clock dropped out
+        midi_timer = 0;
+    }
+} else {
+    midi_timer = 0;
 }]]></code.srate>
+      <code.midihandler><![CDATA[// Handle external MIDI clock messages
+if (current_clock_mode == 2) return; // Int mode: ignore external MIDI
+
+switch (status) {
+    case MIDI_TIMING_CLOCK:
+        measureExternalClock();
+        // Auto mode: auto-start if not playing when clock arrives
+        if (current_clock_mode == 0 && !clock_playing) {
+            clock_playing = true;
+            clock_count = 0;
+            prev_clock_pos = 0;
+            pos = smplr.leader_tempo - 64;
+            resync = 4;
+        }
+        break;
+    
+    case MIDI_START:
+        midiStartReceived = true;
+        midi_start_reset_hold = 8; // Trigger reset pulse
+        clock_playing = true;
+        clock_count = 0;
+        prev_clock_pos = 0;
+        pos = smplr.leader_tempo - 64;
+        resync = 4;
+        break;
+    
+    case MIDI_STOP:
+        midiStopReceived = true;
+        isClockIncoming = false;
+        if (current_clock_mode == 1) { // Ext mode: stop output
+            clock_playing = false;
+        }
+        // Auto mode (0): continue with internal clock (don't change clock_playing)
+        break;
+}]]></code.midihandler>
    </obj.normal>
 </objdefs>
