@@ -1,0 +1,40 @@
+<objdefs appVersion="1.1.0">
+  <obj.normal id="big_array_sram3" uuid="5224773f-18de-4231-8f92-b1f22bb953B3">
+    <sDescription>Test: same huge array in SRAM3 (128KB). Compare with big_array_sram1 to test SD→SRAM3 without SRAM1.</sDescription>
+    <author>Simon</author>
+    <license>MIT</license>
+    <helpPatch></helpPatch>
+    <inlets>
+      <int32 name="trigger" description="Trigger to checksum array"/>
+    </inlets>
+    <outlets>
+      <int32 name="result" description="Checksum of first 256 elements"/>
+      <int32 name="size" description="Array size in elements"/>
+    </outlets>
+    <displays/>
+    <params/>
+    <attribs/>
+    <code.declaration><![CDATA[
+#define BIG_ARRAY_SIZE 8000
+// Pointer only; actual array is in code.init with section(".sram3") so it lands in SRAM3
+int32_t* big_array;
+      ]]></code.declaration>
+    <code.init><![CDATA[
+static int32_t _big_array[8000] __attribute__ ((section (".sram1")));
+big_array = _big_array;
+      ]]></code.init>
+    <code.krate><![CDATA[
+if (inlet_trigger > 0) {
+    int32_t sum = 0;
+    int32_t i;
+    for (i = 0; i < 256; i++)
+        sum += big_array[i];
+    outlet_result = sum;
+    outlet_size = BIG_ARRAY_SIZE;
+} else {
+    outlet_result = 0;
+    outlet_size = 0;
+}
+      ]]></code.krate>
+  </obj.normal>
+</objdefs>

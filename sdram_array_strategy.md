@@ -2,6 +2,39 @@
 
 #As of the current firmware we can't properly implement this!! 
 
+## Putting data in SRAM3 (Ksoloti)
+
+SRAM3 (64 KB) is separate from SRAM1: the build produces a **second blob** (“Uploading SRAM3 data”) that gets written into SRAM3. To put data there from an object you must **avoid** putting the array in **code.declaration** (the codegen turns that into a class member and either rejects the section attribute or fails to define static members).
+
+**Pattern that works:** declare the array **inside code.init** as a **static local** with the section attribute, then point a **pointer in code.declaration** at it. Use the pointer everywhere else (krate, etc.).
+
+```cpp
+// code.declaration: pointer only
+int32_t* my_data;
+
+// code.init: actual array in SRAM3 (static local = one definition, section allowed)
+static int32_t _my_data[8000] __attribute__ ((section (".sram3")));
+my_data = _my_data;
+
+// code.krate: use my_data[i] as usual
+```
+
+Example in this repo: `sketchy_config_load.axo` uses this for `_string_buffer` and `_binary_configs` in `.sram3`. The “Uploading SRAM3 data” step sends the contents of the `.sram3` section; anything you put there via this pattern is included. You can also **fill** that buffer at runtime (e.g. load from SD into the same pointer) so data can come from file instead of the initial image.
+
+### When the patch overflows SRAM1 ("region SRAM1 overflowed by N bytes")
+
+SRAM1 holds both **code** (`.text`) and **data** (`.bss`). The linker error means total use > 44 KB. Moving **data** to SRAM3 frees SRAM1. **Do not edit generated `.axp.cpp`** — change the source (objects or the code generator).
+
+**What "static voice" is:** For patches with a **polyphonic subpatch**, the Ksoloti code generator emits a C++ class `voice` (one per note/slot) and a function `getVoices()` that returns a pointer to a **static array of voice structs** (e.g. `static voice v[3]`). That array holds the state and sub-objects for each of the 3 (or N) voices and lives in SRAM1; it’s large (~1248 bytes for 3 voices) because each voice contains the whole voice subpatch. The patcher object (e.g. `patcher nomod.axo`) does **not** contain this code — it is **generated** by the Ksoloti app when it writes the `.axp.cpp`. So you cannot move it to SRAM3 by editing an .axo; you’d have to change the **Ksoloti/patcher code generator** so it emits the voice array with `__attribute__((section(".sram3")))` (or the init static-local pattern).
+
+**What’s in your patch (from the map):**
+
+- **`.bss._ZL4root`** (~8 KB): entire object instance graph (generated; not movable from object code).
+- **`getVoices()::v`** (~1248 bytes): the voice array above (generated; only movable by changing the codegen).
+- **config_load** buffers: already in `.sram3` (15 KB).
+
+**What you can do:** Simplify the patch to fit (fewer/smaller objects or fewer voices), or change the Ksoloti code generator to place the voice array in `.sram3` so it’s generated that way for all such patches.
+
 ## Overview
 This document outlines the technique for moving large arrays from SRAM to SDRAM in Axoloti objects, providing significant memory savings for objects that need to store large amounts of data. As of the current firmware we can't properly implement this.
 

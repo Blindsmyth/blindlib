@@ -1,0 +1,513 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="clock_master" uuid="5224773f-18de-4231-8f92-b1f22bb953B4">
+      <sDescription>Unified clock: sync_clock_musical + tap tempo in one object. Same RBRT sync inlets/outlets as sync_clock_musical; add tap and countIn for tap tempo. Tap BPM and setBPM/reset/start feed into the clock when used. Connect isPlaying back to external UI if needed.</sDescription>
+      <author>Simon Reeve</author>
+      <license>GPL</license>
+      <inlets>
+         <int32.positive name="toSlot"/>
+         <bool32.rising name="setNow"/>
+         <bool32.rising name="inSync"/>
+         <bool32 name="setToRaw"/>
+         <bool32.rising name="resetPhase"/>
+         <int32.positive name="quantization"/>
+         <bool32 name="NOrecalc"/>
+         <bool32 name="NOquantize"/>
+         <bool32 name="skipRaw"/>
+         <bool32 name="EXTsync"/>
+         <frac32.positive name="EXTphase"/>
+         <int32.positive name="EXTdurSMPS"/>
+         <bool32.rising name="play"/>
+         <bool32.rising name="stop"/>
+         <bool32.rising name="playToggle"/>
+         <int32 name="beats"/>
+         <int32 name="measure"/>
+         <int32 name="lowerBPM"/>
+         <bool32.rising name="setBPM"/>
+         <int32 name="bpmValue"/>
+         <bool32.rising name="tap" description="Tap tempo input"/>
+         <bool32 name="countIn" description="Count-in: first bar then next tap starts clock"/>
+      </inlets>
+      <outlets>
+         <int32.positive name="syncSlot"/>
+         <frac32.positive name="syncPhase"/>
+         <int32.positive name="syncDurSMPS"/>
+         <bool32.pulse name="rollover"/>
+         <bool32.pulse name="clock24ppq"/>
+         <bool32.pulse name="reset"/>
+         <bool32 name="isPlaying"/>
+         <int32 name="bpm"/>
+         <int32 name="detectedBars"/>
+         <int32 name="ppqPerBar"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <combo name="setTempoTo">
+            <MenuEntries>
+               <string>cycles</string>
+               <string>raw</string>
+            </MenuEntries>
+            <CEntries>
+               <string>0</string>
+               <string>1</string>
+            </CEntries>
+         </combo>
+         <combo name="quantization">
+            <MenuEntries>
+               <string>auto</string>
+               <string>1/1</string>
+               <string>1/2</string>
+               <string>1/4</string>
+               <string>1/8</string>
+               <string>1/16</string>
+               <string>1/32</string>
+            </MenuEntries>
+            <CEntries>
+               <string>0</string>
+               <string>1</string>
+               <string>2</string>
+               <string>4</string>
+               <string>8</string>
+               <string>16</string>
+               <string>32</string>
+            </CEntries>
+         </combo>
+         <spinner name="defaultBeats" MinValue="1" MaxValue="16" DefaultValue="4"/>
+         <spinner name="defaultMeasure" MinValue="1" MaxValue="16" DefaultValue="4"/>
+         <spinner name="defaultLowerBPM" MinValue="40" MaxValue="180" DefaultValue="90"/>
+      </attribs>
+      <includes>
+         <include>../../../Axolonatics/objects/rbrt_new/rbrt_classes/Smplr.h</include>
+         <include>../../../Axolonatics/objects/rbrt_new/rbrt_classes/sync.h</include>
+      </includes>
+      <code.declaration><![CDATA[Smplr smplr;
+SYNC sync;
+bool rtrig;
+bool strig;
+bool wait;
+bool ro;
+uint32_t pos;
+uint8_t count;
+float frac;
+uint32_t old_tempo;
+uint32_t rosl;
+uint16_t waitadr;
+uint32_t roext;
+
+uint8_t resync;
+bool presrc;
+
+bool clock_playing;
+bool play_trig, stop_trig, play_toggle_trig;
+int8_t prev_leader;
+
+uint32_t prev_clock_pos;
+uint8_t clock_count;
+
+int32_t current_bpm;
+int32_t detected_bars;
+uint8_t current_beats;
+uint8_t current_measure;
+uint8_t current_lower_bpm;
+uint16_t ppq_per_bar;
+bool setBPM_trig;
+
+// Tap tempo state (fused from tap_tempo_musical)
+int32_t tap_timer;
+const int tap_pool_size = 16;
+int32_t tap_pool[16];
+int tap_pool_index;
+bool tap_last_inlet;
+const int tap_wait_samples = 96000;
+bool tap_active;
+int32_t tap_avg;
+int32_t tap_last_out_bpm;
+int32_t tap_last_inlet_bpm;
+int32_t tap_bpm;
+int tap_count_phase;
+int tap_start_hold;
+int tap_reset_hold;
+
+// Effective inlets after tap (tap can drive setBPM/reset/play)
+int32_t eff_bpmValue;
+bool eff_setBPM;
+bool eff_resetPhase;
+bool eff_play;
+
+// Musical helpers (from sync_clock_musical)
+int32_t interpretLoopLength(uint32_t loop_samples, int32_t lower_bpm, int32_t beats, int32_t measure) {
+    float quarter_note_duration = 60.0 / (float)lower_bpm;
+    uint32_t samples_per_bar = (uint32_t)(quarter_note_duration * 48000.0 * (float)beats / ((float)measure / 4.0));
+    float calculated_bars = (float)loop_samples / (float)samples_per_bar;
+    int valid_bars_x16[] = {1, 2, 4, 8, 16, 32, 64, 128, 256};
+    int closest_bars_x16 = 16;
+    for (int i = 0; i < 9; i++) {
+        if ((calculated_bars * 16.0) <= (float)valid_bars_x16[i]) {
+            closest_bars_x16 = valid_bars_x16[i];
+            break;
+        }
+    }
+    if (calculated_bars > 16.0) closest_bars_x16 = 256;
+    return closest_bars_x16;
+}
+
+int32_t calculateBPM(uint32_t tempo_samples, int32_t bars_x16, int32_t beats, int32_t measure) {
+    if (tempo_samples == 0 || bars_x16 == 0) return 120;
+    float actual_bars = (float)bars_x16 / 16.0;
+    float samples_per_bar = (float)tempo_samples / actual_bars;
+    float quarter_notes_per_bar = (float)beats / ((float)measure / 4.0);
+    float bpm = (60.0 * 48000.0 * quarter_notes_per_bar) / samples_per_bar;
+    return (int32_t)(bpm + 0.5);
+}
+
+uint32_t bpmToTempo(int32_t bpm, int32_t bars_x16, int32_t beats, int32_t measure) {
+    if (bpm == 0) return 48000 * 2;
+    float actual_bars = (float)bars_x16 / 16.0;
+    float quarter_notes_per_bar = (float)beats / ((float)measure / 4.0);
+    float samples_per_bar = (60.0 * 48000.0 * quarter_notes_per_bar) / (float)bpm;
+    return (uint32_t)(samples_per_bar * actual_bars);
+}
+
+uint32_t scale_tempo_musical(uint32_t raw_samples, int32_t lower_bpm, int32_t beats, int32_t measure, int32_t* out_bars) {
+    *out_bars = interpretLoopLength(raw_samples, lower_bpm, beats, measure);
+    float calculated_bpm = (float)calculateBPM(raw_samples, *out_bars, beats, measure);
+    float upper_bpm = (float)lower_bpm * 2.0;
+    while (calculated_bpm >= upper_bpm && *out_bars > 1) {
+        *out_bars /= 2;
+        calculated_bpm = (float)calculateBPM(raw_samples, *out_bars, beats, measure);
+    }
+    while (calculated_bpm < (float)lower_bpm && *out_bars < 256) {
+        *out_bars *= 2;
+        calculated_bpm = (float)calculateBPM(raw_samples, *out_bars, beats, measure);
+    }
+    return raw_samples;
+}]]></code.declaration>
+      <code.init><![CDATA[current_bpm = 120;
+detected_bars = 16;
+current_beats = attr_defaultBeats;
+current_measure = attr_defaultMeasure;
+current_lower_bpm = attr_defaultLowerBPM;
+ppq_per_bar = 96;
+setBPM_trig = false;
+
+tap_timer = tap_wait_samples;
+tap_last_inlet = false;
+tap_active = false;
+tap_avg = 24000;
+tap_pool_index = 0;
+tap_last_out_bpm = 0;
+tap_last_inlet_bpm = 0;
+tap_bpm = 120;
+tap_count_phase = 0;
+tap_start_hold = 0;
+tap_reset_hold = 0;
+for (int i = 0; i < tap_pool_size; i++) {
+    tap_pool[i] = 0;
+}]]></code.init>
+      <code.krate><![CDATA[bool trig = 0;
+bool ttrig = 0;
+ro = 0;
+outlet_reset = 0;
+
+uint16_t adr = inlet_toSlot * 128;
+
+// --- Tap tempo block: run first, use clock_playing as isPlaying ---
+int tap_beats = (inlet_beats > 0 && inlet_beats <= 16) ? inlet_beats : 4;
+bool in_tap_window = (tap_timer < tap_wait_samples);
+
+bool bpm_changed = false;
+bool bpm_from_inlet = false;
+if (current_bpm > 0 && current_bpm != tap_last_inlet_bpm) {
+    bool is_feedback = (current_bpm == tap_bpm);
+    if (!is_feedback) {
+        tap_bpm = current_bpm;
+        if (tap_bpm < 40) tap_bpm = 40;
+        if (tap_bpm > 300) tap_bpm = 300;
+        bpm_changed = true;
+        for (int i = 0; i < tap_beats; i++) tap_pool[i] = 0;
+        tap_pool_index = 0;
+        tap_active = false;
+    }
+    tap_last_inlet_bpm = current_bpm;
+    bpm_from_inlet = !is_feedback;
+} else if (current_bpm > 0 && !in_tap_window) {
+    tap_bpm = current_bpm;
+    if (tap_bpm < 40) tap_bpm = 40;
+    if (tap_bpm > 300) tap_bpm = 300;
+    tap_last_inlet_bpm = current_bpm;
+    bpm_from_inlet = true;
+} else if (current_bpm > 0) {
+    tap_last_inlet_bpm = current_bpm;
+    bpm_from_inlet = false;
+} else {
+    tap_last_inlet_bpm = 0;
+    bpm_from_inlet = false;
+}
+
+bool tap_rising = inlet_tap && !tap_last_inlet;
+tap_last_inlet = inlet_tap;
+
+if (!inlet_countIn) tap_count_phase = 0;
+
+eff_setBPM = false;
+eff_resetPhase = (tap_reset_hold > 0);
+eff_play = (tap_start_hold > 0);
+if (tap_reset_hold > 0) tap_reset_hold--;
+if (tap_start_hold > 0) tap_start_hold--;
+
+if (tap_rising) {
+    if (tap_timer >= tap_wait_samples) {
+        for (int i = 0; i < tap_beats; i++) tap_pool[i] = 0;
+        tap_pool_index = 0;
+        tap_count_phase = 0;
+        tap_avg = 24000;
+        tap_active = false;
+        tap_last_out_bpm = 0;
+        if (clock_playing) { eff_resetPhase = true; tap_reset_hold = 8; }
+    } else {
+        tap_pool[tap_pool_index] = tap_timer;
+        tap_pool_index++;
+        tap_pool_index %= tap_beats;
+        bool is_beat_one = (tap_pool_index == 0);
+        int32_t sum = 0;
+        int counted = 0;
+        for (int i = 0; i < tap_beats; i++) {
+            if (tap_pool[i] != 0) { sum += tap_pool[i]; counted++; }
+        }
+        if (counted > 0) {
+            tap_avg = sum / counted;
+            int32_t tap_bpm_calc = (60 * 48000) / tap_avg;
+            if (tap_bpm_calc < 40) tap_bpm_calc = 40;
+            if (tap_bpm_calc > 300) tap_bpm_calc = 300;
+            if (!bpm_from_inlet) {
+                tap_bpm = tap_bpm_calc;
+                bpm_changed = true;
+            }
+            if (is_beat_one && counted >= tap_beats) {
+                if (inlet_countIn) {
+                    if (tap_count_phase == 0 && !clock_playing) {
+                        eff_play = true;
+                        tap_start_hold = 8;
+                        tap_count_phase = 1;
+                    } else if (clock_playing) {
+                        eff_resetPhase = true;
+                        tap_reset_hold = 8;
+                    }
+                } else if (clock_playing) {
+                    eff_resetPhase = true;
+                    tap_reset_hold = 8;
+                }
+            }
+        }
+    }
+    tap_timer = 0;
+    tap_active = true;
+}
+
+if (tap_timer < tap_wait_samples) tap_active = true;
+else tap_active = false;
+
+if (bpm_changed && tap_bpm != tap_last_out_bpm) {
+    eff_setBPM = true;
+    tap_last_out_bpm = tap_bpm;
+}
+
+eff_bpmValue = eff_setBPM ? tap_bpm : inlet_bpmValue;
+eff_setBPM = eff_setBPM || inlet_setBPM;
+eff_resetPhase = eff_resetPhase || inlet_resetPhase;
+eff_play = eff_play || inlet_play;
+
+// --- Sync clock block (same as sync_clock_musical, using eff_* for BPM/play/reset) ---
+current_beats = (inlet_beats > 0) ? inlet_beats : attr_defaultBeats;
+current_measure = (inlet_measure > 0) ? inlet_measure : attr_defaultMeasure;
+current_lower_bpm = (inlet_lowerBPM > 0) ? inlet_lowerBPM : attr_defaultLowerBPM;
+ppq_per_bar = (current_beats * 96) / current_measure;
+
+if (eff_setBPM && !setBPM_trig) {
+    setBPM_trig = true;
+    if (eff_bpmValue > 0 && detected_bars > 0) {
+        old_tempo = smplr.leader_tempo;
+        smplr.leader_tempo = bpmToTempo(eff_bpmValue, detected_bars, current_beats, current_measure);
+        current_bpm = eff_bpmValue;
+        smplr.leader = -1;
+        resync = 4;
+        ttrig = 1;
+        pos = smplr.leader_tempo - 64;
+    }
+}
+if (!eff_setBPM) setBPM_trig = false;
+
+if (eff_play && !play_trig) {
+    play_trig = 1;
+    clock_playing = 1;
+    clock_count = 0;
+    prev_clock_pos = 0;
+    resync = 4;
+    pos = smplr.leader_tempo - 64;
+    outlet_reset = 1;
+}
+if (!eff_play) play_trig = 0;
+
+if (inlet_stop && !stop_trig) {
+    stop_trig = 1;
+    clock_playing = 0;
+}
+if (!inlet_stop) stop_trig = 0;
+
+if (inlet_playToggle && !play_toggle_trig) {
+    play_toggle_trig = 1;
+    clock_playing = !clock_playing;
+    if (clock_playing) {
+        clock_count = 0;
+        prev_clock_pos = 0;
+        resync = 4;
+        pos = smplr.leader_tempo - 64;
+        outlet_reset = 1;
+    }
+}
+if (!inlet_playToggle) play_toggle_trig = 0;
+
+if (smplr.leader != prev_leader && smplr.leader >= 0 && prev_leader == -1) {
+    clock_playing = 1;
+    clock_count = 0;
+    prev_clock_pos = 0;
+    outlet_reset = 1;
+}
+prev_leader = smplr.leader;
+
+outlet_isPlaying = clock_playing;
+
+if (inlet_EXTsync != presrc){
+    presrc = inlet_EXTsync;
+    resync = 4;
+}
+
+if (inlet_EXTsync){
+    sync.syncer_pos = inlet_EXTphase;
+    smplr.leader_tempo = inlet_EXTdurSMPS;
+    smplr.leader = -1;
+    pos = smplr.leader_tempo -64;
+    if (sync.syncer_pos < roext) ro = 1;
+    roext = sync.syncer_pos;
+    outlet_syncPhase = sync.syncer_pos;
+    outlet_syncDurSMPS = smplr.leader_tempo;
+    outlet_rollover = ro;
+    outlet_syncSlot = smplr.leader;
+    current_bpm = calculateBPM(smplr.leader_tempo, detected_bars, current_beats, current_measure);
+} else {
+    if (inlet_setNow && !strig){
+        strig = 1;
+        trig = 1;
+        resync = 4;
+    }
+    bool doit = 0;
+    if (inlet_inSync && !strig){
+        strig = 1;
+        rosl = smplr.POS;
+        if (smplr.PLAY){ wait = 1; waitadr = inlet_toSlot * 128; }
+        else doit = 1;
+    }
+    if (wait){
+        adr = waitadr;
+        if (smplr.DIRECTION > 0) doit = (smplr.POS < rosl);
+        else doit = (smplr.POS > rosl);
+        rosl = smplr.POS;
+    }
+    if (doit){
+        trig = 1;
+        wait = 0;
+        resync = 4;
+        adr = inlet_toSlot * 128;
+    }
+    if (!inlet_inSync && !inlet_setNow) strig = 0;
+
+    if (trig){
+        old_tempo = smplr.leader_tempo;
+        smplr.leader = inlet_toSlot;
+        smplr.STARTPOINT = (smplr.STARTPOINT + (smplr.SPMOD >> 1)) & ((1<<27)-1);
+        smplr.SPMOD = 0;
+        smplr.leader_start = smplr.STARTPOINT;
+        uint32_t stempo;
+        if (smplr.RAW || (inlet_setToRaw || attr_setTempoTo)) stempo = smplr.calc_dur(smplr.leader);
+        else stempo = smplr.leader_tempo * float(smplr.BARS) / (1<<21);
+        int32_t calculated_bars = 1;
+        smplr.leader_tempo = scale_tempo_musical(stempo, current_lower_bpm, current_beats, current_measure, &calculated_bars);
+        detected_bars = calculated_bars;
+        smplr.BARS = sync.calc_bars(stempo, smplr.leader_tempo);
+        smplr.RAW = 0;
+        pos = smplr.leader_tempo - 64;
+        current_bpm = calculateBPM(smplr.leader_tempo, detected_bars, current_beats, current_measure);
+    }
+
+    if ((trig || ttrig) && !inlet_NOrecalc){
+        count = smplr.slots + 1;
+        frac = float(old_tempo) / smplr.leader_tempo;
+    }
+    if (count){
+        count--;
+        if (count != smplr.leader){
+            adr = count * 128;
+            smplr.BARS = smplr.BARS * frac;
+            if (!inlet_NOquantize && (!smplr.RAW || !inlet_skipRaw)){
+                uint8_t quant = (inlet_quantization) ? inlet_quantization : attr_quantization;
+                smplr.BARS = sync.quantize(smplr.BARS, 1<<21, quant) * (1<<21);
+                smplr.RAW = 0;
+            }
+        }
+    }
+    if (eff_resetPhase && !rtrig){
+        rtrig = 1;
+        resync = 4;
+        pos = smplr.leader_tempo - 64;
+        clock_count = 0;
+        prev_clock_pos = 0;
+        outlet_reset = 1;
+    }
+    if (!eff_resetPhase) rtrig = 0;
+    pos += 16;
+    if (pos >= smplr.leader_tempo) ro = 1;
+    pos = pos % smplr.leader_tempo;
+    sync.syncer_pos = (float(pos) / smplr.leader_tempo) * (1 << 27);
+
+    outlet_syncPhase = sync.syncer_pos;
+    outlet_syncDurSMPS = smplr.leader_tempo;
+    outlet_rollover = ro;
+    outlet_syncSlot = smplr.leader;
+}
+
+if (smplr.leader > -1){
+    adr = smplr.leader * 128;
+    smplr.leader_start = smplr.STARTPOINT;
+} else smplr.leader_start = 0;
+
+if (resync){
+    sync.resync = -1;
+    resync--;
+} else sync.resync = 0;
+
+if (clock_playing) {
+    float actual_bars = (float)detected_bars / 16.0;
+    uint32_t total_ppq = (uint32_t)(ppq_per_bar * actual_bars);
+    uint32_t current_tick = (sync.syncer_pos * total_ppq) >> 27;
+    uint32_t prev_tick = (prev_clock_pos * total_ppq) >> 27;
+    if (current_tick != prev_tick || ro) {
+        outlet_clock24ppq = 1;
+        if (ro) clock_count = 0;
+        else clock_count = (clock_count + 1) % total_ppq;
+    } else {
+        outlet_clock24ppq = 0;
+    }
+} else {
+    outlet_clock24ppq = 0;
+}
+
+prev_clock_pos = sync.syncer_pos;
+
+outlet_bpm = current_bpm;
+outlet_detectedBars = detected_bars;
+outlet_ppqPerBar = ppq_per_bar;]]></code.krate>
+      <code.srate><![CDATA[if (tap_timer < tap_wait_samples) {
+    tap_timer++;
+}]]></code.srate>
+   </obj.normal>
+</objdefs>
