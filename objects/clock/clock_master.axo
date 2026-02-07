@@ -179,6 +179,12 @@ void measureExternalClock() {
         int32_t ext_bpm = (int32_t)((60.0 * 48000.0) / samples_per_qn + 0.5);
         if (ext_bpm >= 40 && ext_bpm <= 300) {
             current_bpm = ext_bpm; // Update BPM from external clock
+            
+            // Also update internal tempo so when ext clock drops out, 
+            // Auto mode can continue at same tempo
+            if (detected_bars > 0 && current_beats > 0 && current_measure > 0) {
+                smplr.leader_tempo = bpmToTempo(ext_bpm, detected_bars, current_beats, current_measure);
+            }
         }
     }
     
