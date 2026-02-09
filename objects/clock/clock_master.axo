@@ -40,7 +40,7 @@
          <int32 name="detectedBars"/>
          <int32 name="ppqPerBar"/>
          <bool32 name="extSync" description="High when syncing to external MIDI clock"/>
-         <int32 name="v009" description="Object version (incremented each release)"/>
+         <int32 name="v010" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -198,6 +198,9 @@ void measureExternalClock() {
             // Auto mode can continue at same tempo
             if (detected_bars > 0 && current_beats > 0 && current_measure > 0) {
                 smplr.leader_tempo = bpmToTempo(ext_bpm, detected_bars, current_beats, current_measure);
+            } else {
+                // No loop recorded yet - use default 16 bars to set tempo pace
+                smplr.leader_tempo = bpmToTempo(ext_bpm, 256, current_beats, current_measure);
             }
         }
     }
@@ -545,8 +548,15 @@ if (inlet_EXTsync){
     outlet_rollover = ro;
     outlet_syncSlot = smplr.leader;
     // Only recalculate BPM from leader tempo when NOT syncing to external clock
+    // Use tap_bpm if leader_tempo is not properly set (pickover scenario)
     if (!use_external) {
-        current_bpm = calculateBPM(smplr.leader_tempo, detected_bars, current_beats, current_measure);
+        int32_t calculated = calculateBPM(smplr.leader_tempo, detected_bars, current_beats, current_measure);
+        // If calculated is 120 (default) but we have a different tap_bpm, use tap_bpm (pickover)
+        if (calculated == 120 && tap_bpm != 120) {
+            current_bpm = tap_bpm;
+        } else {
+            current_bpm = calculated;
+        }
     }
 } else {
     if (inlet_setNow && !strig){
@@ -591,8 +601,15 @@ if (inlet_EXTsync){
         smplr.RAW = 0;
         pos = smplr.leader_tempo - 64;  // Match sync_clock_musical: no clock start/reset here
         // Only recalculate BPM from leader tempo when NOT syncing to external clock
+        // Use tap_bpm if leader_tempo is not properly set (pickover scenario)
         if (!use_external) {
-            current_bpm = calculateBPM(smplr.leader_tempo, detected_bars, current_beats, current_measure);
+            int32_t calculated = calculateBPM(smplr.leader_tempo, detected_bars, current_beats, current_measure);
+            // If calculated is 120 (default) but we have a different tap_bpm, use tap_bpm (pickover)
+            if (calculated == 120 && tap_bpm != 120) {
+                current_bpm = tap_bpm;
+            } else {
+                current_bpm = calculated;
+            }
         }
     }
 
@@ -688,7 +705,7 @@ outlet_detectedBars = detected_bars;
 outlet_ppqPerBar = ppq_per_bar;
 
 // Version outlet: increment with each release (v0_0_1 = 1, v0_0_2 = 2, ...)
-outlet_v009 = 9;]]></code.krate>
+outlet_v010 = 10;]]></code.krate>
       <code.srate><![CDATA[if (tap_timer < tap_wait_samples) {
     tap_timer++;
 }
