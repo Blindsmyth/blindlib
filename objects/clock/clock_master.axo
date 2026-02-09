@@ -41,7 +41,7 @@
          <int32 name="detectedBars"/>
          <int32 name="ppqPerBar"/>
          <bool32 name="extSync" description="High when syncing to external MIDI clock"/>
-         <int32 name="v013" description="Object version (incremented each release)"/>
+         <int32 name="v014" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -306,6 +306,7 @@ midiStartReceived = false;
 midiStopReceived = false;
 midi_start_reset_hold = 0;
 current_clock_mode = 0; // Default to Auto
+continue_on_stop = false; // Default to stop on MIDI STOP (standard behavior)
 ext_clock_pool_index = 0;
 ext_clock_avg = 1000.0; // Default interval for 120 BPM (1000 samples @ 48kHz, 24ppq)
 for (int i = 0; i < ext_clock_avg_steps; i++) {
@@ -667,7 +668,8 @@ if (resync){
 // 24ppq clock generation - mode-dependent
 if (clock_playing) {
     // In Ext mode (1), NEVER run internal clock if no external clock
-    if (current_clock_mode == 1 && !isClockIncoming) {
+    // UNLESS continueOnStop is high (pickover mode)
+    if (current_clock_mode == 1 && !isClockIncoming && !continue_on_stop) {
         outlet_clock24ppq = 0; // No clock output in Ext mode without external clock
     } else if (current_clock_mode == 1 && isClockIncoming) {
         // Ext mode with external clock: use external MIDI clock pulse
@@ -710,7 +712,7 @@ outlet_detectedBars = detected_bars;
 outlet_ppqPerBar = ppq_per_bar;
 
 // Version outlet: increment with each release (v0_0_1 = 1, v0_0_2 = 2, ...)
-outlet_v013 = 13;]]></code.krate>
+outlet_v014 = 14;]]></code.krate>
       <code.srate><![CDATA[if (tap_timer < tap_wait_samples) {
     tap_timer++;
 }
