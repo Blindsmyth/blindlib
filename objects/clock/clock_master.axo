@@ -40,6 +40,7 @@
          <int32 name="detectedBars"/>
          <int32 name="ppqPerBar"/>
          <bool32 name="extSync" description="High when syncing to external MIDI clock"/>
+         <int32 name="v004" description="Object version v001=1 v002=2 v003=3 v004=4 etc"/>
       </outlets>
       <displays/>
       <params/>
@@ -54,6 +55,8 @@
                <string>1</string>
             </CEntries>
          </combo>
+         <spinner name="bpmPage" description="Page index for BPM storage" MinValue="0" MaxValue="63" DefaultValue="8"/>
+         <spinner name="bpmParam" description="Parameter index for BPM storage (0-7)" MinValue="0" MaxValue="7" DefaultValue="4"/>
          <combo name="quantization">
             <MenuEntries>
                <string>auto</string>
@@ -98,6 +101,10 @@ uint32_t roext;
 
 uint8_t resync;
 bool presrc;
+
+// Direct param table access for BPM
+rootc::objectinstance_sketchy__params* param_table;
+int32_t last_written_bpm;  // Track last BPM written to prevent unnecessary writes
 
 bool clock_playing;
 bool play_trig, stop_trig, play_toggle_trig;
@@ -180,6 +187,10 @@ void measureExternalClock() {
         if (ext_bpm >= 40 && ext_bpm <= 300) {
             current_bpm = ext_bpm; // Update BPM from external clock
             
+            // Write to param table immediately so display updates (MIDI handler runs async, so do it here)
+            param_table->array[attr_bpmPage][attr_bpmParam] = ext_bpm;
+            last_written_bpm = ext_bpm;
+            
             // Also update internal tempo so when ext clock drops out, 
             // Auto mode can continue at same tempo
             if (detected_bars > 0 && current_beats > 0 && current_measure > 0) {
@@ -247,6 +258,20 @@ current_lower_bpm = attr_defaultLowerBPM;
 ppq_per_bar = 96;
 setBPM_trig = false;
 
+clock_playing = 0;  // No clock by default; start via record leader, tap count-in, or play
+prev_leader = -1;
+
+// Initialize param table access
+param_table = &parent->objectinstance_sketchy__params_i;
+last_written_bpm = -1;  // Force initial write
+
+// Read initial BPM from param table if available
+int32_t initial_bpm = param_table->array[attr_bpmPage][attr_bpmParam];
+if (initial_bpm > 0 && initial_bpm >= 40 && initial_bpm <= 300) {
+    tap_bpm = initial_bpm;
+    current_bpm = initial_bpm;
+}
+
 tap_timer = tap_wait_samples;
 tap_last_inlet = false;
 tap_active = false;
@@ -271,9 +296,9 @@ midiStopReceived = false;
 midi_start_reset_hold = 0;
 current_clock_mode = 0; // Default to Auto
 ext_clock_pool_index = 0;
-ext_clock_avg = 500.0; // Default interval (~120 BPM)
+ext_clock_avg = 1000.0; // Default interval for 120 BPM (1000 samples @ 48kHz, 24ppq)
 for (int i = 0; i < ext_clock_avg_steps; i++) {
-    ext_clock_pool[i] = 500;
+    ext_clock_pool[i] = 1000; // Initialize to 120 BPM timing
 }]]></code.init>
       <code.krate><![CDATA[bool trig = 0;
 bool ttrig = 0;
@@ -301,8 +326,9 @@ bool use_external = (current_clock_mode == 1 && isClockIncoming) || // Ext mode 
 outlet_extSync = use_external;
 
 // --- Tap tempo block: run first, use clock_playing as isPlaying ---
-// Read BPM inlet for tap tempo processing
-int32_t inlet_bpm = inlet_bpmValue;
+// Read BPM directly from param table, fallback to inlet for backward compatibility
+int32_t param_bpm = param_table->array[attr_bpmPage][attr_bpmParam];
+int32_t inlet_bpm = (inlet_bpmValue > 0) ? inlet_bpmValue : param_bpm;  // Use param table as primary source
 
 // Skip tap tempo and BPM inlet when syncing to external clock
 int tap_beats = (inlet_beats > 0 && inlet_beats <= 16) ? inlet_beats : 4;
@@ -312,7 +338,9 @@ bool bpm_changed = false;
 bool bpm_from_inlet = false;
 
 if (!use_external && inlet_bpm > 0 && inlet_bpm != tap_last_inlet_bpm) {
-    bool is_feedback = (inlet_bpm == tap_bpm);
+    // Only treat as feedback when reading from external inlet; when reading from param table (encoder) allow updates
+    bool reading_from_inlet = (inlet_bpmValue > 0);
+    bool is_feedback = reading_from_inlet && ((inlet_bpm == tap_bpm) || (inlet_bpm == current_bpm));
     if (!is_feedback) {
         tap_bpm = inlet_bpm;
         if (tap_bpm < 40) tap_bpm = 40;
@@ -325,9 +353,13 @@ if (!use_external && inlet_bpm > 0 && inlet_bpm != tap_last_inlet_bpm) {
     tap_last_inlet_bpm = inlet_bpm;
     bpm_from_inlet = !is_feedback;
 } else if (!use_external && inlet_bpm > 0 && !in_tap_window) {
-    tap_bpm = inlet_bpm;
-    if (tap_bpm < 40) tap_bpm = 40;
-    if (tap_bpm > 300) tap_bpm = 300;
+    // Encoder/param table update: sync tap_bpm and trigger clock update when value actually changed
+    if (inlet_bpm != tap_bpm) {
+        tap_bpm = inlet_bpm;
+        if (tap_bpm < 40) tap_bpm = 40;
+        if (tap_bpm > 300) tap_bpm = 300;
+        bpm_changed = true;
+    }
     tap_last_inlet_bpm = inlet_bpm;
     bpm_from_inlet = true;
 } else if (inlet_bpm > 0) {
@@ -410,7 +442,8 @@ if (bpm_changed && tap_bpm != tap_last_out_bpm) {
 }
 
 // Also respond to setBPM inlet trigger (for direct BPM setting)
-if (inlet_setBPM && inlet_bpmValue > 0) {
+// Ignore when value matches current_bpm (feedback from our own output)
+if (inlet_setBPM && inlet_bpmValue > 0 && inlet_bpmValue != current_bpm) {
     eff_setBPM = true;
     eff_bpmValue = inlet_bpmValue;
 }
@@ -473,6 +506,7 @@ if (inlet_playToggle && !play_toggle_trig) {
 }
 if (!inlet_playToggle) play_toggle_trig = 0;
 
+// Match sync_clock_musical: start clock + reset one frame AFTER leader is set (not in trig block)
 if (smplr.leader != prev_leader && smplr.leader >= 0 && prev_leader == -1) {
     clock_playing = 1;
     clock_count = 0;
@@ -541,7 +575,7 @@ if (inlet_EXTsync){
         detected_bars = calculated_bars;
         smplr.BARS = sync.calc_bars(stempo, smplr.leader_tempo);
         smplr.RAW = 0;
-        pos = smplr.leader_tempo - 64;
+        pos = smplr.leader_tempo - 64;  // Match sync_clock_musical: no clock start/reset here
         current_bpm = calculateBPM(smplr.leader_tempo, detected_bars, current_beats, current_measure);
     }
 
@@ -624,9 +658,19 @@ if (clock_playing) {
 
 prev_clock_pos = sync.syncer_pos;
 
+// Write BPM directly to param table when it changes
+if (current_bpm != last_written_bpm && current_bpm > 0) {
+    param_table->array[attr_bpmPage][attr_bpmParam] = current_bpm;
+    last_written_bpm = current_bpm;
+}
+
+// Still output to outlet for backward compatibility / monitoring
 outlet_bpm = current_bpm;
 outlet_detectedBars = detected_bars;
-outlet_ppqPerBar = ppq_per_bar;]]></code.krate>
+outlet_ppqPerBar = ppq_per_bar;
+
+// Version outlet: increment with each release (v0_0_1 = 1, v0_0_2 = 2, ...)
+outlet_v004 = 4;]]></code.krate>
       <code.srate><![CDATA[if (tap_timer < tap_wait_samples) {
     tap_timer++;
 }
@@ -670,10 +714,8 @@ switch (status) {
     case MIDI_STOP:
         midiStopReceived = true;
         isClockIncoming = false;
-        if (current_clock_mode == 1) { // Ext mode: stop output
-            clock_playing = false;
-        }
-        // Auto mode (0): continue with internal clock (don't change clock_playing)
+        // Don't stop clock_playing - continue at measured tempo (pickover behavior)
+        // User will refine this behavior later with additional parameters
         break;
 }]]></code.midihandler>
    </obj.normal>
