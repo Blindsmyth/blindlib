@@ -40,7 +40,7 @@
          <int32 name="detectedBars"/>
          <int32 name="ppqPerBar"/>
          <bool32 name="extSync" description="High when syncing to external MIDI clock"/>
-         <int32 name="v006" description="Object version v001=1 v002=2 v003=3 v004=4 v005=5 v006=6 etc"/>
+         <int32 name="v007" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -538,7 +538,10 @@ if (inlet_EXTsync){
     outlet_syncDurSMPS = smplr.leader_tempo;
     outlet_rollover = ro;
     outlet_syncSlot = smplr.leader;
-    current_bpm = calculateBPM(smplr.leader_tempo, detected_bars, current_beats, current_measure);
+    // Only recalculate BPM from leader tempo when NOT syncing to external clock
+    if (!use_external) {
+        current_bpm = calculateBPM(smplr.leader_tempo, detected_bars, current_beats, current_measure);
+    }
 } else {
     if (inlet_setNow && !strig){
         strig = 1;
@@ -581,7 +584,10 @@ if (inlet_EXTsync){
         smplr.BARS = sync.calc_bars(stempo, smplr.leader_tempo);
         smplr.RAW = 0;
         pos = smplr.leader_tempo - 64;  // Match sync_clock_musical: no clock start/reset here
-        current_bpm = calculateBPM(smplr.leader_tempo, detected_bars, current_beats, current_measure);
+        // Only recalculate BPM from leader tempo when NOT syncing to external clock
+        if (!use_external) {
+            current_bpm = calculateBPM(smplr.leader_tempo, detected_bars, current_beats, current_measure);
+        }
     }
 
     if ((trig || ttrig) && !inlet_NOrecalc){
@@ -675,7 +681,7 @@ outlet_detectedBars = detected_bars;
 outlet_ppqPerBar = ppq_per_bar;
 
 // Version outlet: increment with each release (v0_0_1 = 1, v0_0_2 = 2, ...)
-outlet_v006 = 6;]]></code.krate>
+outlet_v007 = 7;]]></code.krate>
       <code.srate><![CDATA[if (tap_timer < tap_wait_samples) {
     tap_timer++;
 }
