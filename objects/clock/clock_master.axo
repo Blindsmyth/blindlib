@@ -41,7 +41,8 @@
          <int32 name="detectedBars"/>
          <int32 name="ppqPerBar"/>
          <bool32 name="extSync" description="High when syncing to external MIDI clock"/>
-         <int32 name="v014" description="Object version (incremented each release)"/>
+         <bool32 name="continueOnStopStatus" description="Debug: shows current continueOnStop state"/>
+         <int32 name="v015" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -711,8 +712,11 @@ outlet_bpm = current_bpm;
 outlet_detectedBars = detected_bars;
 outlet_ppqPerBar = ppq_per_bar;
 
+// Debug output for continueOnStop
+outlet_continueOnStopStatus = continue_on_stop;
+
 // Version outlet: increment with each release (v0_0_1 = 1, v0_0_2 = 2, ...)
-outlet_v014 = 14;]]></code.krate>
+outlet_v015 = 15;]]></code.krate>
       <code.srate><![CDATA[if (tap_timer < tap_wait_samples) {
     tap_timer++;
 }
