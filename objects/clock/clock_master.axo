@@ -40,7 +40,7 @@
          <int32 name="detectedBars"/>
          <int32 name="ppqPerBar"/>
          <bool32 name="extSync" description="High when syncing to external MIDI clock"/>
-         <int32 name="v008" description="Object version (incremented each release)"/>
+         <int32 name="v009" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -105,6 +105,7 @@ bool presrc;
 // Direct param table access for BPM
 rootc::objectinstance_sketchy__params* param_table;
 int32_t last_written_bpm;  // Track last BPM written to prevent unnecessary writes
+int32_t last_read_bpm;     // Track last BPM read from table to detect actual changes
 
 bool clock_playing;
 bool play_trig, stop_trig, play_toggle_trig;
@@ -191,6 +192,7 @@ void measureExternalClock() {
             // Write to param table immediately so display updates (MIDI handler runs async, so do it here)
             param_table->array[attr_bpmPage][attr_bpmParam] = ext_bpm;
             last_written_bpm = ext_bpm;
+            last_read_bpm = ext_bpm;  // Update read tracker to prevent reading our own write
             
             // Also update internal tempo so when ext clock drops out, 
             // Auto mode can continue at same tempo
@@ -265,6 +267,7 @@ prev_leader = -1;
 // Initialize param table access (read initial value, then read/write as needed)
 param_table = &parent->objectinstance_sketchy__params_i;
 last_written_bpm = -1;  // No recent write yet
+last_read_bpm = -1;     // No recent read yet
 
 // Read initial BPM from param table
 int32_t initial_bpm = param_table->array[attr_bpmPage][attr_bpmParam];
@@ -272,6 +275,7 @@ if (initial_bpm > 0 && initial_bpm >= 40 && initial_bpm <= 300) {
     tap_bpm = initial_bpm;
     current_bpm = initial_bpm;
     last_written_bpm = initial_bpm;  // Track it so we don't treat it as new input
+    last_read_bpm = initial_bpm;     // Track initial read
 }
 
 tap_timer = tap_wait_samples;
@@ -328,12 +332,17 @@ bool use_external = (current_clock_mode == 1 && isClockIncoming) || // Ext mode 
 outlet_extSync = use_external;
 
 // --- Tap tempo block: run first, use clock_playing as isPlaying ---
-// Read BPM from inlet (typically from get_param_int_kso reading param table)
-// Also support reading directly from param table if no inlet connected
-int32_t inlet_bpm = inlet_bpmValue;
-if (inlet_bpm <= 0) {
-    // No inlet connected, read directly from param table
-    inlet_bpm = param_table->array[attr_bpmPage][attr_bpmParam];
+// Read BPM from param table - ONLY process if value changed since last read
+int32_t param_table_bpm = param_table->array[attr_bpmPage][attr_bpmParam];
+bool param_table_changed = (param_table_bpm != last_read_bpm && param_table_bpm > 0 && param_table_bpm >= 40 && param_table_bpm <= 300);
+last_read_bpm = param_table_bpm; // Update last read tracker
+
+// Use inlet if connected (for backward compatibility), otherwise use param table if it changed
+int32_t inlet_bpm = 0;
+if (inlet_bpmValue > 0) {
+    inlet_bpm = inlet_bpmValue;  // Inlet connected (get_param_int_kso)
+} else if (param_table_changed) {
+    inlet_bpm = param_table_bpm;  // Direct param table read, only when changed
 }
 
 // Skip tap tempo and BPM inlet when syncing to external clock
@@ -343,21 +352,17 @@ bool in_tap_window = (tap_timer < tap_wait_samples);
 bool bpm_changed = false;
 bool bpm_from_inlet = false;
 
+// Only process BPM inlet when not using external clock AND value is valid AND changed
 if (!use_external && inlet_bpm > 0 && inlet_bpm != tap_last_inlet_bpm) {
-    // Detect feedback: ignore if inlet matches what we just wrote to param table
-    // (comparing to current_bpm was too aggressive - external clock updates couldn't propagate)
-    bool is_feedback = (inlet_bpm == last_written_bpm);
-    if (!is_feedback) {
-        tap_bpm = inlet_bpm;
-        if (tap_bpm < 40) tap_bpm = 40;
-        if (tap_bpm > 300) tap_bpm = 300;
-        bpm_changed = true;
-        for (int i = 0; i < tap_beats; i++) tap_pool[i] = 0;
-        tap_pool_index = 0;
-        tap_active = false;
-    }
+    tap_bpm = inlet_bpm;
+    if (tap_bpm < 40) tap_bpm = 40;
+    if (tap_bpm > 300) tap_bpm = 300;
+    bpm_changed = true;
+    for (int i = 0; i < tap_beats; i++) tap_pool[i] = 0;
+    tap_pool_index = 0;
+    tap_active = false;
     tap_last_inlet_bpm = inlet_bpm;
-    bpm_from_inlet = !is_feedback;
+    bpm_from_inlet = true;
 } else if (!use_external && inlet_bpm > 0 && !in_tap_window) {
     // Encoder/param table update: sync tap_bpm and trigger clock update when value actually changed
     if (inlet_bpm != tap_bpm) {
@@ -674,6 +679,7 @@ prev_clock_pos = sync.syncer_pos;
 if (current_bpm != last_written_bpm && current_bpm > 0) {
     param_table->array[attr_bpmPage][attr_bpmParam] = current_bpm;
     last_written_bpm = current_bpm;
+    last_read_bpm = current_bpm;  // Update read tracker to prevent reading our own write
 }
 
 // Still output to outlet for backward compatibility / monitoring
@@ -682,7 +688,7 @@ outlet_detectedBars = detected_bars;
 outlet_ppqPerBar = ppq_per_bar;
 
 // Version outlet: increment with each release (v0_0_1 = 1, v0_0_2 = 2, ...)
-outlet_v008 = 8;]]></code.krate>
+outlet_v009 = 9;]]></code.krate>
       <code.srate><![CDATA[if (tap_timer < tap_wait_samples) {
     tap_timer++;
 }
