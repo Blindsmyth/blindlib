@@ -40,7 +40,7 @@
          <int32 name="detectedBars"/>
          <int32 name="ppqPerBar"/>
          <bool32 name="extSync" description="High when syncing to external MIDI clock"/>
-         <int32 name="v004" description="Object version v001=1 v002=2 v003=3 v004=4 etc"/>
+         <int32 name="v005" description="Object version v001=1 v002=2 v003=3 v004=4 v005=5 etc"/>
       </outlets>
       <displays/>
       <params/>
@@ -261,16 +261,9 @@ setBPM_trig = false;
 clock_playing = 0;  // No clock by default; start via record leader, tap count-in, or play
 prev_leader = -1;
 
-// Initialize param table access
+// Initialize param table access (write-only, no reads to avoid feedback)
 param_table = &parent->objectinstance_sketchy__params_i;
 last_written_bpm = -1;  // Force initial write
-
-// Read initial BPM from param table if available
-int32_t initial_bpm = param_table->array[attr_bpmPage][attr_bpmParam];
-if (initial_bpm > 0 && initial_bpm >= 40 && initial_bpm <= 300) {
-    tap_bpm = initial_bpm;
-    current_bpm = initial_bpm;
-}
 
 tap_timer = tap_wait_samples;
 tap_last_inlet = false;
@@ -326,9 +319,9 @@ bool use_external = (current_clock_mode == 1 && isClockIncoming) || // Ext mode 
 outlet_extSync = use_external;
 
 // --- Tap tempo block: run first, use clock_playing as isPlaying ---
-// Read BPM directly from param table, fallback to inlet for backward compatibility
-int32_t param_bpm = param_table->array[attr_bpmPage][attr_bpmParam];
-int32_t inlet_bpm = (inlet_bpmValue > 0) ? inlet_bpmValue : param_bpm;  // Use param table as primary source
+// Read BPM from inlet (encoder via get_param_int_kso)
+// DON'T read from param table - we write to it, reading creates feedback loop
+int32_t inlet_bpm = inlet_bpmValue;
 
 // Skip tap tempo and BPM inlet when syncing to external clock
 int tap_beats = (inlet_beats > 0 && inlet_beats <= 16) ? inlet_beats : 4;
@@ -338,9 +331,8 @@ bool bpm_changed = false;
 bool bpm_from_inlet = false;
 
 if (!use_external && inlet_bpm > 0 && inlet_bpm != tap_last_inlet_bpm) {
-    // Only treat as feedback when reading from external inlet; when reading from param table (encoder) allow updates
-    bool reading_from_inlet = (inlet_bpmValue > 0);
-    bool is_feedback = reading_from_inlet && ((inlet_bpm == tap_bpm) || (inlet_bpm == current_bpm));
+    // Detect feedback: ignore if inlet matches our current output (our own write echoed back)
+    bool is_feedback = (inlet_bpm == current_bpm);
     if (!is_feedback) {
         tap_bpm = inlet_bpm;
         if (tap_bpm < 40) tap_bpm = 40;
@@ -670,7 +662,7 @@ outlet_detectedBars = detected_bars;
 outlet_ppqPerBar = ppq_per_bar;
 
 // Version outlet: increment with each release (v0_0_1 = 1, v0_0_2 = 2, ...)
-outlet_v004 = 4;]]></code.krate>
+outlet_v005 = 5;]]></code.krate>
       <code.srate><![CDATA[if (tap_timer < tap_wait_samples) {
     tap_timer++;
 }
