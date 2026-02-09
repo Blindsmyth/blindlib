@@ -41,7 +41,7 @@
          <int32 name="detectedBars"/>
          <int32 name="ppqPerBar"/>
          <bool32 name="extSync" description="High when syncing to external MIDI clock"/>
-         <int32 name="v012" description="Object version (incremented each release)"/>
+         <int32 name="v013" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -156,6 +156,7 @@ int midi_start_reset_hold;  // Hold reset pulse for MIDI START
 
 // Clock mode state
 int current_clock_mode;     // 0=Auto, 1=Ext, 2=Int
+bool continue_on_stop;      // Store continueOnStop inlet for MIDI handler access
 
 // External clock timing measurement
 const int ext_clock_avg_steps = 96;
@@ -321,6 +322,9 @@ uint16_t adr = inlet_toSlot * 128;
 current_clock_mode = inlet_clockMode;
 if (current_clock_mode < 0) current_clock_mode = 0;
 if (current_clock_mode > 2) current_clock_mode = 2;
+
+// Store continueOnStop inlet for MIDI handler access
+continue_on_stop = inlet_continueOnStop;
 
 // Handle MIDI START reset pulse
 if (midi_start_reset_hold > 0) {
@@ -706,7 +710,7 @@ outlet_detectedBars = detected_bars;
 outlet_ppqPerBar = ppq_per_bar;
 
 // Version outlet: increment with each release (v0_0_1 = 1, v0_0_2 = 2, ...)
-outlet_v012 = 12;]]></code.krate>
+outlet_v013 = 13;]]></code.krate>
       <code.srate><![CDATA[if (tap_timer < tap_wait_samples) {
     tap_timer++;
 }
@@ -750,8 +754,8 @@ switch (status) {
     case MIDI_STOP:
         midiStopReceived = true;
         isClockIncoming = false;
-        // Check 'continueOnStop' inlet: if low, stop playback; if high, continue at measured tempo
-        if (!inlet_continueOnStop) {
+        // Check 'continueOnStop' variable: if low, stop playback; if high, continue at measured tempo
+        if (!continue_on_stop) {
             clock_playing = false;  // Stop playback when continueOnStop is off
         }
         // When continueOnStop is high: don't change clock_playing (pickover behavior)
