@@ -27,6 +27,7 @@
          <bool32.rising name="tap" description="Tap tempo input"/>
          <bool32 name="countIn" description="Count-in: first bar then next tap starts clock"/>
          <int32 name="clockMode" description="0=Auto, 1=Ext, 2=Int"/>
+         <bool32 name="continue" description="When high: continue at measured tempo on MIDI STOP; when low: stop playback"/>
       </inlets>
       <outlets>
          <int32.positive name="syncSlot"/>
@@ -40,7 +41,7 @@
          <int32 name="detectedBars"/>
          <int32 name="ppqPerBar"/>
          <bool32 name="extSync" description="High when syncing to external MIDI clock"/>
-         <int32 name="v010" description="Object version (incremented each release)"/>
+         <int32 name="v011" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -705,7 +706,7 @@ outlet_detectedBars = detected_bars;
 outlet_ppqPerBar = ppq_per_bar;
 
 // Version outlet: increment with each release (v0_0_1 = 1, v0_0_2 = 2, ...)
-outlet_v010 = 10;]]></code.krate>
+outlet_v011 = 11;]]></code.krate>
       <code.srate><![CDATA[if (tap_timer < tap_wait_samples) {
     tap_timer++;
 }
@@ -749,8 +750,11 @@ switch (status) {
     case MIDI_STOP:
         midiStopReceived = true;
         isClockIncoming = false;
-        // Don't stop clock_playing - continue at measured tempo (pickover behavior)
-        // User will refine this behavior later with additional parameters
+        // Check 'continue' inlet: if low, stop playback; if high, continue at measured tempo
+        if (!inlet_continue) {
+            clock_playing = false;  // Stop playback when continue is off
+        }
+        // When continue is high: don't change clock_playing (pickover behavior)
         break;
 }]]></code.midihandler>
    </obj.normal>
