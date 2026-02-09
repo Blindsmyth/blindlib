@@ -40,7 +40,7 @@
          <int32 name="detectedBars"/>
          <int32 name="ppqPerBar"/>
          <bool32 name="extSync" description="High when syncing to external MIDI clock"/>
-         <int32 name="v007" description="Object version (incremented each release)"/>
+         <int32 name="v008" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -186,6 +186,7 @@ void measureExternalClock() {
         int32_t ext_bpm = (int32_t)((60.0 * 48000.0) / samples_per_qn + 0.5);
         if (ext_bpm >= 40 && ext_bpm <= 300) {
             current_bpm = ext_bpm; // Update BPM from external clock
+            tap_bpm = ext_bpm;     // Update tap tempo so pickover works when ext clock drops
             
             // Write to param table immediately so display updates (MIDI handler runs async, so do it here)
             param_table->array[attr_bpmPage][attr_bpmParam] = ext_bpm;
@@ -681,7 +682,7 @@ outlet_detectedBars = detected_bars;
 outlet_ppqPerBar = ppq_per_bar;
 
 // Version outlet: increment with each release (v0_0_1 = 1, v0_0_2 = 2, ...)
-outlet_v007 = 7;]]></code.krate>
+outlet_v008 = 8;]]></code.krate>
       <code.srate><![CDATA[if (tap_timer < tap_wait_samples) {
     tap_timer++;
 }
