@@ -51,6 +51,14 @@ rootc::instancesketchy__render::intdisplay_t *intdisplays;
 rootc::instancesketchy__render::select_t *selects;
 rootc::instancesketchy__render::bar_t *bars;
 
+// SDRAM arrays - declared here to prevent init-time allocation issues
+// Support maximum 64 pages * 8 = 512 dials
+static rootc::instancesketchy__render::dial_t _dials[512] __attribute__ ((section (".sdram")));
+static rootc::instancesketchy__render::intdisplay_t _intdisplays[512] __attribute__ ((section (".sdram")));
+static rootc::instancesketchy__render::select_t _selects[512] __attribute__ ((section (".sdram")));
+static rootc::instancesketchy__render::bar_t _bars[512] __attribute__ ((section (".sdram")));
+static encoder_dial_config_t _configs[64][8] __attribute__ ((section (".sdram")));
+
 // Fixed layout positions
 const uint8_t DIAL_WIDTH = 24;
 const uint8_t DIAL_HEIGHT = 24;
@@ -309,16 +317,7 @@ void init_param_table() {
 }
 ]]>
 </code.declaration>
-      <code.init><![CDATA[// Create SDRAM shadow arrays for display structures - use maximum size (64 pages * 8 = 512 dials)
-static rootc::instancesketchy__render::dial_t _dials[512] __attribute__ ((section (".sdram")));
-static rootc::instancesketchy__render::intdisplay_t _intdisplays[512] __attribute__ ((section (".sdram")));
-static rootc::instancesketchy__render::select_t _selects[512] __attribute__ ((section (".sdram")));
-static rootc::instancesketchy__render::bar_t _bars[512] __attribute__ ((section (".sdram")));
-
-// SDRAM STRATEGY: Create shadow array for configuration data - use maximum size
-static encoder_dial_config_t _configs[64][8] __attribute__ ((section (".sdram")));
-
-// Point pointers to SDRAM arrays
+      <code.init><![CDATA[// Point pointers to SDRAM arrays (arrays declared in code.declaration)
 dials = &_dials[0];
 intdisplays = &_intdisplays[0];
 selects = &_selects[0];

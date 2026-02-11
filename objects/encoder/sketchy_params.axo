@@ -11,7 +11,9 @@
       <code.declaration><![CDATA[// Parameter table configuration
 #define MAX_PAGES 32
 #define MAX_PARAMS_PER_PAGE 8
-static int32_t param_array[MAX_PAGES][MAX_PARAMS_PER_PAGE];
+
+// Move param_array to SDRAM to save precious SRAM (1KB freed)
+static int32_t param_array[MAX_PAGES][MAX_PARAMS_PER_PAGE] __attribute__ ((section (".sdram")));
 
 // Array access
 int32_t (*array)[MAX_PARAMS_PER_PAGE] = param_array;]]></code.declaration>
