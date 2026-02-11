@@ -1,0 +1,57 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sram3_test_v2" uuid="5224773f-18de-4231-8f92-b1f22bb953AE">
+      <sDescription>Test object v2 - trying different SRAM3 placement approach</sDescription>
+      <author>Simon</author>
+      <license>MIT</license>
+      <inlets>
+         <int32 name="trigger" description="Trigger to test array access"/>
+      </inlets>
+      <outlets>
+         <int32 name="result" description="Result of array operation"/>
+         <int32 name="arraysize" description="Size of the array"/>
+      </outlets>
+      <params/>
+      <attribs/>
+      <code.declaration><![CDATA[
+// Counter to track array access
+int32_t access_counter;
+
+// Try approach 5: Simple array without section attribute for now
+int32_t sram3_test_array[4096];
+
+// Function to test array access and verify it's working
+int32_t test_array_access(void) {
+    int32_t sum = 0;
+    int32_t i;
+    
+    // Access first 100 elements to test
+    for(i = 0; i < 100; i++) {
+        sum += sram3_test_array[i];
+    }
+    
+    access_counter++;
+    return sum;
+}
+      ]]></code.declaration>
+      <code.init><![CDATA[
+// Initialize array with a pattern for testing
+int32_t i;
+for(i = 0; i < 4096; i++) {
+    sram3_test_array[i] = (i + 1) * 2; // Simple pattern: 2, 4, 6, 8, ...
+}
+
+// Initialize counter
+access_counter = 0;
+      ]]></code.init>
+      <code.krate><![CDATA[
+// Test array access when triggered
+if(inlet_trigger > 0) {
+    outlet_result = test_array_access();
+    outlet_arraysize = 4096;
+} else {
+    outlet_result = 0;
+    outlet_arraysize = 0;
+}
+      ]]></code.krate>
+   </obj.normal>
+</objdefs>

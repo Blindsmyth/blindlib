@@ -1,0 +1,38 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sram3_array_test" uuid="5224773f-18de-4231-8f92-b1f22bb953AD">
+      <sDescription>Test object with large array in SRAM3 to verify memory placement</sDescription>
+      <author>Simon</author>
+      <license>MIT</license>
+      <inlets>
+         <int32 name="trigger" description="Trigger to test array access"/>
+      </inlets>
+      <outlets>
+         <int32 name="result" description="Result of array operation"/>
+         <int32 name="arraysize" description="Size of the array"/>
+      </outlets>
+      <params/>
+      <attribs/>
+      <code.declaration><![CDATA[
+// Static so section attribute is allowed in C++ codegen (non-static members can't have section)
+static int32_t sram3_test_array[4096] __attribute__ ((section (".sram3")));
+      ]]></code.declaration>
+      <code.init><![CDATA[
+int32_t i;
+for (i = 0; i < 4096; i++)
+    sram3_test_array[i] = (i + 1) * 2;
+      ]]></code.init>
+      <code.krate><![CDATA[
+if (inlet_trigger > 0) {
+    int32_t sum = 0;
+    int32_t i;
+    for (i = 0; i < 100; i++)
+        sum += sram3_test_array[i];
+    outlet_result = sum;
+    outlet_arraysize = 4096;
+} else {
+    outlet_result = 0;
+    outlet_arraysize = 0;
+}
+      ]]></code.krate>
+   </obj.normal>
+</objdefs>

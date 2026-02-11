@@ -51,12 +51,12 @@ rootc::objectinstance_sketchy__render::select_t *selects;
 rootc::objectinstance_sketchy__render::bar_t *bars;
 
 // SDRAM arrays - declared here to prevent init-time allocation issues
-// Support 16 pages * 8 = 128 dials
-static rootc::objectinstance_sketchy__render::dial_t _dials[128] __attribute__ ((section (".sdram")));
-static rootc::objectinstance_sketchy__render::intdisplay_t _intdisplays[128] __attribute__ ((section (".sdram")));
-static rootc::objectinstance_sketchy__render::select_t _selects[128] __attribute__ ((section (".sdram")));
-static rootc::objectinstance_sketchy__render::bar_t _bars[128] __attribute__ ((section (".sdram")));
-static encoder_dial_config_t _configs[16][8] __attribute__ ((section (".sdram")));
+// Support 16 pages * 8 = 128 dials (non-static member arrays in SDRAM)
+rootc::objectinstance_sketchy__render::dial_t _dials[128] __attribute__ ((section (".sdram")));
+rootc::objectinstance_sketchy__render::intdisplay_t _intdisplays[128] __attribute__ ((section (".sdram")));
+rootc::objectinstance_sketchy__render::select_t _selects[128] __attribute__ ((section (".sdram")));
+rootc::objectinstance_sketchy__render::bar_t _bars[128] __attribute__ ((section (".sdram")));
+encoder_dial_config_t _configs[16][8] __attribute__ ((section (".sdram")));
 
 // Fixed layout positions
 const uint8_t DIAL_WIDTH = 24;

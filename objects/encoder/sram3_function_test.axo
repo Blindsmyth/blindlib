@@ -1,0 +1,65 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sram3_function_test" uuid="5224773f-18de-4231-8f92-b1f22bb953AF">
+      <sDescription>Test object - trying to place functions in SRAM3</sDescription>
+      <author>Simon</author>
+      <license>MIT</license>
+      <inlets>
+         <int32 name="trigger" description="Trigger to test SRAM3 function"/>
+      </inlets>
+      <outlets>
+         <int32 name="result" description="Result from SRAM3 function"/>
+         <int32 name="test" description="Test value"/>
+      </outlets>
+      <params/>
+      <attribs/>
+      <code.declaration><![CDATA[
+// Counter to track function calls
+int32_t call_counter;
+
+// Function placed in SRAM3 - this should be faster to execute
+int32_t sram3_calculation(int32_t input) __attribute__((section(".sram3.text"))) {
+    // Complex calculation to test SRAM3 function execution
+    int32_t result = 0;
+    int32_t i;
+    
+    // Perform some computation
+    for(i = 0; i < 1000; i++) {
+        result += (input * i) % 7;
+    }
+    
+    return result;
+}
+
+// Another SRAM3 function for testing
+int32_t sram3_multiply(int32_t a, int32_t b) __attribute__((section(".sram3.text"))) {
+    return a * b;
+}
+
+// Function to test SRAM3 function calls
+int32_t test_sram3_functions(void) {
+    int32_t result1 = sram3_calculation(42);
+    int32_t result2 = sram3_multiply(7, 8);
+    
+    call_counter++;
+    return result1 + result2;
+}
+      ]]></code.declaration>
+      <code.init><![CDATA[
+// Initialize counter
+call_counter = 0;
+      ]]></code.init>
+      <code.krate><![CDATA[
+// Test SRAM3 functions when triggered
+if(inlet_trigger > 0) {
+    outlet_result = test_sram3_functions();
+    outlet_test = call_counter;
+} else {
+    outlet_result = 0;
+    outlet_test = 0;
+}
+      ]]></code.krate>
+   </obj.normal>
+</objdefs>
+
+
+

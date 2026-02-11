@@ -1,0 +1,140 @@
+<patch-1.0 appVersion="1.1.0">
+  <comment type="patch/comment" x="14" y="14" text="&lt;html&gt;&lt;H2&gt;Comparing a naive full wave rectifier&lt;br&gt;with a better one&lt;/h2&gt;"/>
+  <obj type="ctrl/toggle" uuid="42b8134fa729d54bfc8d62d6ef3fa99498c1de99" name="toggle_1" x="504" y="84">
+    <params>
+      <bool32.tgl name="b" value="0"/>
+    </params>
+    <attribs/>
+  </obj>
+  <obj type="ksoloti/lfo/tri slow" uuid="49a63d86-1d50-4991-888f-c8fa8b395b3a" name="tri slow_1" x="14" y="98">
+    <params>
+      <frac32.s.map name="pitch" value="-40.3763165473938"/>
+    </params>
+    <attribs>
+      <combo attributeName="divisor" selection="/32 (250.56 s)"/>
+    </attribs>
+  </obj>
+  <obj type="math/*c" uuid="7d5ef61c3bcd571ee6bbd8437ef3612125dfb225" name="*c_1" x="126" y="98">
+    <params>
+      <frac32.u.map name="amp" value="24.0"/>
+    </params>
+    <attribs/>
+  </obj>
+  <obj type="osc/sine" uuid="6e094045cca76a9dbf7ebfa72e44e4700d2b3ba" name="sine_1" x="238" y="98">
+    <params>
+      <frac32.s.map name="pitch" value="-60.513179302215576"/>
+    </params>
+    <attribs/>
+  </obj>
+  <comment type="patch/comment" x="588" y="98" text="off = naive implementation"/>
+  <comment type="patch/comment" x="588" y="112" text="on = better implementation"/>
+  <obj type="dist/rectifier full" uuid="bdd28e370b58801ee42bcae7bcdf8602d6181602" name="rectifier_1" x="350" y="140">
+    <params/>
+    <attribs/>
+  </obj>
+  <obj type="mux/mux 2" uuid="539c246f4c360ac476e128cfbfa84348fb7f7e73" name="mux_1" x="504" y="140">
+    <params/>
+    <attribs/>
+  </obj>
+  <obj type="audio/out stereo" uuid="a1ca7a567f535acc21055669829101d3ee7f0189" name="out stereo_1" x="588" y="140">
+    <params/>
+    <attribs/>
+  </obj>
+  <obj type="disp/scope 128 b" uuid="2b69f51a714fc276503ef10c349d6d253d1ae5e2" name="scope 128 b_1" x="350" y="238">
+    <params/>
+    <attribs/>
+  </obj>
+  <obj type="disp/scope 128 b trig" uuid="11747dcd1dc9afe4919f537c861fb18b80b4e4e" name="scope 128 b trig_1" x="588" y="238">
+    <params/>
+    <attribs/>
+  </obj>
+  <patchobj type="patch/object" uuid="44050dcf-49c8-46a5-a4f8-a158755e0570" name="object_1" x="126" y="294">
+    <params/>
+    <attribs/>
+    <object id="patch/object" uuid="44050dcf-49c8-46a5-a4f8-a158755e0570">
+      <sDescription></sDescription>
+      <author></author>
+      <license></license>
+      <helpPatch></helpPatch>
+      <inlets/>
+      <outlets>
+        <frac32buffer name="out"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs/>
+      <includes/>
+      <code.declaration><![CDATA[static const char* get_sram3_log_msg(uint8_t index) __attribute__((used, section(".sram3.text"))) {
+	static const char log_msg[4][32] __attribute__((used, section(".sram3.data"))) = {
+		"Hello World from SRAM3! ONE",
+		"Hello World from SRAM3! TWO",
+		"Hello World from SRAM3! THREE",
+		"Hello World from SRAM3! FOUR"
+	}; 
+	return log_msg[index];
+}
+    
+
+static int32_t* get_aud(void) __attribute__((used, section(".sram3.text"))) {
+	static int32_t auddd[1024] __attribute__((used, section(".sram3.bss")));
+	auddd[0]+=0x00800000;
+	return auddd;
+}]]></code.declaration>
+      <code.init><![CDATA[LogTextMessage(get_sram3_log_msg(0));
+LogTextMessage(get_sram3_log_msg(1));
+LogTextMessage(get_sram3_log_msg(2));
+LogTextMessage(get_sram3_log_msg(3));
+get_aud()[1023] = 0xABCDABCD;]]></code.init>
+      <code.dispose><![CDATA[]]></code.dispose>
+      <code.krate><![CDATA[for (int i=0; i<BUFSIZE; i++) {
+	outlet_out[i] = get_aud()[0]>>5;
+}]]></code.krate>
+      <code.srate><![CDATA[]]></code.srate>
+      <code.midihandler><![CDATA[]]></code.midihandler>
+    </object>
+  </patchobj>
+  <nets>
+    <net>
+      <source obj="mux_1" outlet="o"/>
+      <dest obj="out stereo_1" inlet="left"/>
+      <dest obj="out stereo_1" inlet="right"/>
+      <dest obj="scope 128 b trig_1" inlet="in"/>
+    </net>
+    <net>
+      <source obj="sine_1" outlet="wave"/>
+      <dest obj="rectifier_1" inlet="in"/>
+    </net>
+    <net>
+      <source obj="toggle_1" outlet="o"/>
+      <dest obj="mux_1" inlet="s"/>
+    </net>
+    <net>
+      <source obj="*c_1" outlet="out"/>
+      <dest obj="sine_1" inlet="pitch"/>
+    </net>
+    <net>
+      <source obj="object_1" outlet="out"/>
+      <dest obj="mux_1" inlet="i2"/>
+      <dest obj="sine_1" inlet="freq"/>
+      <dest obj="scope 128 b_1" inlet="in"/>
+    </net>
+    <net>
+      <source obj="rectifier_1" outlet="out"/>
+      <dest obj="mux_1" inlet="i1"/>
+    </net>
+    <net>
+      <source obj="tri slow_1" outlet="wave"/>
+      <dest obj="*c_1" inlet="in"/>
+    </net>
+  </nets>
+  <settings>
+    <subpatchmode>no</subpatchmode>
+  </settings>
+  <notes><![CDATA[]]></notes>
+  <windowPos>
+    <x>475</x>
+    <y>392</y>
+    <width>960</width>
+    <height>553</height>
+  </windowPos>
+</patch-1.0>

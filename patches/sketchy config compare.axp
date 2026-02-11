@@ -1,0 +1,1567 @@
+<patch-1.0 appVersion="1.1.0">
+   <patchobj type="patch/object" uuid="085a4cdd-b870-46bb-b1e3-1c29cb983e98" name="sketchy_objects" x="126" y="70">
+      <params/>
+      <attribs>
+         <text attributeName="init">
+            <sText><![CDATA[]]></sText>
+         </text>
+         <spinner attributeName="entries" value="500"/>
+      </attribs>
+      <object id="patch/object" uuid="085a4cdd-b870-46bb-b1e3-1c29cb983e98">
+         <sDescription>Allocate table in RAM memory for visual objects. These objects can be drawn to a OLED screen using the sketchy/renderer.</sDescription>
+         <author>Karlo Sono</author>
+         <license>MIT</license>
+         <inlets>
+            <bool32 name="print"/>
+         </inlets>
+         <outlets/>
+         <displays/>
+         <params/>
+         <attribs>
+            <text name="init" description="Edit to pre-define some objects when patch starts"/>
+            <spinner name="entries" description="Maximum amount of display objects" MinValue="1" MaxValue="1024" DefaultValue="32"/>
+         </attribs>
+         <includes/>
+         <code.declaration><![CDATA[static const uint32_t LENGTH = attr_entries;
+
+static const uint8_t COLOR_BRIGHT = 0;
+static const uint8_t COLOR_DARK = 1;
+static const uint8_t COLOR_INVERT = 2;
+
+static const uint8_t TYPE_INVISIBLE = 0;
+static const uint8_t TYPE_RECT = 1;
+static const uint8_t TYPE_FILLED_RECT = 2;
+static const uint8_t TYPE_ROUNDED_RECT = 3;
+static const uint8_t TYPE_FILLED_ROUNDED_RECT = 4;
+static const uint8_t TYPE_LINE = 5;
+static const uint8_t TYPE_TEXT = 6;
+static const uint8_t TYPE_TEXT_CENTER_X = 7;
+static const uint8_t TYPE_TEXT_CENTER_Y = 8;
+static const uint8_t TYPE_TEXT_CENTER_BOTH = 9;
+
+static const uint8_t FIELD_TYPE = 0;
+static const uint8_t FIELD_X = 1;
+static const uint8_t FIELD_Y = 2;
+static const uint8_t FIELD_W = 3;
+static const uint8_t FIELD_H = 4;
+static const uint8_t FIELD_COLOR = 5;
+static const uint8_t FIELD_SCALE = 6;
+static const uint8_t FIELD_TEXT_ID = 7;
+static const uint8_t FIELD_PAGE = 8;
+static const uint8_t NUM_FIELDS = 9;
+
+int16_t (*array)[NUM_FIELDS];
+bool pprint = false;
+bool dirty;
+uint16_t next_free_slot;
+
+uint16_t registerEntry() {
+    if (next_free_slot >= LENGTH) {
+        LogTextMessage("WARNING: object table is full! Reusing last available slot!");
+        return LENGTH - 1;  
+    }
+
+    uint32_t slot = next_free_slot;
+    next_free_slot++;
+    return slot;
+}]]></code.declaration>
+         <code.init><![CDATA[dirty = true;
+next_free_slot = 0;
+
+static int16_t _array[LENGTH][NUM_FIELDS] __attribute__ ((section (".sdram")));
+array = _array;
+
+memset(_array, 0, sizeof(_array));
+
+attr_init;]]></code.init>
+         <code.krate><![CDATA[if (!pprint && inlet_print) {
+	for (uint16_t i = 0; i < next_free_slot; i++) {
+		LogTextMessage("object[%d] page: %d, type: %d, x: %d, y: %d, w: %d, h: %d", 
+			i, 
+			array[i][FIELD_PAGE], 
+			array[i][FIELD_TYPE], 
+			array[i][FIELD_X], 
+			array[i][FIELD_Y],
+			array[i][FIELD_W],
+			array[i][FIELD_H]);
+	}
+}
+
+pprint = inlet_print;]]></code.krate>
+      </object>
+   </patchobj>
+   <patchobj type="patch/object" uuid="885eb1fc-8caa-45f5-9908-8d1fb2c59880" name="sketchy_texts" x="294" y="70">
+      <params/>
+      <attribs>
+         <text attributeName="init">
+            <sText><![CDATA[]]></sText>
+         </text>
+         <spinner attributeName="entries" value="1024"/>
+         <spinner attributeName="length" value="10"/>
+      </attribs>
+      <object id="patch/object" uuid="885eb1fc-8caa-45f5-9908-8d1fb2c59880">
+         <sDescription>Allocate table in RAM memory for texts to be displayed on an OLED screen. They can be drawn to the screen using the sketchy/renderer and also have to be defined as sketchy/table/objects.</sDescription>
+         <author>Karlo Sono</author>
+         <license>MIT</license>
+         <inlets>
+            <bool32 name="print"/>
+         </inlets>
+         <outlets/>
+         <displays/>
+         <params/>
+         <attribs>
+            <text name="init"/>
+            <spinner name="entries" description="Maximum amount of strings that fit in table" MinValue="0" MaxValue="1024" DefaultValue="32"/>
+            <spinner name="length" description="Maximum amount of characters in each string" MinValue="8" MaxValue="128" DefaultValue="32"/>
+         </attribs>
+         <includes/>
+         <code.declaration><![CDATA[static const uint32_t LENGTH = attr_entries;
+static const uint8_t STRING_LENGTH = attr_length;
+
+char (*array)[STRING_LENGTH];
+
+bool dirty;
+bool pprint = false;
+uint16_t next_free_slot;
+
+uint16_t registerEntry() {
+    if (next_free_slot >= LENGTH) {
+        LogTextMessage("WARNING: object table is full! Reusing last available slot!");
+        return LENGTH - 1;  
+    }
+
+    uint32_t slot = next_free_slot;
+    next_free_slot++;
+    return slot;
+}
+
+void itoa(char* str, int32_t num) {
+    char* ptr = str;
+    uint32_t unum;
+    
+    // Handle negative numbers
+    if (num < 0) {
+        *ptr++ = '-';
+        unum = -num;
+    } else {
+        unum = num;
+    }
+    
+    // Calculate digits in reverse order
+    char temp[11];  // Max 10 digits for 32-bit int + null
+    char* tp = temp;
+    
+    do {
+        // Use faster multiply/shift instead of division
+        uint32_t remainder = unum - ((unum * 0xCCCD) >> 19) * 10;
+        *tp++ = remainder + '0';
+        unum = (unum * 0xCCCD) >> 19;  // Divide by 10
+    } while (unum > 0);
+    
+    // Copy reversed digits to output
+    while (tp > temp) {
+        *ptr++ = *--tp;
+    }
+    *ptr = '\0';
+}]]></code.declaration>
+         <code.init><![CDATA[dirty = true;
+
+static char _array[LENGTH][STRING_LENGTH] __attribute__ ((section (".sdram")));
+array = _array;
+
+next_free_slot=0;
+
+attr_init;]]></code.init>
+         <code.krate><![CDATA[if (!pprint && inlet_print) {
+	for (uint16_t i = 0; i < next_free_slot; i++) {
+		LogTextMessage("text[%d]: %s", i, array[i]);
+	}
+}
+
+pprint = inlet_print;]]></code.krate>
+      </object>
+   </patchobj>
+   <patchobj type="patch/object" uuid="242fe5d4-66c6-4d46-94dd-fa4b24ba02d9" name="sketchy_params" x="406" y="70">
+      <params/>
+      <attribs>
+         <text attributeName="init">
+            <sText><![CDATA[]]></sText>
+         </text>
+         <spinner attributeName="pages" value="10"/>
+         <spinner attributeName="params" value="8"/>
+      </attribs>
+      <object id="patch/object" uuid="242fe5d4-66c6-4d46-94dd-fa4b24ba02d9">
+         <sDescription>Allocate table in RAM memory for visual objects. These objects can be drawn to a OLED screen using the sketchy/renderer.</sDescription>
+         <author>Karlo Sono</author>
+         <license>MIT</license>
+         <inlets>
+            <bool32 name="print"/>
+         </inlets>
+         <outlets/>
+         <displays/>
+         <params/>
+         <attribs>
+            <text name="init" description="Edit to pre-define some objects when patch starts"/>
+            <spinner name="pages" description="Number of pages" MinValue="1" MaxValue="128" DefaultValue="8"/>
+            <spinner name="params" description="Number of parameters per page" MinValue="1" MaxValue="128" DefaultValue="128"/>
+         </attribs>
+         <includes/>
+         <code.declaration><![CDATA[static const uint32_t NUM_PAGES = attr_pages;    // First dimension
+static const uint32_t NUM_PARAMS = attr_params;  // Second dimension
+static const uint32_t BITS = 32;
+static const uint32_t GAIN = 0;
+
+// 2D array with distinct dimensions
+//int32_t array[NUM_PAGES][NUM_PARAMS];
+int32_t (*array)[NUM_PARAMS];
+
+bool pprint = false;
+bool is_ready = false;]]></code.declaration>
+         <code.init><![CDATA[static int32_t _array[NUM_PAGES][NUM_PARAMS] __attribute__ ((section (".sdram")));
+array = _array;
+
+// Initialize all params with 0 on startup
+memset(array, 0, NUM_PAGES * NUM_PARAMS * sizeof(array[0][0]));
+
+attr_init;]]></code.init>
+         <code.krate><![CDATA[if (!pprint && inlet_print) {
+	for (uint16_t page = 0; page < NUM_PAGES; page++) {
+		for (uint16_t param = 0; param < NUM_PARAMS; param++) {
+			LogTextMessage("page[%d] param[%d] = %.2f", page, param, array[page][param]/(float)0x00200000);
+		}
+	}
+}
+
+pprint = inlet_print;]]></code.krate>
+      </object>
+   </patchobj>
+   <patchobj type="patch/object" uuid="931dc442-c049-4b81-a606-d7dd64a1d844" name="sketchy_font" x="518" y="70">
+      <params/>
+      <attribs/>
+      <object id="patch/object" uuid="931dc442-c049-4b81-a606-d7dd64a1d844">
+         <license>GPL</license>
+         <inlets/>
+         <outlets/>
+         <displays/>
+         <params/>
+         <attribs/>
+         <includes/>
+         <code.declaration><![CDATA[#define SKETCHY_FONT_HEIGHT 8
+#define SKETCHY_FONT_WIDTH 5
+#define SKETCHY_FONT_CHARACTERS 96
+
+#define SKETCHY_FONT_DATA_SIZE (SKETCHY_FONT_CHARACTERS * SKETCHY_FONT_WIDTH)
+
+const uint8_t height = SKETCHY_FONT_HEIGHT;
+const uint8_t width = SKETCHY_FONT_WIDTH;
+const uint8_t characters = SKETCHY_FONT_CHARACTERS;
+
+const uint8_t data[SKETCHY_FONT_DATA_SIZE] = {
+    //   32
+    0b00000000, //
+    0b00000000, //
+    0b00000000, //
+    0b00000000, //
+    0b00000000, //
+
+    // ! 33
+    0b00000000, //
+    0b01011110, // XX  XXXXXXXX
+    0b00000000, //
+    0b00000000, //
+    0b00000000, //
+
+    // " 34
+    0b00000000, //
+    0b00000110, //         XXXX
+    0b00000000, //
+    0b00000110, //         XXXX
+    0b00000000, //
+
+    // # 35
+    0b00100100, //   XX    XX
+    0b01111110, // XXXXXXXXXXXX
+    0b00100100, //   XX    XX
+    0b01111110, // XXXXXXXXXXXX
+    0b00100100, //   XX    XX
+
+    // $ 36                      <---------------------
+    0b01111111, // XXXXXXXXXXXXXXXX
+    0b00100110, //   XX    XXXX
+    0b00101000, //   XX  XX
+    0b00011000, //     XX
+    0b00000000, //
+
+    // % 37
+    0b01000100, // XX      XX
+    0b00100000, //   XX
+    0b00010000, //     XX
+    0b00001000, //       XX
+    0b01000100, // XX      XX
+
+    // & 38
+    0b00110100, //   XXXX  XX
+    0b01001010, // XX    XX  XX
+    0b01010100, // XX  XX  XX
+    0b00100000, //   XX
+    0b01010000, // XX  XX
+
+    // ' 39
+    0b00000000, //
+    0b00000000, //
+    0b00000100, //             XX
+    0b00000010, //               XX
+    0b00000000, //
+
+    // ( 40
+    0b00000000, //
+    0b00000000, //
+    0b00111100, //   XXXXXXXX
+    0b01000010, // XX        XX
+    0b00000000, //
+
+    // ) 41
+    0b00000000, //
+    0b01000010, // XX        XX
+    0b00111100, //   XXXXXXXX
+    0b00000000, //
+    0b00000000, //
+
+    // * 42
+    0b00010000, //     XX
+    0b01010100, // XX  XX  XX
+    0b00111000, //   XXXXXX
+    0b01010100, // XX  XX  XX
+    0b00010000, //     XX
+
+    // + 43
+    0b00010000, //     XX
+    0b00010000, //     XX
+    0b01111100, // XXXXXXXXXX
+    0b00010000, //     XX
+    0b00010000, //     XX
+
+    // , 44
+    0b01000000, // XX
+    0b00110000, //   XXXX
+    0b00000000, //
+    0b00000000, //
+    0b00000000, //
+
+    // - 45
+    0b00000000, //
+    0b00000000, //
+    0b00010000, //     XX
+    0b00010000, //     XX
+    0b00010000, //     XX
+
+    // . 46
+    0b00000000, //
+    0b01100000, // XXXX
+    0b01100000, // XXXX
+    0b00000000, //
+    0b00000000, //
+
+    // / 47
+    0b00100000, //   XX
+    0b00010000, //     XX
+    0b00001000, //       XX
+    0b00000100, //         XX
+    0b00000010, //           XX
+
+    // 0 48
+    0b00111100, //   XXXXXXXX
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+    0b00111100, //   XXXXXXXX
+
+    // 1 49
+    0b01000100, // XX      XX
+    0b01000010, // XX        XX
+    0b01111110, // XXXXXXXXXXXX
+    0b01000000, // XX
+    0b01000000, // XX
+
+    // 2 50
+    0b01100100, // XXXX    XX
+    0b01010010, // XX  XX    XX
+    0b01010010, // XX  XX    XX
+    0b01010010, // XX  XX    XX
+    0b01001100, // XX    XXXX
+
+    // 3 51
+    0b00100100, //   XX    XX
+    0b01000010, // XX        XX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b00110100, //   XXXX  XX
+
+    // 4 52
+    0b00011000, //    XXXX
+    0b00010100, //    XX  XX
+    0b01111110, // XXXXXXXXXXXX
+    0b00010000, //    XX
+    0b00010000, //    XX
+
+    // 5 53
+    0b00101110, //   XX  XXXXXX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b00110010, //   XXXX    XX
+
+    // 6 54
+    0b00111100, //   XXXXXXXX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b00110000, //   XXXX
+
+    // 7 55
+    0b00000010, //           XX
+    0b01100010, // XXXX      XX
+    0b00010010, //     XX    XX
+    0b00001010, //       XX  XX
+    0b00000110, //         XXXX
+
+    // 8 56
+    0b00110100, //   XXXX  XX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b00110100, //   XXXX  XX
+
+    // 9 57
+    0b00001100, //       XXXX
+    0b01010010, // XX  XX    XX
+    0b01010010, // XX  XX    XX
+    0b01010010, // XX  XX    XX
+    0b00111100, //   XXXXXXXX
+
+    // : 58
+    0b00000000, //
+    0b00000000, //
+    0b00100100, //   XX    XX
+    0b00000000, //
+    0b00000000, //
+
+    // ; 59
+    0b00000000, //
+    0b01000000, // XX
+    0b00110010, //   XXXX    XX
+    0b00000000, //
+    0b00000000, //
+
+    // < 60
+    0b00000000, //
+    0b00010000, //     XX
+    0b00101000, //   XX  XX
+    0b01000100, // XX      XX
+    0b00000000, //
+
+    // = 61
+    0b00101000, //   XX  XX
+    0b00101000, //   XX  XX
+    0b00101000, //   XX  XX
+    0b00101000, //   XX  XX
+    0b00000000, //
+
+    // > 62
+    0b00000000, //
+    0b01000100, // XX      XX
+    0b00101000, //   XX  XX
+    0b00010000, //     XX
+    0b00000000, //
+
+    // ? 63
+    0b00000100, //         XX
+    0b00000010, //           XX
+    0b01010010, // XX  XX    XX
+    0b00001010, //       XX  XX
+    0b00000100, //         XX
+
+    // @ 64
+    0b00111100, //   XXXXXXXX
+    0b01000010, // XX        XX
+    0b01010110, // XX  XX  XXXX
+    0b01011010, // XX  XXXX  XX
+    0b00011100, //     XXXXXX
+
+    // A 65
+    0b01111100, // XXXXXXXXXX
+    0b00010010, //     XX    XX
+    0b00010010, //     XX    XX
+    0b00010010, //     XX    XX
+    0b01111100, // XXXXXXXXXX
+
+    // B 66
+    0b01111110, // XXXXXXXXXXXX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b00110100, //   XXXX  XX
+
+    // C 67
+    0b00111100, //   XXXXXXXX
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+    0b00100100, //   XX    XX
+
+    // D 68
+    0b01111110, // XXXXXXXXXXXX
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+    0b00100100, //   XX    XX
+    0b00011000, //     XXXX
+
+    // E 69
+    0b01111110, // XXXXXXXXXXXX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b01000010, // XX        XX
+
+    // F 70
+    0b01111110, // XXXXXXXXXXXX
+    0b00001010, //       XX  XX
+    0b00001010, //       XX  XX
+    0b00001010, //       XX  XX
+    0b00000010, //           XX
+
+    // G 71
+    0b00111100, //   XXXXXXXX
+    0b01000010, // XX        XX
+    0b01010010, // XX  XX    XX
+    0b01010010, // XX  XX    XX
+    0b00110100, //   XXXX  XX
+
+    // H 72
+    0b01111110, // XXXXXXXXXXXX
+    0b00001000, //       XX
+    0b00001000, //       XX
+    0b00001000, //       XX
+    0b01111110, // XXXXXXXXXXXX
+
+    // I 73
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+    0b01111110, // XXXXXXXXXXXX
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+
+    // J 74
+    0b00110000, //   XXXX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b00111110, //   XXXXXXXXXX
+
+    // K 75
+    0b01111110, // XXXXXXXXXXXX
+    0b00001000, //       XX
+    0b00010100, //     XX  XX
+    0b00100010, //   XX      XX
+    0b01000000, // XX
+
+    // L 76
+    0b01111110, // XXXXXXXXXXXX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b01000000, // XX
+
+    // M 77
+    0b01111110, // XXXXXXXXXXXX
+    0b00000100, //         XX
+    0b00001000, //       XX
+    0b00000100, //         XX
+    0b01111110, // XXXXXXXXXXXX
+
+    // N 78
+    0b01111110, // XXXXXXXXXXXX
+    0b00000100, //         XX
+    0b00001000, //       XX
+    0b00010000, //     XX
+    0b01111110, // XXXXXXXXXXXX
+
+    // O 79
+    0b00111100, //   XXXXXXXX
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+    0b00111100, //   XXXXXXXX
+
+    // P 80
+    0b01111110, // XXXXXXXXXXXX
+    0b00010010, //     XX    XX
+    0b00010010, //     XX    XX
+    0b00010010, //     XX    XX
+    0b00001100, //       XXXX
+
+    // Q 81
+    0b00111100, //   XXXXXXXX
+    0b01000010, // XX        XX
+    0b01010010, // XX  XX    XX
+    0b01100010, // XXXX      XX
+    0b00111100, //   XXXXXXXX
+
+    // R 82
+    0b01111110, // XXXXXXXXXXXX
+    0b00010010, //     XX    XX
+    0b00010010, //     XX    XX
+    0b00110010, //   XXXX    XX
+    0b01001100, // XX    XXXX
+
+    // S 83
+    0b00100100, //   XX    XX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b01001010, // XX    XX  XX
+    0b00110000, //   XXXX
+
+    // T 84
+    0b00000010, //           XX
+    0b00000010, //           XX
+    0b01111110, // XXXXXXXXXXXX
+    0b00000010, //           XX
+    0b00000010, //           XX
+
+    // U 85
+    0b00111110, //   XXXXXXXXXX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b00111110, //   XXXXXXXXXX
+
+    // V 86
+    0b00011110, //     XXXXXXXX
+    0b00100000, //   XX
+    0b01000000, // XX
+    0b00100000, //   XX
+    0b00011110, //     XXXXXXXX
+
+    // W 87
+    0b00111110, //   XXXXXXXXXX
+    0b01000000, // XX
+    0b00110000, //   XXXX
+    0b01000000, // XX
+    0b00111110, //   XXXXXXXXXX
+
+    // X 88
+    0b01000010, // XX        XX
+    0b00100100, //   XX    XX
+    0b00011000, //     XXXX
+    0b00100100, //   XX    XX
+    0b01000010, // XX        XX
+
+    // Y 89
+    0b00000010, //           XX
+    0b00000100, //         XX
+    0b01111000, // XXXXXXXX
+    0b00000100, //         XX
+    0b00000010, //           XX
+
+    // Z 90
+    0b01100010, // XXXX      XX
+    0b01010010, // XX  XX    XX
+    0b01001010, // XX    XX  XX
+    0b01000110, // XX      XXXX
+    0b01000010, // XX        XX
+
+    // [ 91
+    0b00000000, //
+    0b00000000, //
+    0b01111110, // XXXXXXXXXXXX
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+
+    // \ 92
+    0b00000100, //         XX
+    0b00001000, //       XX
+    0b00010000, //     XX
+    0b00100000, //   XX
+    0b01000000, // XX
+
+    // ] 93
+    0b01000010, // XX        XX
+    0b01000010, // XX        XX
+    0b01111110, // XXXXXXXXXXXX
+    0b00000000, //
+    0b00000000, //
+
+    // ^ 94   <---------------------------------------
+    0b00110000, //   XXXX
+    0b01111000, // XXXXXXXX
+    0b01111000, // XXXXXXXX
+    0b00111111, //   XXXXXXXXXXXXXX
+    0b00000000, //
+
+    // _ 95
+    0b01000000, // XX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b01000000, // XX
+
+    // ` 96
+    0b00000000, //
+    0b00000000, //
+    0b00000010, //             XX
+    0b00000100, //           XX
+    0b00000000, //
+
+    // a 97
+    0b00100000, //   XX
+    0b01010100, // XX  XX  XX
+    0b01010100, // XX  XX  XX
+    0b01010100, // XX  XX  XX
+    0b01111000, // XXXXXXXX
+
+    // b 98
+    0b01111110, // XXXXXXXXXXXX
+    0b01001000, // XX    XX
+    0b01001000, // XX    XX
+    0b01001000, // XX    XX
+    0b00110000, //   XXXX
+
+    // c 99
+    0b00000000, //
+    0b00111000, //   XXXXXX
+    0b01000100, // XX      XX
+    0b01000100, // XX      XX
+    0b01000100, // XX      XX
+
+    // d 100
+    0b00110000, //   XXXX
+    0b01001000, // XX    XX
+    0b01001000, // XX    XX
+    0b01001000, // XX    XX
+    0b01111110, // XXXXXXXXXXXX
+
+    // e 101
+    0b00111000, //   XXXXXX
+    0b01010100, // XX  XX  XX
+    0b01010100, // XX  XX  XX
+    0b01010100, // XX  XX  XX
+    0b01001000, // XX    XX
+
+    // f 102
+    0b00000000, //
+    0b01111100, // XXXXXXXXXX
+    0b00001010, //       XX  XX
+    0b00001010, //       XX  XX
+    0b00000010, //           XX
+
+    // g 103
+    0b00001100, //       XXXX
+    0b00010010, //     XX    XX
+    0b01010010, // XX  XX    XX
+    0b01010010, // XX  XX    XX
+    0b00111110, //   XXXXXXXXXX
+
+    // h 104
+    0b01111110, // XXXXXXXXXXXX
+    0b00001000, //       XX
+    0b00001000, //       XX
+    0b00001000, //       XX
+    0b01110000, // XXXXXX
+
+    // i 105
+    0b00000000, //
+    0b01001000, // XX    XX
+    0b01111010, // XXXXXXXX  XX
+    0b01000000, // XX
+    0b00000000, //
+
+    // j 106
+    0b00100000, //   XX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b00111010, //   XXXXXX  XX
+    0b00000000, //
+
+    // k 107
+    0b00000000, //
+    0b01111110, // XXXXXXXXXXXX
+    0b00011000, //     XXXX
+    0b00100100, //   XX    XX
+    0b01000000, // XX
+
+    // l 108
+    0b00000000, //
+    0b00111110, //   XXXXXXXXXX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b00000000, //
+
+    // m 109
+    0b01111100, // XXXXXXXXXX
+    0b00000100, //         XX
+    0b01111000, // XXXXXXXX
+    0b00000100, //         XX
+    0b01111000, // XXXXXXXX
+
+    // n 110
+    0b01111100, // XXXXXXXXXX
+    0b00000100, //         XX
+    0b00000100, //         XX
+    0b00000100, //         XX
+    0b01111000, // XXXXXXXX
+
+    // o 111
+    0b00111000, //   XXXXXX
+    0b01000100, // XX      XX
+    0b01000100, // XX      XX
+    0b01000100, // XX      XX
+    0b00111000, //   XXXXXX
+
+    // p 112
+    0b01111100, // XXXXXXXXXX
+    0b00100100, //   XX    XX
+    0b00100100, //   XX    XX
+    0b00100100, //   XX    XX
+    0b00011000, //     XXXX
+
+    // q 113
+    0b00011000, //     XXXX
+    0b00100100, //   XX    XX
+    0b00100100, //   XX    XX
+    0b00100100, //   XX    XX
+    0b01111100, // XXXXXXXXXX
+
+    // r 114
+    0b00000000, //
+    0b01111000, // XXXXXXXX
+    0b00000100, //         XX
+    0b00000100, //         XX
+    0b00000100, //         XX
+
+    // s 115
+    0b01001000, // XX    XX
+    0b01010100, // XX  XX  XX
+    0b01010100, // XX  XX  XX
+    0b01010100, // XX  XX  XX
+    0b00100000, //   XX
+
+    // t 116
+    0b00000000, //
+    0b00000100, //         XX
+    0b00111110, //   XXXXXXXXXX
+    0b01000100, // XX      XX
+    0b01000000, // XX
+
+    // u 117
+    0b00111100, //   XXXXXXXX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b01000000, // XX
+    0b00111100, //   XXXXXXXX
+
+    // v 118
+    0b00001100, //       XXXX
+    0b00110000, //   XXXX
+    0b01000000, // XX
+    0b00110000, //   XXXX
+    0b00001100, //       XXXX
+
+    // w 119
+    0b00111100, //   XXXXXXXX
+    0b01000000, // XX
+    0b00111000, //   XXXXXX
+    0b01000000, // XX
+    0b00111100, //   XXXXXXXX
+
+    // x 120
+    0b01000100, // XX      XX
+    0b00101000, //   XX  XX
+    0b00010000, //     XX
+    0b00101000, //   XX  XX
+    0b01000100, // XX      XX
+
+    // y 121
+    0b00001110, //       XXXXXX
+    0b01010000, // XX  XX
+    0b01010000, // XX  XX
+    0b01010000, // XX  XX
+    0b00111110, //   XXXXXXXXXX
+
+    // z 122
+    0b01000100, // XX      XX
+    0b01100100, // XXXX    XX
+    0b01010100, // XX  XX  XX
+    0b01001100, // XX    XXXX
+    0b01000100, // XX      XX
+
+    // { 123
+    0b00001000, //       XX
+    0b00001000, //       XX
+    0b00110110, //   XXXX  XXXX
+    0b01000001, // XX          XX
+    0b01000001, // XX          XX
+
+    // | 124
+    0b00000000, //
+    0b00000000, //
+    0b01111111, // XXXXXXXXXXXXXX
+    0b00000000, //
+    0b00000000, //
+
+    // } 125
+    0b01000001, // XX          XX
+    0b01000001, // XX          XX
+    0b00110110, //   XXXX  XXXX
+    0b00001000, //       XX
+    0b00001000, //       XX
+
+    // ~ 126
+    0b00000000, //
+    0b01001000, // XX    XX
+    0b01000100, // XX      XX
+    0b01001000, // XX    XX
+    0b01000100, // XX      XX
+
+    //  127
+    0b01010101, // XX  XX  XX  XX
+    0b00101010, //   XX  XX  XX
+    0b01010101, // XX  XX  XX  XX
+    0b00101010, //   XX  XX  XX
+    0b01010101  // XX  XX  XX  XX
+};]]></code.declaration>
+      </object>
+   </patchobj>
+   <obj type="ksoloti/sketchy_render_kso" uuid="c98a5df7-8ecd-4234-8317-deb3f40e2e28" name="sketchy_render" x="728" y="182">
+      <params/>
+      <attribs>
+         <combo attributeName="type" selection="SSD1306"/>
+         <combo attributeName="I2CADDR" selection="0x3C"/>
+      </attribs>
+   </obj>
+   <obj type="const/i" uuid="e202f44b2df17ae0b3e663b98ea6b14c8ff00408" name="layout page_" x="630" y="196">
+      <params/>
+      <attribs>
+         <spinner attributeName="value" value="-1"/>
+      </attribs>
+   </obj>
+   <patchobj type="patch/object" uuid="13324361-bbda-45f3-b070-656fe0acdfaa" name="pager_fixed" x="924" y="224">
+      <params/>
+      <attribs>
+         <spinner attributeName="page" value="0"/>
+         <spinner attributeName="firstpage" value="0"/>
+         <table attributeName="list" table="Main,Layer 1,Layer 2,Layer 3,Layer 4,Syn,Fx,DubS,Sys"/>
+      </attribs>
+      <object id="patch/object" uuid="13324361-bbda-45f3-b070-656fe0acdfaa">
+         <sDescription>Page display - fixed object references</sDescription>
+         <author>AI Assistant</author>
+         <license>GPL</license>
+         <inlets/>
+         <outlets/>
+         <displays/>
+         <params/>
+         <attribs>
+            <spinner name="page" description="page on which to render" MinValue="-127" MaxValue="127" DefaultValue="0"/>
+            <spinner name="firstpage" description="first page that corresponds to first pagename in the list" MinValue="-127" MaxValue="127" DefaultValue="0"/>
+            <table name="list" description="comma separated list of page names"/>
+         </attribs>
+         <includes/>
+         <code.declaration><![CDATA[rootc::objectinstance_sketchy__objects* object_table;
+rootc::objectinstance_sketchy__texts* text_table;
+rootc::objectinstance_sketchy__params* param_table;
+rootc::objectinstance_sketchy__render* renderer;
+
+uint16_t label_object_id;
+uint16_t label2_object_id;
+
+uint16_t label_text_id;
+uint16_t label2_text_id;
+
+uint16_t page = 0xFFFF;
+uint16_t num_pagenames = 1;]]></code.declaration>
+         <code.init><![CDATA[object_table = &parent->objectinstance_sketchy__objects_i;
+text_table = &parent->objectinstance_sketchy__texts_i;
+param_table = &parent->objectinstance_sketchy__params_i;
+renderer = &parent->objectinstance_sketchy__render_i;
+
+// Register and get ids - NO divider line
+label_object_id = object_table->registerEntry();
+label2_object_id = object_table->registerEntry();
+
+label_text_id = text_table->registerEntry();
+label2_text_id = text_table->registerEntry();
+
+// Setup label object
+object_table->array[label_object_id][object_table->FIELD_TYPE] = 6;
+object_table->array[label_object_id][object_table->FIELD_X] =  2;
+object_table->array[label_object_id][object_table->FIELD_Y] = 2;
+object_table->array[label_object_id][object_table->FIELD_W] = 100;
+object_table->array[label_object_id][object_table->FIELD_H] = 25;
+object_table->array[label_object_id][object_table->FIELD_COLOR] = 2;
+object_table->array[label_object_id][object_table->FIELD_SCALE] = 1;
+object_table->array[label_object_id][object_table->FIELD_TEXT_ID] = label_text_id;
+object_table->array[label_object_id][object_table->FIELD_PAGE] = -1; // Show on all pages
+
+// Setup label2 object [8/10]
+object_table->array[label2_object_id][object_table->FIELD_TYPE] = 6;
+object_table->array[label2_object_id][object_table->FIELD_X] = 60;
+object_table->array[label2_object_id][object_table->FIELD_Y] = 2;
+object_table->array[label2_object_id][object_table->FIELD_W] = 100;
+object_table->array[label2_object_id][object_table->FIELD_H] = 25;
+object_table->array[label2_object_id][object_table->FIELD_COLOR] = 2;
+object_table->array[label2_object_id][object_table->FIELD_SCALE] = 1;
+object_table->array[label2_object_id][object_table->FIELD_TEXT_ID] = label2_text_id;
+object_table->array[label2_object_id][object_table->FIELD_PAGE] = -1; // Show on all pages
+
+// Setup label text
+strcpy(text_table->array[label_text_id], "attr_label");
+
+num_pagenames = renderer->count_tokens("attr_list");]]></code.init>
+         <code.krate><![CDATA[if (page != renderer->getCurrentPage()) {
+	
+	page = renderer->getCurrentPage();
+	int desired_index = page - attr_firstpage;
+	
+	char str[] = "attr_list";
+	const char* pagename = renderer->get_token_at_index(str, desired_index);
+	
+	// copy page name to label
+	strcpy(text_table->array[label_text_id], pagename);
+	
+	// set pager string [7/8]
+	char pager_str[16] = "";
+	char page_str[4] = "";
+	char num_pagenames_str[4] = "";
+
+	text_table->itoa(page_str, page+1);
+	text_table->itoa(num_pagenames_str, num_pagenames);
+	
+	strcat(pager_str, "[");
+	strcat(pager_str, page_str);
+	strcat(pager_str, "/");
+	strcat(pager_str, num_pagenames_str);
+	strcat(pager_str, "]");
+	strcpy(text_table->array[label2_text_id], pager_str);
+	
+	uint16_t pager_str_w = strlen(pager_str) * 6;
+	object_table->array[label2_object_id][object_table->FIELD_X] = 128 - pager_str_w;
+}]]></code.krate>
+      </object>
+   </patchobj>
+   <obj type="ksoloti/8encoder_integrated_exp" uuid="8a95f7c5-7cda-4dc0-bb62-66f3281730e1" name="8encoder_integrated_exp_1" x="322" y="252">
+      <params/>
+      <attribs>
+         <spinner attributeName="acceltime" value="100"/>
+         <spinner attributeName="accelmultiplier" value="6"/>
+         <spinner attributeName="maxpages" value="10"/>
+      </attribs>
+   </obj>
+   <patchobj type="patch/object" uuid="d2bc3a3f-ebb0-4189-b1e3-5d556d7d23e0" name="sketchy_dials" x="518" y="294">
+      <params/>
+      <attribs>
+         <spinner attributeName="maxpages" value="10"/>
+      </attribs>
+      <object id="patch/object" uuid="d2bc3a3f-ebb0-4189-b1e3-5d556d7d23e0">
+         <sDescription>Dial configuration with configurable page count. Drop-in replacement for sketchy_dials with attribute to set maximum pages (8-64).</sDescription>
+         <author>AI Assistant</author>
+         <license>BSD</license>
+         <helpPatch>logic.axh</helpPatch>
+         <inlets>
+            <int32 name="page"/>
+         </inlets>
+         <outlets/>
+         <displays/>
+         <params/>
+         <attribs>
+            <spinner name="maxpages" description="Maximum number of pages (8-64)" MinValue="8" MaxValue="64" DefaultValue="8"/>
+         </attribs>
+         <includes/>
+         <depends>
+            <depend>sketchy_font</depend>
+            <depend>sketchy_params</depend>
+            <depend>sketchy_render</depend>
+            <depend>sketchy_objects</depend>
+            <depend>sketchy_texts</depend>
+         </depends>
+         <code.declaration><![CDATA[// Dial configuration structure
+typedef struct {
+    uint8_t mode;           // 0=frac unipolar, 1=frac bipolar, 2=int, 3=list, 4=bar unipolar, 5=bar bipolar, 6=duplicate
+    bool show_value;        // Show/hide value (for fractional modes)
+    const char* label;      // Label text
+    const char* options;    // List options (for mode 3) OR duplicate reference "page,dial" (for mode 6)
+    float default_value;    // Default value
+    int16_t int_min;        // Minimum value (for int/list modes)
+    int16_t int_max;        // Maximum value (for int/list modes)
+} encoder_dial_config_t;
+
+// Configuration storage - MOVED TO SDRAM to save SRAM
+encoder_dial_config_t (*configs)[8];
+
+// Mode constants
+#define MODE_FRAC_UNIPOLAR 0  // 0.0 to 1.0, positive only
+#define MODE_FRAC_BIPOLAR  1  // -1.0 to 1.0, bipolar
+#define MODE_INT           2  // min to max, integer
+#define MODE_LIST          3  // selector mode
+#define MODE_BAR_UNIPOLAR  4  // 0.0 to 1.0, vertical bar
+#define MODE_BAR_BIPOLAR   5  // -1.0 to 1.0, vertical bar
+#define MODE_DUPLICATE     6  // duplicate another parameter
+#define MODE_EMPTY         255 // empty/unconfigured - no display object created
+
+// Display structures for each type - variable total (pages x 8 dials)
+// Using SDRAM to save precious SRAM
+rootc::objectinstance_sketchy__render::dial_t *dials;
+rootc::objectinstance_sketchy__render::intdisplay_t *intdisplays;
+rootc::objectinstance_sketchy__render::select_t *selects;
+rootc::objectinstance_sketchy__render::bar_t *bars;
+
+// Fixed layout positions
+const uint8_t DIAL_WIDTH = 24;
+const uint8_t DIAL_HEIGHT = 24;
+const uint8_t ROW1_Y = 13;
+const uint8_t ROW2_Y = 39;
+const uint8_t COL_X[4] = {26, 52, 78, 104};
+
+// Initialize configuration data in SDRAM - MOVED TO INIT CODE
+// This function now populates the SDRAM shadow array directly
+
+// Convert from display value to encoder position (0-1)
+float displayToEncoderValue(float displayValue, int mode) {
+    switch(mode) {
+        case MODE_FRAC_UNIPOLAR:
+        case MODE_BAR_UNIPOLAR:
+            // 0-64 display maps to 0-1 encoder
+            return displayValue / 64.0f;
+        case MODE_FRAC_BIPOLAR:
+        case MODE_BAR_BIPOLAR:
+            // -64 to +64 display maps to 0-1 encoder (-64 = 0.0, 0 = 0.5, +64 = 1.0)
+            return (displayValue + 64.0f) / 128.0f;
+        case MODE_INT:
+        case MODE_LIST:
+            // Not used for these modes
+            return 0.0f;
+        default:
+            return displayValue;
+    }
+}
+
+// Parse duplicate reference "page,dial" into page and dial indices
+void parse_duplicate_reference(const char* options, uint8_t* ref_page, uint8_t* ref_dial) {
+    *ref_page = 0;
+    *ref_dial = 0;
+    
+    // Simple parsing: expect "page,dial" format
+    if (options && strlen(options) >= 3) {
+        *ref_page = options[0] - '0';  // Convert first char to number
+        if (options[1] == ',' && options[2] >= '0' && options[2] <= '7') {
+            *ref_dial = options[2] - '0';  // Convert third char to number
+        }
+    }
+}
+
+// Initialize a single dial based on its configuration
+void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* config) {
+    uint8_t array_index = page * 8 + dial_index;
+    
+    // Bounds check to prevent buffer overflow
+    if (array_index >= (attr_maxpages * 8)) {
+        return;  // Skip if out of bounds
+    }
+    
+    float encoder_pos;  // Declare variable outside switch
+    
+    switch (config->mode) {
+        case MODE_EMPTY:
+            // Skip creating any display objects for empty/unconfigured elements
+            return;
+            
+        case MODE_FRAC_UNIPOLAR:
+        case MODE_FRAC_BIPOLAR:
+            dials[array_index].page = page;
+            dials[array_index].param = dial_index;
+            dials[array_index].is_bipolar = (config->mode == MODE_FRAC_BIPOLAR);
+            dials[array_index].x = COL_X[dial_index % 4];
+            dials[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+            dials[array_index].width = DIAL_WIDTH;
+            dials[array_index].height = DIAL_HEIGHT;
+            dials[array_index].label = config->label;
+            dials[array_index].show_value = config->show_value;
+            // Convert config default to encoder position (0-1), then to display format for renderer
+            encoder_pos = displayToEncoderValue(config->default_value, config->mode);
+            if (encoder_pos < 0.0f) encoder_pos = 0.0f;
+            if (encoder_pos > 1.0f) encoder_pos = 1.0f;
+            dials[array_index].default_value = (int32_t)(encoder_pos * (float)(1 << 27));
+            parent->objectinstance_sketchy__render_i.dial_init(&dials[array_index]);
+            break;
+            
+        case MODE_BAR_UNIPOLAR:
+        case MODE_BAR_BIPOLAR:
+            bars[array_index].page = page;
+            bars[array_index].param = dial_index;
+            bars[array_index].is_bipolar = (config->mode == MODE_BAR_BIPOLAR);
+            bars[array_index].x = COL_X[dial_index % 4];
+            bars[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+            bars[array_index].width = DIAL_WIDTH;
+            bars[array_index].height = DIAL_HEIGHT;
+            bars[array_index].label = config->label;
+            bars[array_index].show_value = config->show_value;
+            // Convert config default to encoder position (0-1), then to display format for renderer
+            encoder_pos = displayToEncoderValue(config->default_value, config->mode);
+            if (encoder_pos < 0.0f) encoder_pos = 0.0f;
+            if (encoder_pos > 1.0f) encoder_pos = 1.0f;
+            bars[array_index].default_value = (int32_t)(encoder_pos * (float)(1 << 27));
+            parent->objectinstance_sketchy__render_i.bar_init(&bars[array_index]);
+            break;
+            
+        case MODE_INT:
+            intdisplays[array_index].page = page;
+            intdisplays[array_index].param = dial_index;
+            intdisplays[array_index].x = COL_X[dial_index % 4];
+            intdisplays[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+            intdisplays[array_index].width = DIAL_WIDTH;
+            intdisplays[array_index].height = DIAL_HEIGHT;
+            intdisplays[array_index].label = config->label;
+            parent->objectinstance_sketchy__render_i.intdisplay_init(&intdisplays[array_index]);
+            break;
+            
+        case MODE_LIST:
+            selects[array_index].page = page;
+            selects[array_index].param = dial_index;
+            selects[array_index].x = COL_X[dial_index % 4];
+            selects[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+            selects[array_index].width = DIAL_WIDTH;
+            selects[array_index].height = DIAL_HEIGHT;
+            selects[array_index].is_int = true;
+            selects[array_index].param_label = config->label;  // Parameter name
+            selects[array_index].options = config->options;    // Options list
+            parent->objectinstance_sketchy__render_i.select_init(&selects[array_index]);
+            break;
+            
+        case MODE_DUPLICATE:
+            // Parse the duplicate reference from options field: "page,dial"
+            uint8_t ref_page, ref_dial;
+            parse_duplicate_reference(config->options, &ref_page, &ref_dial);
+            
+            // Get the referenced configuration and initialize with it
+            if (ref_page < attr_maxpages && ref_dial < 8) {
+                const encoder_dial_config_t* ref_config = &configs[ref_page][ref_dial];
+                
+                // Avoid infinite recursion - don't duplicate another duplicate
+                if (ref_config->mode != MODE_DUPLICATE) {
+                    // Initialize this dial with the referenced config's mode
+                    encoder_dial_config_t temp_config = *ref_config;
+                    init_dial(page, dial_index, &temp_config);
+                    
+                    // Override the param and page to point to the same parameter as the original
+                    switch (temp_config.mode) {
+                        case MODE_FRAC_UNIPOLAR:
+                        case MODE_FRAC_BIPOLAR:
+                            dials[array_index].param = ref_dial;  // Point to original param
+                            dials[array_index].page = ref_page;   // Point to original page
+                            break;
+                        case MODE_BAR_UNIPOLAR:
+                        case MODE_BAR_BIPOLAR:
+                            bars[array_index].param = ref_dial;   // Point to original param
+                            bars[array_index].page = ref_page;    // Point to original page
+                            break;
+                        case MODE_INT:
+                            intdisplays[array_index].param = ref_dial;  // Point to original param
+                            intdisplays[array_index].page = ref_page;   // Point to original page
+                            break;
+                        case MODE_LIST:
+                            selects[array_index].param = ref_dial;     // Point to original param
+                            selects[array_index].page = ref_page;      // Point to original page
+                            break;
+                    }
+                }
+            }
+            break;
+    }
+}
+
+// Update a single dial based on its configuration
+void update_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* config) {
+    uint8_t array_index = page * 8 + dial_index;
+    
+    // Bounds check to prevent buffer overflow
+    if (array_index >= (attr_maxpages * 8)) {
+        return;  // Skip if out of bounds
+    }
+    
+    switch (config->mode) {
+        case MODE_EMPTY:
+            // Skip updating empty/unconfigured elements
+            return;
+            
+        case MODE_FRAC_UNIPOLAR:
+        case MODE_FRAC_BIPOLAR:
+            parent->objectinstance_sketchy__render_i.dial_update(&dials[array_index]);
+            break;
+            
+        case MODE_BAR_UNIPOLAR:
+        case MODE_BAR_BIPOLAR:
+            parent->objectinstance_sketchy__render_i.bar_update(&bars[array_index]);
+            break;
+            
+        case MODE_INT:
+            parent->objectinstance_sketchy__render_i.intdisplay_update(&intdisplays[array_index]);
+            break;
+            
+        case MODE_LIST:
+            parent->objectinstance_sketchy__render_i.select_update(&selects[array_index]);
+            break;
+            
+        case MODE_DUPLICATE:
+            // Parse the duplicate reference and update with the referenced config
+            uint8_t ref_page, ref_dial;
+            parse_duplicate_reference(config->options, &ref_page, &ref_dial);
+            
+            if (ref_page < attr_maxpages && ref_dial < 8) {
+                const encoder_dial_config_t* ref_config = &configs[ref_page][ref_dial];
+                
+                // Avoid infinite recursion - don't duplicate another duplicate
+                if (ref_config->mode != MODE_DUPLICATE) {
+                    // Update this dial with the referenced config's mode
+                    switch (ref_config->mode) {
+                        case MODE_FRAC_UNIPOLAR:
+                        case MODE_FRAC_BIPOLAR:
+                            parent->objectinstance_sketchy__render_i.dial_update(&dials[array_index]);
+                            break;
+                        case MODE_BAR_UNIPOLAR:
+                        case MODE_BAR_BIPOLAR:
+                            parent->objectinstance_sketchy__render_i.bar_update(&bars[array_index]);
+                            break;
+                        case MODE_INT:
+                            parent->objectinstance_sketchy__render_i.intdisplay_update(&intdisplays[array_index]);
+                            break;
+                        case MODE_LIST:
+                            parent->objectinstance_sketchy__render_i.select_update(&selects[array_index]);
+                            break;
+                    }
+                }
+            }
+            break;
+    }
+}
+
+// Initialize param table with default values
+void init_param_table() {
+    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
+    
+    for (int page = 0; page < attr_maxpages; page++) {
+        for (int enc = 0; enc < 8; enc++) {
+            const encoder_dial_config_t* config = &configs[page][enc];
+            
+            if (config->mode == MODE_EMPTY) {
+                // Initialize empty/unconfigured elements to 0
+                param_table->array[page][enc] = 0;
+            } else if (config->mode == MODE_INT || config->mode == MODE_LIST) {
+                // Initialize integer/list modes to their default values (clamped to range)
+                int default_int = (int)config->default_value;
+                if (default_int < config->int_min) default_int = config->int_min;
+                if (default_int > config->int_max) default_int = config->int_max;
+                param_table->array[page][enc] = default_int;
+            } else {
+                // Initialize fractional modes (knobs): store encoder position (0-1) directly
+                float encoder_pos = displayToEncoderValue(config->default_value, config->mode);
+                if (encoder_pos < 0.0f) encoder_pos = 0.0f;
+                if (encoder_pos > 1.0f) encoder_pos = 1.0f;
+                param_table->array[page][enc] = (int32_t)(encoder_pos * (float)(1 << 27));
+            }
+        }
+    }
+}
+
+]]></code.declaration>
+         <code.init><![CDATA[// Create SDRAM shadow arrays for display structures - optimized for 16 pages (16 pages * 8 = 128 dials)
+static rootc::objectinstance_sketchy__render::dial_t _dials[128] __attribute__ ((section (".sdram")));
+static rootc::objectinstance_sketchy__render::intdisplay_t _intdisplays[128] __attribute__ ((section (".sdram")));
+static rootc::objectinstance_sketchy__render::select_t _selects[128] __attribute__ ((section (".sdram")));
+static rootc::objectinstance_sketchy__render::bar_t _bars[128] __attribute__ ((section (".sdram")));
+
+// SDRAM STRATEGY: Create shadow array for configuration data - optimized for 16 pages
+static encoder_dial_config_t _configs[16][8] __attribute__ ((section (".sdram")));
+
+// Point pointers to SDRAM arrays
+dials = &_dials[0];
+intdisplays = &_intdisplays[0];
+selects = &_selects[0];
+bars = &_bars[0];
+configs = _configs;  // Point configs to SDRAM array
+
+// Initialize configuration data in SDRAM
+
+    // PAGE 0 - Main Page
+    configs[0][0] = (encoder_dial_config_t){6, false, "ATK", "5,0", 8.0f, 0, 127};
+    configs[0][1] = (encoder_dial_config_t){6, false, "DEC", "5,1", 64.0f, 0, 127};
+    configs[0][2] = (encoder_dial_config_t){6, false, "CUT", "5,2", 64.0f, 0, 127};
+    configs[0][3] = (encoder_dial_config_t){0, false, "FX", "", 16.0f, 0, 127};
+    configs[0][4] = (encoder_dial_config_t){6, false, "", "1,0", 64.0f, 0, 64};
+    configs[0][5] = (encoder_dial_config_t){6, false, "2VOL", "2,0", 48.0f, 0, 64};
+    configs[0][6] = (encoder_dial_config_t){6, false, "3VOL", "3,0", 35.0f, 0, 64};
+    configs[0][7] = (encoder_dial_config_t){6, false, "4VOL", "4,0", 20.0f, 0, 64};
+
+    // PAGE 1 - Layer 1
+    configs[1][0] = (encoder_dial_config_t){4, false, "1VOL", "", 64.0f, 0, 127};
+    configs[1][1] = (encoder_dial_config_t){2, false, "OCT", "", 0.0f, -4, 4};
+    configs[1][2] = (encoder_dial_config_t){2, false, "PTCH", "", 0.0f, -12, 12};
+    configs[1][3] = (encoder_dial_config_t){3, false, "PDIR", "FWD,REV", 0.0f, 0, 1};
+    configs[1][4] = (encoder_dial_config_t){2, true,  "HITS", "", 4.0f, 1, 16};
+    configs[1][5] = (encoder_dial_config_t){2, true,  "LEN", "", 16.0f, 1, 16};
+    configs[1][6] = (encoder_dial_config_t){2, false, "OFST", "", 0.0f, 0, 15};
+    configs[1][7] = (encoder_dial_config_t){3, false, "SDIR", "FWD,REV", 0.0f, 0, 1};
+
+    // PAGE 2 - Layer 2
+    configs[2][0] = (encoder_dial_config_t){4, false, "2VOL", "", 48.0f, 0, 127};
+    configs[2][1] = (encoder_dial_config_t){2, false, "OCT", "", 0.0f, -4, 4};
+    configs[2][2] = (encoder_dial_config_t){2, false, "PTCH", "", 0.0f, -12, 12};
+    configs[2][3] = (encoder_dial_config_t){3, false, "PDIR", "FWD,REV", 0.0f, 0, 1};
+    configs[2][4] = (encoder_dial_config_t){2, true,  "HITS", "", 4.0f, 1, 16};
+    configs[2][5] = (encoder_dial_config_t){2, true,  "LEN", "", 16.0f, 1, 16};
+    configs[2][6] = (encoder_dial_config_t){2, false, "OFST", "", 0.0f, 0, 15};
+    configs[2][7] = (encoder_dial_config_t){3, false, "SDIR", "FWD,REV", 0.0f, 0, 1};
+
+    // PAGE 3 - Layer 3
+    configs[3][0] = (encoder_dial_config_t){4, false, "3VOL", "", 36.0f, 0, 127};
+    configs[3][1] = (encoder_dial_config_t){2, false, "OCT", "", 0.0f, -4, 4};
+    configs[3][2] = (encoder_dial_config_t){2, false, "PTCH", "", 0.0f, -12, 12};
+    configs[3][3] = (encoder_dial_config_t){3, false, "PDIR", "FWD,REV", 0.0f, 0, 1};
+    configs[3][4] = (encoder_dial_config_t){2, true,  "HITS", "", 4.0f, 1, 16};
+    configs[3][5] = (encoder_dial_config_t){2, true,  "LEN", "", 16.0f, 1, 16};
+    configs[3][6] = (encoder_dial_config_t){2, false, "OFST", "", 0.0f, 0, 15};
+    configs[3][7] = (encoder_dial_config_t){3, false, "SDIR", "FWD,REV", 0.0f, 0, 1};
+
+    // PAGE 4 - Layer 4
+    configs[4][0] = (encoder_dial_config_t){4, false, "4VOL", "", 28.0f, 0, 127};
+    configs[4][1] = (encoder_dial_config_t){2, false, "OCT", "", 0.0f, -4, 4};
+    configs[4][2] = (encoder_dial_config_t){2, false, "PTCH", "", 0.0f, -12, 12};
+    configs[4][3] = (encoder_dial_config_t){3, false, "PDIR", "FWD,REV", 0.0f, 0, 1};
+    configs[4][4] = (encoder_dial_config_t){2, true,  "HITS", "", 4.0f, 1, 16};
+    configs[4][5] = (encoder_dial_config_t){2, true,  "LEN", "", 16.0f, 1, 16};
+    configs[4][6] = (encoder_dial_config_t){2, false, "OFST", "", 0.0f, 0, 15};
+    configs[4][7] = (encoder_dial_config_t){3, false, "SDIR", "FWD,REV", 0.0f, 0, 1};
+
+    // PAGE 5 - Env + Filter Controls
+    configs[5][0] = (encoder_dial_config_t){0, false, "ATK", "", 8.0f, 0, 127};
+    configs[5][1] = (encoder_dial_config_t){0, false, "DEC", "", 64.0f, 0, 127};
+    configs[5][2] = (encoder_dial_config_t){0, false, "CUT", "", 64.0f, 0, 127};
+    configs[5][3] = (encoder_dial_config_t){0, false, "Q", "", 4.0f, 0, 127};
+    configs[5][4] = (encoder_dial_config_t){2, false, "THRS", "", 48.0f, 0, 5};
+    configs[5][5] = (encoder_dial_config_t){1, false, "EG2F", "", 0.0f, -127, 127};
+    configs[5][6] = (encoder_dial_config_t){0, false, "SLD", "", 0.0f, 0, 127};
+    configs[5][7] = (encoder_dial_config_t){4, false, "NOIS", "", 0.0f, 0, 1};
+
+    // PAGE 6 - Fx Controls
+    configs[6][0] = (encoder_dial_config_t){0, false, "DlyS", "", 20.0f, -127, 127};
+    configs[6][1] = (encoder_dial_config_t){0, false, "DFdk", "", 20.0f, -127, 127};
+    configs[6][2] = (encoder_dial_config_t){0, false, "Shim", "", 20.0f, -127, 127};
+    configs[6][3] = (encoder_dial_config_t){3, false, "Dsub", "1/16,2/16,3/16,1/4,5/16,3/8,1/2,1/1", 2, 0, 7};
+    configs[6][4] = (encoder_dial_config_t){0, false, "RvbS", "", 20.0f, 0, 3};
+    configs[6][5] = (encoder_dial_config_t){0, false, "Rfbk", "", 32.0f, 0, 3};
+    configs[6][6] = (encoder_dial_config_t){0, false, "D2Vb", "", 20.0f, 0, 127};
+    configs[6][7] = (encoder_dial_config_t){1, false, "Dtim", "", 0.0f, 0, 100};
+
+    // PAGE 7 - Recording / Dub controls
+    configs[7][0] = (encoder_dial_config_t){0, false,  "FDBK", "", 32.0f, 0, 127};
+    configs[7][1] = (encoder_dial_config_t){3, false, "MODE", "MAN,1BAR,2BAR,3BAR,4BAR", 1, 0, 4};
+    configs[7][2] = (encoder_dial_config_t){1, false, "SOFF", "", 0, 0, 127};
+    configs[7][3] = (encoder_dial_config_t){2, true,  "TRS", "", 0.0f, -24, 24};
+    configs[7][4] = (encoder_dial_config_t){3, false, "FX2L", "ON,OFF", 1, 0, 1};
+    configs[7][5] = (encoder_dial_config_t){0, false, "POR", "", 0.0f, 0, 127};
+    configs[7][6] = (encoder_dial_config_t){2, false, "CHN", "", 1.0f, 1, 16};
+    configs[7][7] = (encoder_dial_config_t){3, false, "PLY", "Poly,Mono,Leg", 0.0f, 0, 2};
+
+        // PAGE 8 - Seq
+    configs[8][0] = (encoder_dial_config_t){2, true,  "HITS", "", 4.0f, 1, 16};
+    configs[8][1] = (encoder_dial_config_t){2, true,  "LEN", "", 16.0f, 1, 16};
+    configs[8][2] = (encoder_dial_config_t){2, false, "OFST", "", 0.0f, 0, 15};
+    configs[8][3] = (encoder_dial_config_t){3, false, "SDIR", "FWD,REV", 0.0f, 0, 1};
+    configs[8][4] = (encoder_dial_config_t){2, false, "Time", "", 4.0f, 0, 20};
+    configs[8][5] = (encoder_dial_config_t){3, false,  "/Sig", "1,2,4,8,16", 4.0f, 0, 4};
+    configs[8][6] = (encoder_dial_config_t){2, false, "CHN", "", 1.0f, 1, 16};
+    configs[8][7] = (encoder_dial_config_t){3, false, "PLY", "Poly,Mono,Leg", 0.0f, 0, 2};
+
+    
+        // PAGE 9 - System Controls
+    configs[9][0] = (encoder_dial_config_t){2, false,  "BPM", "", 120.0f, 0, 999};
+    configs[9][1] = (encoder_dial_config_t){2, false, "fine", "", 0.0f, 0, 99};
+    configs[9][2] = (encoder_dial_config_t){3, false, "Sync", "Auto,Cont,Int,Ext", 0.0f, 0, 3};
+    configs[9][3] = (encoder_dial_config_t){3, false,  "Src", "Omni,Auto,UsbH,UsbD,Din", 4.0f, 0, 4};
+    configs[9][4] = (encoder_dial_config_t){2, false, "Time", "", 4.0f, 0, 20};
+    configs[9][5] = (encoder_dial_config_t){3, false,  "/Sig", "1,2,4,8,16", 4.0f, 0, 4};
+    configs[9][6] = (encoder_dial_config_t){2, false, "CHN", "", 1.0f, 1, 16};
+    configs[9][7] = (encoder_dial_config_t){3, false, "PLY", "Poly,Mono,Leg", 0.0f, 0, 2};
+
+
+// Initialize remaining pages/elements as empty (no display objects created)
+// Pages 16+ and any unconfigured elements will remain empty on render
+for (int page = 16; page < attr_maxpages; page++) {
+    for (int dial = 0; dial < 8; dial++) {
+        configs[page][dial] = (encoder_dial_config_t){255, false, "", "", 0.0f, 0, 127}; // mode 255 = empty/unconfigured
+    }
+}
+
+// Initialize param table with default values
+init_param_table();
+
+// Initialize all dials for all pages (like the working sketchy_dials.axo does)
+for (uint8_t page = 0; page < attr_maxpages; page++) {
+    for (uint8_t dial = 0; dial < 8; dial++) {
+        init_dial(page, dial, &configs[page][dial]);
+    }
+}]]></code.init>
+         <code.krate><![CDATA[int page = inlet_page;
+
+// Update displays for current page only
+// All encoder processing is now handled by 8encoder_input
+if (page >= 0 && page < attr_maxpages) {
+    for (uint8_t dial = 0; dial < 8; dial++) {
+        uint8_t array_index = page * 8 + dial;
+        // Bounds check to prevent buffer overflow
+        if (array_index < (attr_maxpages * 8)) {
+            const encoder_dial_config_t* config = &configs[page][dial];
+            update_dial(page, dial, config);
+        }
+    }
+}]]></code.krate>
+      </object>
+   </patchobj>
+   <obj type="const/i" uuid="e202f44b2df17ae0b3e663b98ea6b14c8ff00408" name="i_2" x="644" y="350">
+      <params/>
+      <attribs>
+         <spinner attributeName="value" value="1"/>
+      </attribs>
+   </obj>
+   <obj type="pulse" uuid="801c12c2-245f-448a-b4ed-67f629f7e59e" name="pulse_1" x="728" y="350">
+      <params/>
+      <attribs/>
+   </obj>
+   <obj type="rbrt_new/control/kdelay b" uuid="164ddf35-9149-4bec-a0e1-d674b35c7428" name="kdelay_2" x="784" y="364">
+      <params/>
+      <attribs>
+         <spinner attributeName="delaylength" value="101"/>
+      </attribs>
+   </obj>
+   <nets>
+      <net>
+         <source obj="layout page_" outlet="out"/>
+         <dest obj="sketchy_render" inlet="layout"/>
+      </net>
+      <net>
+         <source obj="i_2" outlet="out"/>
+         <dest obj="pulse_1" inlet="trig"/>
+      </net>
+      <net>
+         <source obj="pulse_1" outlet="pulse"/>
+         <dest obj="kdelay_2" inlet="in"/>
+      </net>
+   </nets>
+   <settings>
+      <subpatchmode>no</subpatchmode>
+   </settings>
+   <notes><![CDATA[]]></notes>
+   <windowPos>
+      <x>96</x>
+      <y>167</y>
+      <width>1378</width>
+      <height>698</height>
+   </windowPos>
+</patch-1.0>

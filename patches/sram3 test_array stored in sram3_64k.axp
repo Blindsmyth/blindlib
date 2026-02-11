@@ -1,0 +1,118 @@
+<patch-1.0 appVersion="1.1.0">
+  <obj type="conv/interp" uuid="d68c1a8709d8b55e3de8715d727ec0a2d8569d9a" name="interp_1" x="490" y="140">
+    <params/>
+    <attribs/>
+  </obj>
+  <obj type="ksoloti/disp/scope 128 b trig zoom" uuid="1e502ace-1033-4a32-ad32-412d01ec7558" name="scope 128 b trig zoom_1" x="616" y="140">
+    <params/>
+    <attribs>
+      <combo attributeName="timebase" selection="/16"/>
+      <combo attributeName="magnify" selection="x1"/>
+    </attribs>
+  </obj>
+  <obj type="disp/chart p" uuid="58f42040a894006a5f73ed8cb8d0bd45481b28cd" name="chart p_1" x="490" y="210">
+    <params/>
+    <attribs/>
+  </obj>
+  <patchobj type="patch/object" uuid="b3674e1c-f911-4eb5-9f2f-71c3983c2aec" name="object_1" x="350" y="252">
+    <params>
+      <frac32.u.map name="p1" value="32.0"/>
+    </params>
+    <attribs/>
+    <object id="patch/object" uuid="b3674e1c-f911-4eb5-9f2f-71c3983c2aec">
+      <sDescription></sDescription>
+      <author></author>
+      <license></license>
+      <helpPatch></helpPatch>
+      <inlets/>
+      <outlets>
+        <frac32 name="out1"/>
+      </outlets>
+      <displays/>
+      <params>
+        <frac32.u.map name="p1"/>
+      </params>
+      <attribs/>
+      <includes/>
+      <code.declaration><![CDATA[#define SIZEEE 16000
+uint16_t count;
+
+static const char* get_sram3_log_msg(uint8_t index) __attribute__((used, section(".sram3.text"))) {
+	static const char log_msg[4][32] __attribute__((used, section(".sram3.data"))) = {
+		"Hello World from SRAM3! ONE",
+		"Hello World from SRAM3! TWO",
+		"Hello World from SRAM3! THREE",
+		"Hello World from SRAM3! FOUR"
+	}; 
+	return log_msg[index];
+}
+    
+
+static int32_t* get_hallo(void) __attribute__((used, section(".sram3.text"))) {
+	static const int32_t hallo[SIZEEE] __attribute__((section(".sram3.data"))) = {
+		0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 
+		10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 
+		20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 
+		30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 
+		40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 
+		50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 
+		60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 
+		70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 
+		80, 81, 82, 83, 84, 85, 86, 87, 88, 89, 
+		90, 91, 92, 93, 94, 95, 96, 97, 98, 99
+	};
+	return (int32_t*) hallo;
+}
+]]></code.declaration>
+      <code.init><![CDATA[LogTextMessage(get_sram3_log_msg(0));
+LogTextMessage(get_sram3_log_msg(1));
+LogTextMessage(get_sram3_log_msg(2));
+LogTextMessage(get_sram3_log_msg(3));
+
+count = 0;
+
+for (int32_t i = 0; i < SIZEEE; i++) {
+	get_hallo()[i] = i;
+}
+]]></code.init>
+      <code.dispose><![CDATA[]]></code.dispose>
+      <code.krate><![CDATA[outlet_out1 = get_hallo()[count]<<13;
+count += 1+(param_p1>>18);
+count %= SIZEEE;]]></code.krate>
+      <code.srate><![CDATA[]]></code.srate>
+      <code.midihandler><![CDATA[]]></code.midihandler>
+    </object>
+  </patchobj>
+  <obj type="disp/hex" uuid="87617898f70d90033f8add921438bf0d11721fdd" name="hex_1" x="490" y="350">
+    <params/>
+    <attribs/>
+  </obj>
+  <obj type="audio/out stereo" uuid="a1ca7a567f535acc21055669829101d3ee7f0189" name="out stereo_1" x="658" y="406">
+    <params/>
+    <attribs/>
+  </obj>
+  <nets>
+    <net>
+      <source obj="object_1" outlet="out1"/>
+      <dest obj="hex_1" inlet="in"/>
+      <dest obj="chart p_1" inlet="in"/>
+      <dest obj="interp_1" inlet="i"/>
+    </net>
+    <net>
+      <source obj="interp_1" outlet="o"/>
+      <dest obj="scope 128 b trig zoom_1" inlet="in"/>
+      <dest obj="out stereo_1" inlet="left"/>
+      <dest obj="out stereo_1" inlet="right"/>
+    </net>
+  </nets>
+  <settings>
+    <subpatchmode>no</subpatchmode>
+  </settings>
+  <notes><![CDATA[]]></notes>
+  <windowPos>
+    <x>641</x>
+    <y>164</y>
+    <width>780</width>
+    <height>620</height>
+  </windowPos>
+</patch-1.0>

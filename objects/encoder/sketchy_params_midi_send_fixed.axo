@@ -34,8 +34,10 @@ uint8_t redraw_active;
 uint16_t redraw_page;
 uint8_t redraw_param;
 
-// Mode constants for duplicate detection
+// Mode constants
 #define MODE_DUPLICATE     6
+#define MODE_INT           2
+#define MODE_LIST          3
 
 void SendMidi3(uint8_t b0, uint8_t b1, uint8_t b2) {
     sdPut(&SD2, b0);
@@ -43,8 +45,26 @@ void SendMidi3(uint8_t b0, uint8_t b1, uint8_t b2) {
     sdPut(&SD2, b2);
 }
 
-// Function to convert param value to MIDI CC range (0-127)
-uint8_t paramValueToMidiCC(int32_t value) {
+// Function to convert integer value to MIDI CC range (0-127)
+// Maps int_min..int_max to 0..(int_max-int_min), then clamps to 0-127
+uint8_t intValueToMidiCC(int32_t value, int32_t int_min, int32_t int_max) {
+    // Handle edge cases
+    if (int_min == int_max) return (uint8_t)int_min;
+    
+    // Clamp value to the original range
+    if (value < int_min) value = int_min;
+    if (value > int_max) value = int_max;
+    
+    // Map from int_min..int_max to 0..(int_max-int_min)
+    uint8_t mapped = (uint8_t)(value - int_min);
+    
+    // Ensure it fits in MIDI CC range (0-127)
+    if (mapped > 127) return 127;
+    return mapped;
+}
+
+// Function to convert frac32 param value to MIDI CC range (0-127)
+uint8_t floatValueToMidiCC(int32_t value) {
     // Convert frac32 format (27-bit) to 7-bit MIDI CC
     // value range: 0 to (1<<27) maps to 0-127
     return (uint8_t)(__USAT(value >> 20, 7));
@@ -149,7 +169,18 @@ if (redraw_active) {
         
         // Get value from param table (use target location for duplicates)
         int32_t value = param_table->array[target_page][target_dial];
-        uint8_t midiValue = paramValueToMidiCC(value);
+        
+        // Get encoder configuration to determine mode
+        auto& config = parent->objectinstance_sketchy__dials_i.configs[target_page][target_dial];
+        uint8_t midiValue;
+        
+        // Convert based on encoder mode - list params send as 0-based integers (0, 1, 2...)
+        if (config.mode == MODE_INT || config.mode == MODE_LIST) {
+            midiValue = intValueToMidiCC(value, config.int_min, config.int_max);
+        } else {
+            // Float/frac params: use frac32 conversion
+            midiValue = floatValueToMidiCC(value);
+        }
         
         // Calculate CC number based on target page/dial (original for duplicates)
         // This ensures duplicates send the CC for the parameter they're duplicating
@@ -198,8 +229,17 @@ for (int scan_count = 0; scan_count < 2; scan_count++) {
     
     // Check if value changed and not already triggered
     if ((current_value != prev[scan_index]) && !ntrig[scan_index]) {
-        // Convert to MIDI CC range
-        uint8_t midiValue = paramValueToMidiCC(current_value);
+        // Get encoder configuration to determine mode
+        auto& config = parent->objectinstance_sketchy__dials_i.configs[target_page][target_dial];
+        uint8_t midiValue;
+        
+        // Convert based on encoder mode - list params send as 0-based integers (0, 1, 2...)
+        if (config.mode == MODE_INT || config.mode == MODE_LIST) {
+            midiValue = intValueToMidiCC(current_value, config.int_min, config.int_max);
+        } else {
+            // Float/frac params: use frac32 conversion
+            midiValue = floatValueToMidiCC(current_value);
+        }
         
         // Calculate CC number based on target page/dial (original for duplicates)
         // This ensures duplicates send the CC for the parameter they're duplicating
