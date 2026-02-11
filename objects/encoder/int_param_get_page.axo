@@ -19,8 +19,8 @@
       <attribs>
          <spinner name="page" MinValue="-127" MaxValue="127" DefaultValue="0"/>
       </attribs>
-      <code.declaration><![CDATA[rootc::instancesketchy__params* param_table;]]></code.declaration>
-      <code.init><![CDATA[param_table = &parent->instancesketchy__params_i;]]></code.init>
+      <code.declaration><![CDATA[rootc::objectinstance_sketchy__params* param_table;]]></code.declaration>
+      <code.init><![CDATA[param_table = &parent->objectinstance_sketchy__params_i;]]></code.init>
       <code.krate><![CDATA[// Get all 8 parameters from the specified page
 outlet_value0 = param_table->array[attr_page][0];
 outlet_value1 = param_table->array[attr_page][1];
