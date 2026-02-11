@@ -253,10 +253,11 @@ void update_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* 
 }
 
 // Initialize param table with default values (called after config load)
-void init_param_table() {
+// Takes page_count parameter to avoid initializing beyond loaded configs
+void init_param_table(uint16_t page_count) {
     rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
     
-    for (int page = 0; page < 16; page++) {
+    for (int page = 0; page < page_count; page++) {
         for (int enc = 0; enc < 8; enc++) {
             const encoder_dial_config_t* config = &configs[page][enc];
             

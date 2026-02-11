@@ -55,10 +55,13 @@ int32_t status;
 char* string_buffer;
 config_binary_t* binary_configs;
 
+// Number of pages actually loaded from file (set during load, used when file has fewer than maxpages)
+uint16_t loaded_pages;
+
 // Reconstruct config structs with proper string pointers
 void reconstruct_configs() {
-    // Use actual page count from maxpages attribute
-    uint16_t total_pages = attr_maxpages;
+    // Use loaded page count (file may have fewer pages than attr_maxpages when expanding 8->16 etc.)
+    uint16_t total_pages = loaded_pages;
     for (int pg = 0; pg < total_pages; pg++) {
         for (int dial = 0; dial < 8; dial++) {
             int idx = pg * 8 + dial;
@@ -86,8 +89,8 @@ void reconstruct_configs() {
     // Initialize parameter table with loaded defaults
     attr_dials.init_param_table();
     
-    // Initialize all dial displays with loaded configs
-    for (uint8_t pg = 0; pg < attr_maxpages; pg++) {
+    // Initialize all dial displays with loaded configs (only for pages that were in the file)
+    for (uint8_t pg = 0; pg < loaded_pages; pg++) {
         for (uint8_t dial = 0; dial < 8; dial++) {
             attr_dials.init_dial(pg, dial, &attr_dials.configs[pg][dial]);
         }
@@ -102,7 +105,8 @@ string_buffer = _string_buffer;
 binary_configs = _binary_configs;
 
 ntrig = 0;
-status = 0;]]></code.init>
+status = 0;
+loaded_pages = 0;]]></code.init>
     <code.krate><![CDATA[outlet_status = status;
 
 if ((inlet_trig > 0) && !ntrig) {
@@ -143,15 +147,16 @@ if ((inlet_trig > 0) && !ntrig) {
         return;
     }
     
-    // Validate config count - check if it matches expected page count
+    // Validate config count: must be multiple of 8 and not more than expected (allows loading 8-page file when maxpages=16)
     uint16_t expected_configs = attr_maxpages * 8;
-    if (header.config_count != expected_configs) {
+    if (header.config_count == 0 || (header.config_count % 8) != 0 || header.config_count > expected_configs) {
         LogTextMessage("Invalid config count");
         f_close(&FileObject);
         status = -1;
         ntrig = 0;
         return;
     }
+    loaded_pages = header.config_count / 8;  // e.g. 64 configs -> 8 pages, 128 configs -> 16 pages
     
     // Read config data directly into SDRAM
     err = f_read(&FileObject, binary_configs, header.config_count * sizeof(config_binary_t), &bytes_read);
