@@ -84,9 +84,10 @@
   * sram3_function_test.axo: 5224773f-18de-4231-8f92-b1f22bb953AF
   * prm_toggle_write_x4.axo: 5224773f-18de-4231-8f92-b1f22bb953B0
  * tap_tempo_musical.axo: 5224773f-18de-4231-8f92-b1f22bb953B1
-  * big_array_sram1.axo: 5224773f-18de-4231-8f92-b1f22bb953B2
-  * big_array_sram3.axo: 5224773f-18de-4231-8f92-b1f22bb953B3
- * clock_master.axo: 5224773f-18de-4231-8f92-b1f22bb953B4
+ * big_array_sram1.axo: 5224773f-18de-4231-8f92-b1f22bb953B2
+ * big_array_sram3.axo: 5224773f-18de-4231-8f92-b1f22bb953B3
+* clock_master.axo: 5224773f-18de-4231-8f92-b1f22bb953B4
+ * sketchy_dials_hardcoded.axo: 5224773f-18de-4231-8f92-b1f22bb953B5
 - **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
 - **MANDATORY**: Document all new UUIDs in this file immediately after creation
 
