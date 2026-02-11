@@ -86,8 +86,8 @@ void reconstruct_configs() {
         }
     }
     
-    // Initialize parameter table with loaded defaults
-    attr_dials.init_param_table();
+    // Initialize parameter table with loaded defaults (pass loaded_pages)
+    attr_dials.init_param_table(loaded_pages);
     
     // Initialize all dial displays with loaded configs (only for pages that were in the file)
     for (uint8_t pg = 0; pg < loaded_pages; pg++) {
