@@ -7,7 +7,11 @@
       <inlets>
          <int32 name="page"/>
       </inlets>
-      <outlets/>
+      <outlets>
+         <int32 name="debug" description="Debug: last modified encoder index"/>
+         <int32 name="debugmode" description="Debug: mode of last modified encoder"/>
+         <int32 name="debugvalue" description="Debug: current param_table value"/>
+      </outlets>
       <displays/>
       <params/>
       <attribs>
@@ -28,6 +32,9 @@ uint32_t lastTrigTime[8];
 int lastTrigState[8];
 int lastDirState[8];
 uint32_t timeCounter = 0;
+int last_modified_encoder = -1;
+int last_mode = -1;
+int32_t last_param_value = 0;
 
 // Mode constants - must match sketchy_dials
 #define MODE_FRAC_UNIPOLAR 0
@@ -118,6 +125,10 @@ if (page >= 0 && page < attr_maxpages) {
             
             auto& target_config = parent->objectinstance_sketchy__dials_i.configs[target_page][target_dial];
 
+            // Debug tracking
+            last_mode = target_config.mode;
+            last_param_value = param_table->array[target_page][target_dial];
+
             // Acceleration logic
             uint32_t diff = timeCounter - lastTrigTime[i];
             if (diff < attr_acceltime) {
@@ -161,8 +172,13 @@ if (page >= 0 && page < attr_maxpages) {
             }
             
             lastTrigTime[i] = timeCounter;
+            last_modified_encoder = i;
         }
     }
-}]]></code.krate>
+}
+
+outlet_debug = last_modified_encoder;
+outlet_debugmode = last_mode;
+outlet_debugvalue = last_param_value;]]></code.krate>
    </obj.normal>
 </objdefs>
