@@ -88,6 +88,7 @@
  * big_array_sram3.axo: 5224773f-18de-4231-8f92-b1f22bb953B3
 * clock_master.axo: 5224773f-18de-4231-8f92-b1f22bb953B4
  * sketchy_dials_hardcoded.axo: 5224773f-18de-4231-8f92-b1f22bb953B5
+ * param_write_frac.axo: 5224773f-18de-4231-8f92-b1f22bb953B6
 - **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
 - **MANDATORY**: Document all new UUIDs in this file immediately after creation
 
