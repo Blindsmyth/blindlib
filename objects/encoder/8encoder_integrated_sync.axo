@@ -71,14 +71,14 @@ void resolve_duplicate(int page, int dial, int* target_page, int* target_dial) {
     *target_page = page;
     *target_dial = dial;
     
-    auto& config = parent->instancesketchy__dials_i.configs[page][dial];
+    auto& config = parent->objectinstance_sketchy__dials_i.configs[page][dial];
     
     if (config.mode == MODE_DUPLICATE && config.options && strlen(config.options) >= 3) {
         int ref_page = config.options[0] - '0';
         int ref_dial = (config.options[1] == ',' && config.options[2] >= '0' && config.options[2] <= '7') ? (config.options[2] - '0') : dial;
         
         if (ref_page < attr_maxpages && ref_dial < 8) {
-            auto& ref_config = parent->instancesketchy__dials_i.configs[ref_page][ref_dial];
+            auto& ref_config = parent->objectinstance_sketchy__dials_i.configs[ref_page][ref_dial];
             if (ref_config.mode != MODE_DUPLICATE) {
                 *target_page = ref_page;
                 *target_dial = ref_dial;
@@ -103,20 +103,20 @@ if (page >= 0 && page < attr_maxpages) {
     
     readEncoderGPIO(trig, dir);
 
-    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+    rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
 
     for (int i = 0; i < 8; i++) {
         bool edge = (trig[i] == 1) && (lastTrigState[i] == 0);
         lastTrigState[i] = trig[i];
 
         if (edge) {
-            auto& config = parent->instancesketchy__dials_i.configs[page][i];
+            auto& config = parent->objectinstance_sketchy__dials_i.configs[page][i];
 
             // Resolve duplicate reference to get actual parameter to modify
             int target_page, target_dial;
             resolve_duplicate(page, i, &target_page, &target_dial);
             
-            auto& target_config = parent->instancesketchy__dials_i.configs[target_page][target_dial];
+            auto& target_config = parent->objectinstance_sketchy__dials_i.configs[target_page][target_dial];
 
             // Acceleration logic
             uint32_t diff = timeCounter - lastTrigTime[i];
