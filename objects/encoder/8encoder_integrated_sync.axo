@@ -1,0 +1,168 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="8encoder_integrated_sync" uuid="5224773f-18de-4231-8f92-b1f22bb953B7">
+      <sDescription>8 rotary encoders with integrated GPIO and acceleration. Reads and writes directly to param table every k-cycle (no internal position state). External writes to param table are respected. Supports 8-64 pages.</sDescription>
+      <author>AI Assistant</author>
+      <license>BSD</license>
+      <helpPatch>logic.axh</helpPatch>
+      <inlets>
+         <int32 name="page"/>
+      </inlets>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="acceltime" MinValue="1" MaxValue="1000" DefaultValue="100"/>
+         <spinner name="accelmultiplier" MinValue="1" MaxValue="10" DefaultValue="6"/>
+         <spinner name="maxpages" description="Maximum number of pages (8-64)" MinValue="8" MaxValue="64" DefaultValue="8"/>
+      </attribs>
+      <depends>
+         <depend>sketchy_font</depend>
+         <depend>sketchy_params</depend>
+         <depend>sketchy_objects</depend>
+         <depend>sketchy_texts</depend>
+         <depend>sketchy_render</depend>
+      </depends>
+      <code.declaration><![CDATA[// Encoder data - NO internal position state, reads from param_table every k-cycle
+int accel[8];
+uint32_t lastTrigTime[8];
+int lastTrigState[8];
+int lastDirState[8];
+uint32_t timeCounter = 0;
+
+// Mode constants - must match sketchy_dials
+#define MODE_FRAC_UNIPOLAR 0
+#define MODE_FRAC_BIPOLAR  1
+#define MODE_INT           2
+#define MODE_LIST          3
+#define MODE_BAR_UNIPOLAR  4
+#define MODE_BAR_BIPOLAR   5
+#define MODE_DUPLICATE     6
+#define MODE_EMPTY         255
+
+// GPIO pin definitions for 8 encoders
+// Encoder 1: Trig=PC2, Dir=PC3
+// Encoder 2: Trig=PA4, Dir=PA5  
+// Encoder 3: Trig=PB7, Dir=PB6
+// Encoder 4: Trig=PA7, Dir=PA6
+// Encoder 5: Trig=PB9, Dir=PB8
+// Encoder 6: Trig=PC5, Dir=PC4
+// Encoder 7: Trig=PC7, Dir=PC6
+// Encoder 8: Trig=PB5, Dir=PB4
+
+void readEncoderGPIO(bool* trig, bool* dir) {
+    trig[0] = palReadPad(GPIOC, 2);  dir[0] = palReadPad(GPIOC, 3);
+    trig[1] = palReadPad(GPIOA, 4);  dir[1] = palReadPad(GPIOA, 5);
+    trig[2] = palReadPad(GPIOB, 7);  dir[2] = palReadPad(GPIOB, 6);
+    trig[3] = palReadPad(GPIOA, 7);  dir[3] = palReadPad(GPIOA, 6);
+    trig[4] = palReadPad(GPIOB, 9);  dir[4] = palReadPad(GPIOB, 8);
+    trig[5] = palReadPad(GPIOC, 5);  dir[5] = palReadPad(GPIOC, 4);
+    trig[6] = palReadPad(GPIOC, 7);  dir[6] = palReadPad(GPIOC, 6);
+    trig[7] = palReadPad(GPIOB, 5);  dir[7] = palReadPad(GPIOB, 4);
+}
+
+float applyConstraints(float value) {
+    if(value < 0.0f) return 0.0f;
+    if(value > 1.0f) return 1.0f;
+    return value;
+}
+
+// Resolve duplicate references recursively
+void resolve_duplicate(int page, int dial, int* target_page, int* target_dial) {
+    *target_page = page;
+    *target_dial = dial;
+    
+    auto& config = parent->instancesketchy__dials_i.configs[page][dial];
+    
+    if (config.mode == MODE_DUPLICATE && config.options && strlen(config.options) >= 3) {
+        int ref_page = config.options[0] - '0';
+        int ref_dial = (config.options[1] == ',' && config.options[2] >= '0' && config.options[2] <= '7') ? (config.options[2] - '0') : dial;
+        
+        if (ref_page < attr_maxpages && ref_dial < 8) {
+            auto& ref_config = parent->instancesketchy__dials_i.configs[ref_page][ref_dial];
+            if (ref_config.mode != MODE_DUPLICATE) {
+                *target_page = ref_page;
+                *target_dial = ref_dial;
+            }
+        }
+    }
+}]]></code.declaration>
+      <code.init><![CDATA[// Initialize encoder state
+for (int i = 0; i < 8; i++) {
+    accel[i] = 1;
+    lastTrigTime[i] = 0;
+    lastTrigState[i] = 0;
+    lastDirState[i] = 0;
+}
+timeCounter = 0;]]></code.init>
+      <code.krate><![CDATA[timeCounter++;
+int page = inlet_page;
+
+// Process encoder inputs with mode-specific logic
+if (page >= 0 && page < attr_maxpages) {
+    bool trig[8], dir[8];
+    
+    readEncoderGPIO(trig, dir);
+
+    rootc::instancesketchy__params* param_table = &parent->instancesketchy__params_i;
+
+    for (int i = 0; i < 8; i++) {
+        bool edge = (trig[i] == 1) && (lastTrigState[i] == 0);
+        lastTrigState[i] = trig[i];
+
+        if (edge) {
+            auto& config = parent->instancesketchy__dials_i.configs[page][i];
+
+            // Resolve duplicate reference to get actual parameter to modify
+            int target_page, target_dial;
+            resolve_duplicate(page, i, &target_page, &target_dial);
+            
+            auto& target_config = parent->instancesketchy__dials_i.configs[target_page][target_dial];
+
+            // Acceleration logic
+            uint32_t diff = timeCounter - lastTrigTime[i];
+            if (diff < attr_acceltime) {
+                accel[i]++;
+                if (accel[i] > attr_accelmultiplier) accel[i] = attr_accelmultiplier;
+            } else {
+                accel[i] = 1;
+            }
+            
+            if (target_config.mode == MODE_INT || target_config.mode == MODE_LIST) {
+                // Integer/List mode: read from param_table, modify, write back
+                int current_value = param_table->array[target_page][target_dial];
+                
+                if (dir[i] == 0) {
+                    current_value -= accel[i];
+                } else {
+                    current_value += accel[i];
+                }
+                
+                if (current_value < target_config.int_min) current_value = target_config.int_min;
+                if (current_value > target_config.int_max) current_value = target_config.int_max;
+                
+                param_table->array[target_page][target_dial] = current_value;
+                
+            } else {
+                // Fractional mode: read from param_table, convert to position, modify, write back
+                int32_t current_param_value = param_table->array[target_page][target_dial];
+                float current_pos = (float)current_param_value / (float)(1 << 27);
+                
+                float inc = 0.0078125f * accel[i]; // 1/128 * acceleration
+                if (dir[i] == 0) {
+                    current_pos -= inc;
+                } else {
+                    current_pos += inc;
+                }
+                
+                current_pos = applyConstraints(current_pos);
+                
+                int32_t new_value = (int32_t)(current_pos * (float)(1 << 27));
+                param_table->array[target_page][target_dial] = new_value;
+            }
+            
+            lastTrigTime[i] = timeCounter;
+        }
+    }
+}]]></code.krate>
+   </obj.normal>
+</objdefs>
