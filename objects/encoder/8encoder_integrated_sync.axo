@@ -11,6 +11,7 @@
          <int32 name="debug" description="Debug: last modified encoder index"/>
          <int32 name="debugmode" description="Debug: mode of last modified encoder"/>
          <int32 name="debugvalue" description="Debug: current param_table value"/>
+         <int32 name="debugpage" description="Debug: current page number"/>
       </outlets>
       <displays/>
       <params/>
@@ -50,21 +51,21 @@ int32_t last_param_value = 0;
 // Encoder 1: Trig=PC2, Dir=PC3
 // Encoder 2: Trig=PA4, Dir=PA5  
 // Encoder 3: Trig=PB7, Dir=PB6
-// Encoder 4: Trig=PA7, Dir=PA6
-// Encoder 5: Trig=PB9, Dir=PB8
-// Encoder 6: Trig=PC5, Dir=PC4
-// Encoder 7: Trig=PC7, Dir=PC6
-// Encoder 8: Trig=PB5, Dir=PB4
+// Encoder 4: Trig=PB0, Dir=PB1
+// Encoder 5: Trig=PC5, Dir=PC4
+// Encoder 6: Trig=PC0, Dir=PC1
+// Encoder 7: Trig=PA0, Dir=PA1
+// Encoder 8: Trig=PA6, Dir=PA7
 
 void readEncoderGPIO(bool* trig, bool* dir) {
     trig[0] = palReadPad(GPIOC, 2);  dir[0] = palReadPad(GPIOC, 3);
     trig[1] = palReadPad(GPIOA, 4);  dir[1] = palReadPad(GPIOA, 5);
     trig[2] = palReadPad(GPIOB, 7);  dir[2] = palReadPad(GPIOB, 6);
-    trig[3] = palReadPad(GPIOA, 7);  dir[3] = palReadPad(GPIOA, 6);
-    trig[4] = palReadPad(GPIOB, 9);  dir[4] = palReadPad(GPIOB, 8);
-    trig[5] = palReadPad(GPIOC, 5);  dir[5] = palReadPad(GPIOC, 4);
-    trig[6] = palReadPad(GPIOC, 7);  dir[6] = palReadPad(GPIOC, 6);
-    trig[7] = palReadPad(GPIOB, 5);  dir[7] = palReadPad(GPIOB, 4);
+    trig[3] = palReadPad(GPIOB, 0);  dir[3] = palReadPad(GPIOB, 1);
+    trig[4] = palReadPad(GPIOC, 5);  dir[4] = palReadPad(GPIOC, 4);
+    trig[5] = palReadPad(GPIOC, 0);  dir[5] = palReadPad(GPIOC, 1);
+    trig[6] = palReadPad(GPIOA, 0);  dir[6] = palReadPad(GPIOA, 1);
+    trig[7] = palReadPad(GPIOA, 6);  dir[7] = palReadPad(GPIOA, 7);
 }
 
 float applyConstraints(float value) {
@@ -179,6 +180,7 @@ if (page >= 0 && page < attr_maxpages) {
 
 outlet_debug = last_modified_encoder;
 outlet_debugmode = last_mode;
-outlet_debugvalue = last_param_value;]]></code.krate>
+outlet_debugvalue = last_param_value;
+outlet_debugpage = page;]]></code.krate>
    </obj.normal>
 </objdefs>
