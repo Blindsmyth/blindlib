@@ -94,7 +94,25 @@ void resolve_duplicate(int page, int dial, int* target_page, int* target_dial) {
         }
     }
 }]]></code.declaration>
-      <code.init><![CDATA[// Initialize encoder state
+      <code.init><![CDATA[// Initialize GPIO pins (match 8encoder_integrated_exp)
+palSetPadMode(GPIOC, 2, PAL_MODE_INPUT_PULLDOWN);  // PC2 - Encoder 1 Trig
+palSetPadMode(GPIOC, 3, PAL_MODE_INPUT_PULLDOWN);  // PC3 - Encoder 1 Dir
+palSetPadMode(GPIOA, 4, PAL_MODE_INPUT_PULLDOWN);  // PA4 - Encoder 2 Trig
+palSetPadMode(GPIOA, 5, PAL_MODE_INPUT_PULLDOWN);  // PA5 - Encoder 2 Dir
+palSetPadMode(GPIOB, 7, PAL_MODE_INPUT_PULLDOWN);  // PB7 - Encoder 3 Trig
+palSetPadMode(GPIOB, 6, PAL_MODE_INPUT_PULLDOWN);  // PB6 - Encoder 3 Dir
+palSetPadMode(GPIOB, 0, PAL_MODE_INPUT_PULLDOWN);  // PB0 - Encoder 4 Trig
+palSetPadMode(GPIOB, 1, PAL_MODE_INPUT_PULLDOWN);  // PB1 - Encoder 4 Dir
+palSetPadMode(GPIOC, 5, PAL_MODE_INPUT_PULLDOWN);  // PC5 - Encoder 5 Trig
+palSetPadMode(GPIOC, 4, PAL_MODE_INPUT_PULLDOWN);  // PC4 - Encoder 5 Dir
+palSetPadMode(GPIOC, 0, PAL_MODE_INPUT_PULLDOWN);  // PC0 - Encoder 6 Trig
+palSetPadMode(GPIOC, 1, PAL_MODE_INPUT_PULLDOWN);  // PC1 - Encoder 6 Dir
+palSetPadMode(GPIOA, 0, PAL_MODE_INPUT_PULLDOWN);  // PA0 - Encoder 7 Trig
+palSetPadMode(GPIOA, 1, PAL_MODE_INPUT_PULLDOWN);  // PA1 - Encoder 7 Dir
+palSetPadMode(GPIOA, 6, PAL_MODE_INPUT_PULLDOWN);  // PA6 - Encoder 8 Trig
+palSetPadMode(GPIOA, 7, PAL_MODE_INPUT_PULLDOWN);  // PA7 - Encoder 8 Dir
+
+// Initialize encoder state
 for (int i = 0; i < 8; i++) {
     accel[i] = 1;
     lastTrigTime[i] = 0;

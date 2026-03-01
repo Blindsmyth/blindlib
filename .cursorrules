@@ -90,6 +90,8 @@
  * sketchy_dials_hardcoded.axo: 5224773f-18de-4231-8f92-b1f22bb953B5
  * param_write_frac.axo: 5224773f-18de-4231-8f92-b1f22bb953B6
  * 8encoder_integrated_sync.axo: 5224773f-18de-4231-8f92-b1f22bb953B7
+ * recordlogic_refactored_mute.axo: 5224773f-18de-4231-8f92-b1f22bb953B8
+ * sum6_stereo.axo: 5224773f-18de-4231-8f92-b1f22bb953B9
 - **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
 - **MANDATORY**: Document all new UUIDs in this file immediately after creation
 

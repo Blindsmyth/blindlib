@@ -1,0 +1,155 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="sketchy_render_fw_test" uuid="a7f2b1c0-4d5e-4a8b-9c3e-1f0d2e4a6b8c">
+      <sDescription>Test renderer: draws via firmware sketchy_draw_pixel(). Requires custom firmware with sketchy_draw.c. Use to verify firmware draw path.</sDescription>
+      <author>Ksoloti Custom Firmware</author>
+      <license>MIT</license>
+      <inlets/>
+      <outlets/>
+      <displays/>
+      <params/>
+      <attribs>
+         <combo name="type">
+            <MenuEntries>
+               <string>SSD1306</string>
+               <string>SH1106</string>
+            </MenuEntries>
+            <CEntries>
+               <string>1306</string>
+               <string>1106</string>
+            </CEntries>
+         </combo>
+         <combo name="I2CADDR">
+            <MenuEntries>
+               <string>0x3C</string>
+               <string>0x3D</string>
+            </MenuEntries>
+            <CEntries>
+               <string>0x3C</string>
+               <string>0x3D</string>
+            </CEntries>
+         </combo>
+      </attribs>
+      <depends>
+         <depend>SD1</depend>
+         <depend>SPID1</depend>
+         <depend>I2CD1</depend>
+      </depends>
+      <code.declaration><![CDATA[enum SSD1306 {
+	LCDWIDTH   = 128,
+	LCDHEIGHT  = 64,
+	SETCONTRAST         = 0x81,
+	DISPLAYON           = 0xAF,
+	DISPLAYOFF          = 0xAE,
+	DISPLAYALLON_RESUME = 0xA4,
+	NORMALDISPLAY       = 0xA6,
+	DEACTIVATE_SCROLL   = 0x2E,
+	MEMORYMODE          = 0x20,
+	COLUMNADDR          = 0x21,
+	PAGEADDR            = 0x22,
+	SETSTARTLINE_0      = 0x40,
+	SEGREMAP            = 0xA0,
+	SETMULTIPLEX        = 0xA8,
+	COMSCANDEC          = 0xC8,
+	SETDISPLAYOFFSET    = 0xD3,
+	SETCOMPINS          = 0xDA,
+	SETDISPLAYCLOCKDIV  = 0xD5,
+	SETPRECHARGE        = 0xD9,
+	SETVCOMDETECT       = 0xDB,
+	CHARGEPUMP          = 0x8D,
+};
+
+uint8_t pixels[8][LCDWIDTH];
+uint8_t *txbuf;
+uint8_t *rxbuf;
+
+void cmd(uint8_t c) {
+	txbuf[0] = 0;
+	txbuf[1] = c;
+	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 2, rxbuf, 0, 32);
+}
+
+void clear() {
+	for (int p = 0; p < 8; p++) {
+		for (int i = 0; i < LCDWIDTH; i++) {
+			pixels[p][i] = 0;
+		}
+	}
+}
+
+void sendPage(int p) {
+	cmd(COLUMNADDR); cmd(0); cmd(127);
+	cmd(PAGEADDR); cmd(p); cmd(p);
+	if (attr_type == 1106) {
+		cmd(0xB0 + p);
+		cmd(2 & 0xf);
+		cmd(0x10 | (2 >> 4));
+	}
+	txbuf[0] = 0x40;
+	memcpy(txbuf + 1, pixels[p], LCDWIDTH);
+	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 129, rxbuf, 0, 32);
+}
+
+void init() {
+	cmd(DISPLAYOFF);
+	cmd(SETDISPLAYCLOCKDIV); cmd(0x80);
+	cmd(SETMULTIPLEX); cmd(LCDHEIGHT - 1);
+	cmd(SETDISPLAYOFFSET); cmd(attr_type == 1306 ? 0x00 : 0x01);
+	cmd(SETSTARTLINE_0);
+	cmd(CHARGEPUMP); cmd(0x14);
+	cmd(MEMORYMODE); cmd(0x00);
+	cmd(SEGREMAP | 0x1);
+	cmd(COMSCANDEC);
+	cmd(SETCOMPINS); cmd(0x12);
+	cmd(SETCONTRAST); cmd(0xCF);
+	cmd(SETPRECHARGE); cmd(0xF1);
+	cmd(SETVCOMDETECT); cmd(0x40);
+	cmd(DISPLAYALLON_RESUME);
+	cmd(NORMALDISPLAY);
+	cmd(DEACTIVATE_SCROLL);
+	cmd(DISPLAYON);
+}
+
+void setup() {
+	static uint8_t _txbuf[129] __attribute__ ((section (".sram2")));
+	static uint8_t _rxbuf[8] __attribute__ ((section (".sram2")));
+	txbuf = _txbuf;
+	rxbuf = _rxbuf;
+	init();
+}
+
+msg_t ThreadX2() {
+	setup();
+	while (!chThdShouldTerminate()) {
+		clear();
+		// Draw simple test pattern via firmware (runs from flash)
+		sketchy_draw_pixel(pixels, 64, 32, 0);
+		sketchy_draw_pixel(pixels, 63, 32, 0);
+		sketchy_draw_pixel(pixels, 65, 32, 0);
+		sketchy_draw_pixel(pixels, 64, 31, 0);
+		sketchy_draw_pixel(pixels, 64, 33, 0);
+		for (uint8_t i = 0; i < 8; i++) {
+			sendPage(i);
+		}
+		chThdSleepMilliseconds(32);
+	}
+	chThdExit((msg_t)0);
+}
+
+static msg_t ThreadX(void *arg) {
+	((attr_parent *)arg)->ThreadX2();
+}
+
+WORKING_AREA(waThreadX, 2048);
+Thread *Thd;
+]]></code.declaration>
+      <code.init><![CDATA[Thd = chThdCreateStatic(waThreadX, sizeof(waThreadX), NORMALPRIO-1, ThreadX, (void *)this);
+]]></code.init>
+      <code.dispose><![CDATA[chThdTerminate(Thd);
+chThdWait(Thd);
+i2cStop(&I2CD1);
+palSetPadMode(GPIOB, 8, PAL_MODE_INPUT_ANALOG);
+palSetPadMode(GPIOB, 9, PAL_MODE_INPUT_ANALOG);
+]]></code.dispose>
+      <code.krate><![CDATA[]]></code.krate>
+   </obj.normal>
+</objdefs>

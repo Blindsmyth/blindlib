@@ -1,0 +1,33 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="sum6_stereo" uuid="5224773f-18de-4231-8f92-b1f22bb953B9">
+      <sDescription>Sum 6 stereo values at s-rate. Takes 6 stereo inputs and outputs stereo sum.</sDescription>
+      <author>AI Assistant</author>
+      <license>BSD</license>
+      <inlets>
+         <frac32buffer.bipolar name="in1L" description="Input 1 Left"/>
+         <frac32buffer.bipolar name="in1R" description="Input 1 Right"/>
+         <frac32buffer.bipolar name="in2L" description="Input 2 Left"/>
+         <frac32buffer.bipolar name="in2R" description="Input 2 Right"/>
+         <frac32buffer.bipolar name="in3L" description="Input 3 Left"/>
+         <frac32buffer.bipolar name="in3R" description="Input 3 Right"/>
+         <frac32buffer.bipolar name="in4L" description="Input 4 Left"/>
+         <frac32buffer.bipolar name="in4R" description="Input 4 Right"/>
+         <frac32buffer.bipolar name="in5L" description="Input 5 Left"/>
+         <frac32buffer.bipolar name="in5R" description="Input 5 Right"/>
+         <frac32buffer.bipolar name="in6L" description="Input 6 Left"/>
+         <frac32buffer.bipolar name="in6R" description="Input 6 Right"/>
+      </inlets>
+      <outlets>
+         <frac32buffer.bipolar name="outL" description="Output Left"/>
+         <frac32buffer.bipolar name="outR" description="Output Right"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs/>
+      <includes/>
+      <code.srate><![CDATA[
+      outlet_outL = inlet_in1L + inlet_in2L + inlet_in3L + inlet_in4L + inlet_in5L + inlet_in6L;
+      outlet_outR = inlet_in1R + inlet_in2R + inlet_in3R + inlet_in4R + inlet_in5R + inlet_in6R;
+    ]]></code.srate>
+   </obj.normal>
+</objdefs>

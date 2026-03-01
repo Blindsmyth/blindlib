@@ -1,6 +1,6 @@
 <objdefs appVersion="1.0.12">
    <obj.normal id="prm_toggle_write_x4" uuid="5224773f-18de-4231-8f92-b1f22bb953B0">
-      <sDescription>Writes toggle values to RBRT prm system for 4 loop layers. When toggle is high, writes 64.0. When toggle is low, writes -64.0.</sDescription>
+      <sDescription>Writes toggle values to RBRT prm (frac32). For param 6 (DIRECTION): high = forward, low = reverse. Converts -64..64 attribute range to frac32 so playback speed is correct.</sDescription>
       <author>AI Assistant / Simon</author>
       <license>GPL</license>
       <inlets>
@@ -31,18 +31,26 @@ bool prevToggle2;
 bool prevToggle3;
 bool prevToggle4;
 
-// Write value to prm array for a specific slot
-void writeValueToPrm(int32_t slot, int32_t param, float value) {
-    uint16_t adr = slot * 128;
-    smplr.prm[adr + param] = value;
+// Convert -64..64 attribute value to frac32 (RBRT prm format)
+// 64 -> (1<<27)-1 (full forward), -64 -> -(1<<27)+1 (full reverse)
+static inline int32_t attrToFrac32(int32_t value) {
+    if (value >= 64) return (1<<27) - 1;
+    if (value <= -64) return -(1<<27) + 1;
+    return (int32_t)((int64_t)value * (1<<27) / 64);
 }
 
-// Process toggle: write value based on toggle state
+// Write frac32 value to prm array for a specific slot
+void writeValueToPrm(int32_t slot, int32_t param, int32_t valueFrac32) {
+    uint16_t adr = (uint16_t)(slot * 128);
+    smplr.prm[adr + param] = valueFrac32;
+}
+
+// Process toggle: write frac32 value based on toggle state
 void processToggle(int32_t toggle, bool* prevToggle, int32_t slot, int32_t param, int32_t valueHigh, int32_t valueLow) {
     bool toggleState = toggle > 0;
     if (toggleState != *prevToggle) {
-        float value = toggleState ? (float)valueHigh : (float)valueLow;
-        writeValueToPrm(slot, param, value);
+        int32_t frac = toggleState ? attrToFrac32(valueHigh) : attrToFrac32(valueLow);
+        writeValueToPrm(slot, param, frac);
         *prevToggle = toggleState;
     }
 }]]></code.declaration>

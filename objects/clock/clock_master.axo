@@ -36,13 +36,16 @@
          <bool32.pulse name="rollover"/>
          <bool32.pulse name="clock24ppq"/>
          <bool32.pulse name="reset"/>
+         <bool32.pulse name="start" description="Transport start: MIDI START or internal clock start (not tap resets)"/>
+         <bool32.pulse name="stop" description="Transport stop: MIDI STOP or internal clock stop"/>
          <bool32 name="isPlaying"/>
          <int32 name="bpm"/>
          <int32 name="detectedBars"/>
          <int32 name="ppqPerBar"/>
-         <bool32 name="extSync" description="High when syncing to external MIDI clock"/>
-         <bool32 name="continueOnStopStatus" description="Debug: shows current continueOnStop state"/>
-         <int32 name="v015" description="Object version (incremented each release)"/>
+        <bool32 name="extSync" description="High when syncing to external MIDI clock"/>
+        <bool32 name="clockIsLeader" description="High when internal clock running with no loop leader (clock is virtual leader; use for first-loop sync/quantize)"/>
+        <bool32 name="continueOnStopStatus" description="Debug: shows current continueOnStop state"/>
+        <int32 name="v020" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -112,6 +115,7 @@ int32_t last_read_bpm;     // Track last BPM read from table to detect actual ch
 bool clock_playing;
 bool play_trig, stop_trig, play_toggle_trig;
 int8_t prev_leader;
+uint16_t clockIsLeader_hold;  // ticks to keep clockIsLeader high after a new leader is set (so sync logic can react)
 
 uint32_t prev_clock_pos;
 uint8_t clock_count;
@@ -154,6 +158,9 @@ const int clockDropoutSamples = 12000; // ~250ms at 48kHz
 bool midiStartReceived;     // Track MIDI START message
 bool midiStopReceived;      // Track MIDI STOP message
 int midi_start_reset_hold;  // Hold reset pulse for MIDI START
+uint8_t start_pulse_request;  // Set by MIDI START handler, krate outputs and clears
+uint8_t stop_pulse_request;   // Set by MIDI STOP handler, krate outputs and clears
+bool prev_clock_playing;    // For transport start/stop detection (0->1 = start, 1->0 = stop)
 
 // Clock mode state
 int current_clock_mode;     // 0=Auto, 1=Ext, 2=Int
@@ -269,6 +276,7 @@ setBPM_trig = false;
 
 clock_playing = 0;  // No clock by default; start via record leader, tap count-in, or play
 prev_leader = -1;
+clockIsLeader_hold = 0;
 
 // Initialize param table access (read initial value, then read/write as needed)
 param_table = &parent->objectinstance_sketchy__params_i;
@@ -306,6 +314,9 @@ shouldTrigger24Ppq_ext = false;
 midiStartReceived = false;
 midiStopReceived = false;
 midi_start_reset_hold = 0;
+start_pulse_request = 0;
+stop_pulse_request = 0;
+prev_clock_playing = false;
 current_clock_mode = 0; // Default to Auto
 continue_on_stop = false; // Default to stop on MIDI STOP (standard behavior)
 ext_clock_pool_index = 0;
@@ -391,7 +402,8 @@ if (!use_external && inlet_bpm > 0 && inlet_bpm != tap_last_inlet_bpm) {
     bpm_from_inlet = false;
 }
 
-bool tap_rising = (!use_external && inlet_tap) && !tap_last_inlet;
+// Always detect tap rising (even with external clock) so tap still fires resets on first tap and on every new bar
+bool tap_rising = inlet_tap && !tap_last_inlet;
 tap_last_inlet = inlet_tap;
 
 if (!inlet_countIn) tap_count_phase = 0;
@@ -531,12 +543,35 @@ if (!inlet_playToggle) play_toggle_trig = 0;
 if (smplr.leader != prev_leader && smplr.leader >= 0 && prev_leader == -1) {
     clock_playing = 1;
     clock_count = 0;
-    prev_clock_pos = 0;
+    // Align clock phase to leader playhead only when NOT on external clock (external clock must drive phase)
+    if (!use_external && smplr.leader_tempo > 0) {
+        uint16_t lead_adr = (uint16_t)(smplr.leader * 128);
+        uint32_t lead_pos = (uint32_t)smplr.prm[lead_adr + 126];
+        pos = lead_pos % smplr.leader_tempo;
+        sync.syncer_pos = (float(pos) / (float)smplr.leader_tempo) * (1 << 27);
+        prev_clock_pos = sync.syncer_pos;
+    } else {
+        pos = smplr.leader_tempo > 0 ? smplr.leader_tempo - 64 : 0;
+        prev_clock_pos = 0;
+    }
     outlet_reset = 1;
 }
 prev_leader = smplr.leader;
 
 outlet_isPlaying = clock_playing;
+// High when internal clock running and no valid leader; stay high for a short hold after we get a leader so sync logic can react
+{
+    bool no_valid_leader = (smplr.leader < 0 || (smplr.leader >= 0 && !smplr.has_sample((uint8_t)smplr.leader)));
+    if (clock_playing && !use_external && no_valid_leader) {
+        outlet_clockIsLeader = 1;
+        clockIsLeader_hold = 512;  // ~170 ms at 3 kHz k-rate
+    } else if (clockIsLeader_hold > 0) {
+        outlet_clockIsLeader = 1;
+        clockIsLeader_hold--;
+    } else {
+        outlet_clockIsLeader = 0;
+    }
+}
 
 if (inlet_EXTsync != presrc){
     presrc = inlet_EXTsync;
@@ -566,6 +601,10 @@ if (inlet_EXTsync){
         }
     }
 } else {
+    // When internal clock is running with no loop leader, drive phase from BPM (clock is virtual leader) so sync phase advances for first-loop quantization
+    if (smplr.leader < 0 && clock_playing && !use_external && current_bpm > 0) {
+        smplr.leader_tempo = bpmToTempo(current_bpm, 16, current_beats, current_measure);
+    }
     if (inlet_setNow && !strig){
         strig = 1;
         trig = 1;
@@ -601,21 +640,50 @@ if (inlet_EXTsync){
         uint32_t stempo;
         if (smplr.RAW || (inlet_setToRaw || attr_setTempoTo)) stempo = smplr.calc_dur(smplr.leader);
         else stempo = smplr.leader_tempo * float(smplr.BARS) / (1<<21);
-        int32_t calculated_bars = 1;
-        smplr.leader_tempo = scale_tempo_musical(stempo, current_lower_bpm, current_beats, current_measure, &calculated_bars);
-        detected_bars = calculated_bars;
-        smplr.BARS = sync.calc_bars(stempo, smplr.leader_tempo);
-        smplr.RAW = 0;
-        pos = smplr.leader_tempo - 64;  // Match sync_clock_musical: no clock start/reset here
-        // Only recalculate BPM from leader tempo when NOT syncing to external clock
-        // Use tap_bpm if leader_tempo is not properly set (pickover scenario)
-        if (!use_external) {
-            int32_t calculated = calculateBPM(smplr.leader_tempo, detected_bars, current_beats, current_measure);
-            // If calculated is 120 (default) but we have a different tap_bpm, use tap_bpm (pickover)
-            if (calculated == 120 && tap_bpm != 120) {
-                current_bpm = tap_bpm;
+
+        // When internal clock is running, any new loop slaves to the clock. Only when clock is off does the new loop become leader and set tempo.
+        bool clock_is_master = (clock_playing && !use_external);
+        if (clock_is_master) {
+            if (smplr.leader_tempo <= 0)
+                smplr.leader_tempo = bpmToTempo(current_bpm > 0 ? current_bpm : 120, 16, current_beats, current_measure);
+            smplr.BARS = sync.calc_bars(stempo, smplr.leader_tempo);
+            detected_bars = (smplr.BARS * 16) >> 21;
+            if (detected_bars < 1) detected_bars = 1;
+            smplr.RAW = 0;
+            // Do not update pos, sync.syncer_pos or current_bpm — clock stays master
+        } else {
+            // Loop defines tempo (or external clock / clock was stopped)
+            int32_t calculated_bars = 1;
+            smplr.leader_tempo = scale_tempo_musical(stempo, current_lower_bpm, current_beats, current_measure, &calculated_bars);
+            detected_bars = calculated_bars;
+            smplr.BARS = sync.calc_bars(stempo, smplr.leader_tempo);
+            smplr.RAW = 0;
+            // Align clock phase to leader playhead only when NOT on external clock (external clock must drive phase; avoids offbeat + last part cut)
+            if (!use_external && smplr.leader_tempo > 0) {
+                uint32_t lead_pos = (uint32_t)smplr.POS;
+                pos = lead_pos % smplr.leader_tempo;
+                sync.syncer_pos = (float(pos) / (float)smplr.leader_tempo) * (1 << 27);
+                prev_clock_pos = sync.syncer_pos;
             } else {
-                current_bpm = calculated;
+                pos = (smplr.leader_tempo > 64) ? (smplr.leader_tempo - 64) : 0;
+                sync.syncer_pos = 0;
+                prev_clock_pos = 0;
+            }
+            // When a new master is set via sync path and clock was stopped (e.g. after stop + loop delete), restart clock like first time
+            if (!clock_playing) {
+                clock_playing = 1;
+                clock_count = 0;
+                outlet_reset = 1;
+                resync = 4;
+            }
+            // Only recalculate BPM from leader tempo when NOT syncing to external clock
+            if (!use_external) {
+                int32_t calculated = calculateBPM(smplr.leader_tempo, detected_bars, current_beats, current_measure);
+                if (calculated == 120 && tap_bpm != 120) {
+                    current_bpm = tap_bpm;
+                } else {
+                    current_bpm = calculated;
+                }
             }
         }
     }
@@ -645,10 +713,12 @@ if (inlet_EXTsync){
         outlet_reset = 1;
     }
     if (!eff_resetPhase) rtrig = 0;
-    pos += 16;
-    if (pos >= smplr.leader_tempo) ro = 1;
-    pos = pos % smplr.leader_tempo;
-    sync.syncer_pos = (float(pos) / smplr.leader_tempo) * (1 << 27);
+    if (smplr.leader_tempo > 0) {
+        pos += 16;
+        if (pos >= smplr.leader_tempo) ro = 1;
+        pos = pos % smplr.leader_tempo;
+        sync.syncer_pos = (float(pos) / smplr.leader_tempo) * (1 << 27);
+    }
 
     outlet_syncPhase = sync.syncer_pos;
     outlet_syncDurSMPS = smplr.leader_tempo;
@@ -715,8 +785,17 @@ outlet_ppqPerBar = ppq_per_bar;
 // Debug output for continueOnStop
 outlet_continueOnStopStatus = continue_on_stop;
 
+// Transport start/stop: only on clock start/stop (not every reset from tap etc). MIDI START/STOP or internal 0->1 / 1->0
+bool start_pulse = (clock_playing && !prev_clock_playing) || start_pulse_request;
+bool stop_pulse = (!clock_playing && prev_clock_playing) || stop_pulse_request;
+outlet_start = start_pulse;
+outlet_stop = stop_pulse;
+prev_clock_playing = clock_playing;
+start_pulse_request = 0;
+stop_pulse_request = 0;
+
 // Version outlet: increment with each release (v0_0_1 = 1, v0_0_2 = 2, ...)
-outlet_v015 = 15;]]></code.krate>
+outlet_v020 = 20;]]></code.krate>
       <code.srate><![CDATA[if (tap_timer < tap_wait_samples) {
     tap_timer++;
 }
@@ -749,6 +828,7 @@ switch (status) {
     
     case MIDI_START:
         midiStartReceived = true;
+        start_pulse_request = 1;  // Transport start outlet (thru)
         midi_start_reset_hold = 8; // Trigger reset pulse
         clock_playing = true;
         clock_count = 0;
@@ -759,6 +839,7 @@ switch (status) {
     
     case MIDI_STOP:
         midiStopReceived = true;
+        stop_pulse_request = 1;  // Transport stop outlet (thru)
         isClockIncoming = false;
         // Check 'continueOnStop' variable: if low, stop playback; if high, continue at measured tempo
         if (!continue_on_stop) {

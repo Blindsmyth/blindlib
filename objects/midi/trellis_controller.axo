@@ -88,7 +88,10 @@ bool reverse1_toggle, reverse2_toggle, reverse3_toggle, reverse4_toggle;
 
 // Previous button states for edge detection
 bool prev_alt1_btn, prev_alt2_btn, prev_alt3_btn, prev_alt4_btn;
-bool prev_rev1_btn, prev_rev2_btn, prev_rev3_btn, prev_rev4_btn;]]></code.declaration>
+bool prev_rev1_btn, prev_rev2_btn, prev_rev3_btn, prev_rev4_btn;
+
+// Latched values for tap/play when shift is held (outlets hold latest value)
+bool tap_latched, play_latched;]]></code.declaration>
       <code.init><![CDATA[current_index = 0; // Default to Main (index 0)
 
 // Initialize gate array
@@ -112,7 +115,9 @@ reset_triggered1 = reset_triggered2 = reset_triggered3 = reset_triggered4 = 0;
 alt1_toggle = alt2_toggle = alt3_toggle = alt4_toggle = 0;
 reverse1_toggle = reverse2_toggle = reverse3_toggle = reverse4_toggle = 0;
 prev_alt1_btn = prev_alt2_btn = prev_alt3_btn = prev_alt4_btn = 0;
-prev_rev1_btn = prev_rev2_btn = prev_rev3_btn = prev_rev4_btn = 0;]]></code.init>
+prev_rev1_btn = prev_rev2_btn = prev_rev3_btn = prev_rev4_btn = 0;
+tap_latched = 0;
+play_latched = 0;]]></code.init>
       <code.krate><![CDATA[// Shift button state (note 62)
 bool shift_held = gate[62];
 
@@ -343,16 +348,24 @@ prev_rec2 = rec2_held; prev_sel2 = sel2_held;
 prev_rec3 = rec3_held; prev_sel3 = sel3_held;
 prev_rec4 = rec4_held; prev_sel4 = sel4_held;
 
-// Tap and Play (notes 60, 61) - gate outputs
-outlet_tap = gate[60] && !shift_held;
-outlet_play = gate[61] && !shift_held;
-
-// Shift output
+// Shift overrides tap/play: freeze tap/play outlets the moment shift is pressed; notes 60/61 then drive nudge
 outlet_shift = gate[62];
-
-// Nudge buttons (notes 60+shift, 61+shift) - gate outputs
-outlet_nudgeMinus = gate[60] && shift_held;
-outlet_nudgePlus = gate[61] && shift_held;
+bool shift_rising = shift_held && !prev_shift;
+if (shift_rising) {
+    tap_latched = gate[60];
+    play_latched = gate[61];
+}
+if (shift_held) {
+    outlet_tap = tap_latched;
+    outlet_play = play_latched;
+    outlet_nudgeMinus = gate[60];
+    outlet_nudgePlus = gate[61];
+} else {
+    outlet_tap = gate[60];
+    outlet_play = gate[61];
+    outlet_nudgeMinus = 0;
+    outlet_nudgePlus = 0;
+}
 
 // Index trigger (pulse on index change)
 outlet_indexTrig = trig_index;
