@@ -7,10 +7,12 @@
          <int32.positive name="page" description="set current page"/>
          <int32.positive name="layout" description="set layout page (always visible)"/>
          <bool32.rising name="print" description="Will log the state of the object table to axoloti window"/>
+         <bool32.rising name="reset" description="Re-init display (fix freeze or upside down)"/>
       </inlets>
       <outlets>
          <int32.positive name="sw" description="screen width"/>
          <int32.positive name="sh" description="screen height"/>
+         <int32 name="v002" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -57,49 +59,79 @@ uint8_t pixels[8][LCDWIDTH];
 uint8_t *txbuf;
 uint8_t *rxbuf;
 
-void cmd(uint8_t c) {
+volatile bool display_reset_pending;
+volatile bool i2c_error_this_frame;
+bool prev_reset;
+
+static const I2CConfig& get_i2cfg(void) {
+	static const I2CConfig i2cfg = {
+		OPMODE_I2C,
+		400000,
+		FAST_DUTY_CYCLE_2,
+	};
+	return i2cfg;
+}
+
+msg_t cmd(uint8_t c) {
 	txbuf[0] = 0;
 	txbuf[1] = c;
-	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 2, rxbuf, 0, 32);
+	return i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 2, rxbuf, 0, 32);
 }
 
 void clear() {
 	sketchy_clear(pixels);
 }
 
-void sendPage(int page) {
-	cmd(SKETCHY_CMD_COLUMNADDR); cmd(0); cmd(127);
-	cmd(SKETCHY_CMD_PAGEADDR); cmd(page); cmd(page);
+msg_t sendPage(int page) {
+	if (cmd(SKETCHY_CMD_COLUMNADDR) != MSG_OK) { i2c_error_this_frame = true; return MSG_RESET; }
+	if (cmd(0) != MSG_OK) { i2c_error_this_frame = true; return MSG_RESET; }
+	if (cmd(127) != MSG_OK) { i2c_error_this_frame = true; return MSG_RESET; }
+	if (cmd(SKETCHY_CMD_PAGEADDR) != MSG_OK) { i2c_error_this_frame = true; return MSG_RESET; }
+	if (cmd((uint8_t)page) != MSG_OK) { i2c_error_this_frame = true; return MSG_RESET; }
+	if (cmd((uint8_t)page) != MSG_OK) { i2c_error_this_frame = true; return MSG_RESET; }
 
 	if (attr_type == 1106) {
-		cmd(0xB0 + page);
-		cmd(2 & 0xf);
-		cmd(0x10 | (2 >> 4));
+		if (cmd(0xB0 + page) != MSG_OK) { i2c_error_this_frame = true; return MSG_RESET; }
+		if (cmd(2 & 0xf) != MSG_OK) { i2c_error_this_frame = true; return MSG_RESET; }
+		if (cmd(0x10 | (2 >> 4)) != MSG_OK) { i2c_error_this_frame = true; return MSG_RESET; }
 	}
 
 	txbuf[0] = 0x40;
 	memcpy(txbuf + 1, pixels[page], LCDWIDTH);
-	i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 129, rxbuf, 0, 32);
+	if (i2cMasterTransmitTimeout(&I2CD1, attr_I2CADDR, txbuf, 129, rxbuf, 0, 32) != MSG_OK) {
+		i2c_error_this_frame = true;
+		return MSG_RESET;
+	}
+	return MSG_OK;
 }
 
 void init() {
-	cmd(SKETCHY_CMD_DISPLAYOFF);
-	cmd(SKETCHY_CMD_SETDISPLAYCLOCKDIV); cmd(0x80);
-	cmd(SKETCHY_CMD_SETMULTIPLEX); cmd(LCDHEIGHT - 1);
-	cmd(SKETCHY_CMD_SETDISPLAYOFFSET); cmd(attr_type == 1306 ? 0x00 : 0x01);
-	cmd(SKETCHY_CMD_SETSTARTLINE_0);
-	cmd(SKETCHY_CMD_CHARGEPUMP); cmd(0x14);
-	cmd(SKETCHY_CMD_MEMORYMODE); cmd(0x00);
-	cmd(SKETCHY_CMD_SEGREMAP | 0x1);
-	cmd(SKETCHY_CMD_COMSCANDEC);
-	cmd(SKETCHY_CMD_SETCOMPINS); cmd(0x12);
-	cmd(SKETCHY_CMD_SETCONTRAST); cmd(0xCF);
-	cmd(SKETCHY_CMD_SETPRECHARGE); cmd(0xF1);
-	cmd(SKETCHY_CMD_SETVCOMDETECT); cmd(0x40);
-	cmd(SKETCHY_CMD_DISPLAYALLON_RESUME);
-	cmd(SKETCHY_CMD_NORMALDISPLAY);
-	cmd(SKETCHY_CMD_DEACTIVATE_SCROLL);
-	cmd(SKETCHY_CMD_DISPLAYON);
+	if (cmd(SKETCHY_CMD_DISPLAYOFF) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(SKETCHY_CMD_SETDISPLAYCLOCKDIV) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(0x80) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(SKETCHY_CMD_SETMULTIPLEX) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(LCDHEIGHT - 1) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(SKETCHY_CMD_SETDISPLAYOFFSET) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(attr_type == 1306 ? 0x00 : 0x01) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(SKETCHY_CMD_SETSTARTLINE_0) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(SKETCHY_CMD_CHARGEPUMP) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(0x14) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(SKETCHY_CMD_MEMORYMODE) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(0x00) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(SKETCHY_CMD_SEGREMAP | 0x1) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(SKETCHY_CMD_COMSCANDEC) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(SKETCHY_CMD_SETCOMPINS) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(0x12) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(SKETCHY_CMD_SETCONTRAST) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(0xCF) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(SKETCHY_CMD_SETPRECHARGE) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(0xF1) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(SKETCHY_CMD_SETVCOMDETECT) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(0x40) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(SKETCHY_CMD_DISPLAYALLON_RESUME) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(SKETCHY_CMD_NORMALDISPLAY) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(SKETCHY_CMD_DEACTIVATE_SCROLL) != MSG_OK) { i2c_error_this_frame = true; return; }
+	if (cmd(SKETCHY_CMD_DISPLAYON) != MSG_OK) { i2c_error_this_frame = true; return; }
 }
 
 void setup() {
@@ -121,18 +153,28 @@ void render() __attribute__ ((noinline)) {
 msg_t ThreadX2() {
 	setup();
 	while (!chThdShouldTerminate()) {
+		if (display_reset_pending) {
+			init();
+			display_reset_pending = false;
+		}
 		clear();
 		render();
-		uint8_t i; 
+		uint8_t i;
 		for (i = 0; i < 8; i++) {
 			sendPage(i);
+		}
+		if (i2c_error_this_frame) {
+			i2cStop(&I2CD1);
+			i2cStart(&I2CD1, &get_i2cfg());
+			init();
+			i2c_error_this_frame = false;
 		}
 		chThdSleepMilliseconds(32);
 	}
 	chThdExit((msg_t)0);
 }
 
-static msg_t ThreadX(void *arg) {
+static void ThreadX(void *arg) {
 	((attr_parent *)arg)->ThreadX2();
 }
 
@@ -392,14 +434,13 @@ text_table = &parent->objectinstance_sketchy__texts_i;
 param_table = &parent->objectinstance_sketchy__params_i;
 font = &parent->objectinstance_sketchy__font_i;
 
+display_reset_pending = false;
+i2c_error_this_frame = false;
+prev_reset = false;
+
 palSetPadMode(GPIOB, 8, PAL_MODE_ALTERNATE(4)|PAL_STM32_PUDR_PULLUP|PAL_STM32_OTYPE_OPENDRAIN);
 palSetPadMode(GPIOB, 9, PAL_MODE_ALTERNATE(4)|PAL_STM32_PUDR_PULLUP|PAL_STM32_OTYPE_OPENDRAIN);
-static const I2CConfig i2cfg = {
-    OPMODE_I2C,
-    400000,
-    FAST_DUTY_CYCLE_2,
-};
-i2cStart(&I2CD1, &i2cfg);
+i2cStart(&I2CD1, &get_i2cfg());
 Thd = chThdCreateStatic(waThreadX, sizeof(waThreadX), NORMALPRIO-1, ThreadX, (void *)this);
 
 clear();
@@ -441,7 +482,13 @@ if (layout != inlet_layout) {
 	layout = inlet_layout;
 }
 
+if (inlet_reset && !prev_reset) {
+	display_reset_pending = true;
+}
+prev_reset = inlet_reset;
+
 outlet_sw = LCDWIDTH;
-outlet_sh = LCDHEIGHT;]]></code.krate>
+outlet_sh = LCDHEIGHT;
+outlet_v002 = 1;]]></code.krate>
    </obj.normal>
 </objdefs>

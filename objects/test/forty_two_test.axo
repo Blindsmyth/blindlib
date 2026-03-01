@@ -1,0 +1,17 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="forty_two_test" uuid="e7a14200-0000-4000-8000-000000000042">
+      <sDescription>Test object for Ksoloti-42 firmware: outlet outputs forty_two() (42). Requires Ksoloti-42.app.</sDescription>
+      <author>Ksoloti Custom Firmware</author>
+      <license>MIT</license>
+      <inlets/>
+      <outlets>
+         <int32 name="value"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs/>
+      <code.declaration><![CDATA[]]></code.declaration>
+      <code.init><![CDATA[]]></code.init>
+      <code.krate><![CDATA[outlet_value = forty_two();]]></code.krate>
+   </obj.normal>
+</objdefs>

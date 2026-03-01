@@ -55,6 +55,7 @@ All button states available via individual outlets.</sDescription>
          <bool32 name="nudgeMinus" description="note 60 + shift held"/>
          <bool32 name="nudgePlus" description="note 61 + shift held"/>
          <bool32 name="shiftHeld" description="shift state (held/released)"/>
+         <bool32.pulse name="reset" description="display reset: notes 64-67 held &gt;2s"/>
       </outlets>
       <displays/>
       <params/>
@@ -91,7 +92,14 @@ bool prev_alt1_btn, prev_alt2_btn, prev_alt3_btn, prev_alt4_btn;
 bool prev_rev1_btn, prev_rev2_btn, prev_rev3_btn, prev_rev4_btn;
 
 // Latched values for tap/play when shift is held (outlets hold latest value)
-bool tap_latched, play_latched;]]></code.declaration>
+bool tap_latched, play_latched;
+
+// Display reset: notes 64-67 held >2s then pulse reset outlet
+#define RESET_COMBO_MS 2000
+#define KRATE_HZ 3000
+#define RESET_COMBO_TICKS (RESET_COMBO_MS * KRATE_HZ / 1000)
+uint32_t reset_combo_timer;
+bool reset_combo_triggered;]]></code.declaration>
       <code.init><![CDATA[current_index = 0; // Default to Main (index 0)
 
 // Initialize gate array
@@ -117,7 +125,9 @@ reverse1_toggle = reverse2_toggle = reverse3_toggle = reverse4_toggle = 0;
 prev_alt1_btn = prev_alt2_btn = prev_alt3_btn = prev_alt4_btn = 0;
 prev_rev1_btn = prev_rev2_btn = prev_rev3_btn = prev_rev4_btn = 0;
 tap_latched = 0;
-play_latched = 0;]]></code.init>
+play_latched = 0;
+reset_combo_timer = 0;
+reset_combo_triggered = 0;]]></code.init>
       <code.krate><![CDATA[// Shift button state (note 62)
 bool shift_held = gate[62];
 
@@ -375,6 +385,22 @@ outlet_index = current_index;
 
 // Output shift state
 outlet_shiftHeld = shift_held;
+
+// Display reset: notes 64,65,66,67 all held for >2s -> pulse reset outlet
+bool all_four = gate[64] && gate[65] && gate[66] && gate[67];
+if (all_four) {
+    reset_combo_timer++;
+    if (reset_combo_timer >= RESET_COMBO_TICKS && !reset_combo_triggered) {
+        outlet_reset = 1;
+        reset_combo_triggered = 1;
+    } else {
+        outlet_reset = 0;
+    }
+} else {
+    reset_combo_timer = 0;
+    reset_combo_triggered = 0;
+    outlet_reset = 0;
+}
 
 // Reset index trigger
 trig_index = 0;]]></code.krate>

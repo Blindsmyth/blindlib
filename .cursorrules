@@ -95,6 +95,16 @@
 - **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
 - **MANDATORY**: Document all new UUIDs in this file immediately after creation
 
+## Version outlet (v-outlet) - object revisions
+
+- **Every new object** MUST have a version outlet so patches can confirm which revision is loaded.
+- **Outlet:** Add an `<int32>` outlet with a name like `v001`, `v002`, … (zero-padded to 3 digits). Description e.g. "Object version (incremented each release)".
+- **Value:** In `code.krate`, set `outlet_v001 = 1;` (or the same number as in the name). Use the same number as the suffix in the outlet name.
+- **On every update** to an existing object:
+  1. Rename the version outlet to the next number (e.g. `v020` → `v021`).
+  2. Set the outlet value to that number in code (e.g. `outlet_v021 = 21;`).
+- This lets you verify in the patch (e.g. via a display) that the correct object revision is loaded after changes.
+
 ## Generated / compiled patch files - DO NOT EDIT
 
 - **NEVER** edit generated or compiled patch output (e.g. `.axp.cpp`, `.axp.o`, `.axp.map`, `.axp.elf`, `.axp.bin`).
