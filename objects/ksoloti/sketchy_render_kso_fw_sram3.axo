@@ -11,7 +11,7 @@
       <outlets>
          <int32.positive name="sw" description="screen width"/>
          <int32.positive name="sh" description="screen height"/>
-         <int32 name="v002" description="Object version (incremented each release)"/>
+         <int32 name="v003" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -147,10 +147,10 @@ uint16_t getCurrentPage() __attribute__((noinline, section(".sram3.text.2"))) {
 }
 
 // Wrappers for other patch objects (e.g. pager__fixed) that call these on the renderer
-int count_tokens(const char* str) __attribute__((noinline, section(".sram3.text.2"))) {
+int count_tokens(const char* str) __attribute__((noinline, section(".sram3.text.3"))) {
 	return sketchy_count_tokens(str);
 }
-char* get_token_at_index(const char* str, int desired_index) __attribute__((noinline, section(".sram3.text.2"))) {
+char* get_token_at_index(const char* str, int desired_index) __attribute__((noinline, section(".sram3.text.4"))) {
 	static char buf[64];
 	return sketchy_get_token_at_index(str, desired_index, buf, 64);
 }
@@ -162,7 +162,7 @@ typedef sketchy_intdisplay_t intdisplay_t;
 typedef sketchy_dial_t      dial_t;
 
 // ---- bar_init (must stay in patch: calls registerEntry on C++ objects) ----
-void bar_init(bar_t* bar) __attribute__((noinline, section(".sram3.text.2"))) {
+void bar_init(bar_t* bar) __attribute__((noinline, section(".sram3.text.5"))) {
    rootc::objectinstance_sketchy__objects* ot = &parent->objectinstance_sketchy__objects_i;
    rootc::objectinstance_sketchy__texts*   tt = &parent->objectinstance_sketchy__texts_i;
    rootc::objectinstance_sketchy__params*  pt = &parent->objectinstance_sketchy__params_i;
@@ -225,7 +225,7 @@ void bar_init(bar_t* bar) __attribute__((noinline, section(".sram3.text.2"))) {
    pt->array[bar->page][bar->param] = bar->default_value;
 }
 
-void bar_update(bar_t* bar) __attribute__((noinline, section(".sram3.text.2"))) {
+void bar_update(bar_t* bar) __attribute__((noinline, section(".sram3.text.6"))) {
    sketchy_bar_update(bar,
        object_table->array,
        text_table->array,
@@ -233,7 +233,7 @@ void bar_update(bar_t* bar) __attribute__((noinline, section(".sram3.text.2"))) 
 }
 
 // ---- select_init ----
-void select_init(select_t* select) __attribute__((noinline, section(".sram3.text.2"))) {
+void select_init(select_t* select) __attribute__((noinline, section(".sram3.text.7"))) {
    rootc::objectinstance_sketchy__objects* ot = &parent->objectinstance_sketchy__objects_i;
    rootc::objectinstance_sketchy__texts*   tt = &parent->objectinstance_sketchy__texts_i;
 
@@ -285,7 +285,7 @@ void select_init(select_t* select) __attribute__((noinline, section(".sram3.text
    select->last_value = 0xFFFFFFFF;
 }
 
-void select_update(select_t* select) __attribute__((noinline, section(".sram3.text.2"))) {
+void select_update(select_t* select) __attribute__((noinline, section(".sram3.text.8"))) {
    sketchy_select_update(select,
        object_table->array,
        text_table->array,
@@ -293,7 +293,7 @@ void select_update(select_t* select) __attribute__((noinline, section(".sram3.te
 }
 
 // ---- intdisplay_init ----
-void intdisplay_init(intdisplay_t* disp) __attribute__((noinline, section(".sram3.text.2"))) {
+void intdisplay_init(intdisplay_t* disp) __attribute__((noinline, section(".sram3.text.9"))) {
    rootc::objectinstance_sketchy__objects* ot = &parent->objectinstance_sketchy__objects_i;
    rootc::objectinstance_sketchy__texts*   tt = &parent->objectinstance_sketchy__texts_i;
 
@@ -339,7 +339,7 @@ void intdisplay_init(intdisplay_t* disp) __attribute__((noinline, section(".sram
    disp->last_value = 0xFFFFFFFF;
 }
 
-void intdisplay_update(intdisplay_t* disp) __attribute__((noinline, section(".sram3.text.2"))) {
+void intdisplay_update(intdisplay_t* disp) __attribute__((noinline, section(".sram3.text.10"))) {
    sketchy_intdisplay_update(disp,
        object_table->array,
        text_table->array,
@@ -347,7 +347,7 @@ void intdisplay_update(intdisplay_t* disp) __attribute__((noinline, section(".sr
 }
 
 // ---- dial_init ----
-void dial_init(dial_t* dial) __attribute__((noinline, section(".sram3.text.2"))) {
+void dial_init(dial_t* dial) __attribute__((noinline, section(".sram3.text.11"))) {
    rootc::objectinstance_sketchy__objects* ot = &parent->objectinstance_sketchy__objects_i;
    rootc::objectinstance_sketchy__texts*   tt = &parent->objectinstance_sketchy__texts_i;
    rootc::objectinstance_sketchy__params*  pt = &parent->objectinstance_sketchy__params_i;
@@ -383,7 +383,7 @@ void dial_init(dial_t* dial) __attribute__((noinline, section(".sram3.text.2")))
    dial->last_value = -999999;
 }
 
-void dial_update(dial_t* dial) __attribute__((noinline, section(".sram3.text.2"))) {
+void dial_update(dial_t* dial) __attribute__((noinline, section(".sram3.text.12"))) {
    sketchy_dial_update(dial,
        object_table->array,
        param_table->array);
@@ -444,6 +444,6 @@ if (layout != inlet_layout) {
 
 outlet_sw = LCDWIDTH;
 outlet_sh = LCDHEIGHT;
-outlet_v002 = 2;]]></code.krate>
+outlet_v003 = 3;]]></code.krate>
    </obj.normal>
 </objdefs>
