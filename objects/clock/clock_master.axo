@@ -45,7 +45,7 @@
         <bool32 name="extSync" description="High when syncing to external MIDI clock"/>
         <bool32 name="clockIsLeader" description="High when internal clock running with no loop leader (clock is virtual leader; use for first-loop sync/quantize)"/>
         <bool32 name="continueOnStopStatus" description="Debug: shows current continueOnStop state"/>
-        <int32 name="v020" description="Object version (incremented each release)"/>
+        <int32 name="v021" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -559,6 +559,9 @@ if (smplr.leader != prev_leader && smplr.leader >= 0 && prev_leader == -1) {
 prev_leader = smplr.leader;
 
 outlet_isPlaying = clock_playing;
+// Clear leader when leader slot was killed (delete_slot doesn't clear leader in Smplr)
+if (smplr.leader >= 0 && !smplr.has_sample((uint8_t)smplr.leader))
+    smplr.leader = -1;
 // High when internal clock running and no valid leader; stay high for a short hold after we get a leader so sync logic can react
 {
     bool no_valid_leader = (smplr.leader < 0 || (smplr.leader >= 0 && !smplr.has_sample((uint8_t)smplr.leader)));
@@ -640,13 +643,17 @@ if (inlet_EXTsync){
         uint32_t stempo;
         if (smplr.RAW || (inlet_setToRaw || attr_setTempoTo)) stempo = smplr.calc_dur(smplr.leader);
         else stempo = smplr.leader_tempo * float(smplr.BARS) / (1<<21);
+        bool stempo_valid = (stempo >= 1000);  // guard: re-record on cleared slot can give 0 and corrupt leader_tempo
 
         // When internal clock is running, any new loop slaves to the clock. Only when clock is off does the new loop become leader and set tempo.
         bool clock_is_master = (clock_playing && !use_external);
         if (clock_is_master) {
             if (smplr.leader_tempo <= 0)
                 smplr.leader_tempo = bpmToTempo(current_bpm > 0 ? current_bpm : 120, 16, current_beats, current_measure);
-            smplr.BARS = sync.calc_bars(stempo, smplr.leader_tempo);
+            if (stempo_valid)
+                smplr.BARS = sync.calc_bars(stempo, smplr.leader_tempo);
+            else
+                smplr.BARS = (1<<21);  // one bar when stempo invalid (e.g. BARS 0 on cleared slot)
             detected_bars = (smplr.BARS * 16) >> 21;
             if (detected_bars < 1) detected_bars = 1;
             smplr.RAW = 0;
@@ -654,9 +661,13 @@ if (inlet_EXTsync){
         } else {
             // Loop defines tempo (or external clock / clock was stopped)
             int32_t calculated_bars = 1;
-            smplr.leader_tempo = scale_tempo_musical(stempo, current_lower_bpm, current_beats, current_measure, &calculated_bars);
+            if (stempo_valid) {
+                smplr.leader_tempo = scale_tempo_musical(stempo, current_lower_bpm, current_beats, current_measure, &calculated_bars);
+            } else {
+                smplr.leader_tempo = old_tempo > 0 ? old_tempo : bpmToTempo(current_bpm > 0 ? current_bpm : 120, 16, current_beats, current_measure);
+            }
             detected_bars = calculated_bars;
-            smplr.BARS = sync.calc_bars(stempo, smplr.leader_tempo);
+            smplr.BARS = stempo_valid ? sync.calc_bars(stempo, smplr.leader_tempo) : (1<<21);
             smplr.RAW = 0;
             // Align clock phase to leader playhead only when NOT on external clock (external clock must drive phase; avoids offbeat + last part cut)
             if (!use_external && smplr.leader_tempo > 0) {
@@ -721,7 +732,7 @@ if (inlet_EXTsync){
     }
 
     outlet_syncPhase = sync.syncer_pos;
-    outlet_syncDurSMPS = smplr.leader_tempo;
+    outlet_syncDurSMPS = (smplr.leader_tempo > 0) ? smplr.leader_tempo : bpmToTempo(current_bpm > 0 ? current_bpm : 120, 16, current_beats, current_measure);
     outlet_rollover = ro;
     outlet_syncSlot = smplr.leader;
 }
@@ -795,7 +806,7 @@ start_pulse_request = 0;
 stop_pulse_request = 0;
 
 // Version outlet: increment with each release (v0_0_1 = 1, v0_0_2 = 2, ...)
-outlet_v020 = 20;]]></code.krate>
+outlet_v021 = 21;]]></code.krate>
       <code.srate><![CDATA[if (tap_timer < tap_wait_samples) {
     tap_timer++;
 }

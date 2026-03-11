@@ -13,10 +13,15 @@
          <table name="list" description="comma separated list of page names"/>
       </attribs>
       <includes/>
-      <code.declaration><![CDATA[rootc::objectinstance_sketchy__objects* object_table;
-rootc::objectinstance_sketchy__texts* text_table;
-rootc::objectinstance_sketchy__params* param_table;
-rootc::objectinstance_sketchy__render* renderer;
+      <code.declaration><![CDATA[// void* to avoid incomplete type when rootc nested classes are not yet defined (codegen order)
+void* object_table;
+void* text_table;
+void* param_table;
+void* renderer;
+#define OBJ_TBL ((rootc::objectinstance_sketchy__objects*)object_table)
+#define TXT_TBL ((rootc::objectinstance_sketchy__texts*)text_table)
+#define PAR_TBL ((rootc::objectinstance_sketchy__params*)param_table)
+#define RNDR    ((rootc::objectinstance_sketchy__render*)renderer)
 
 uint16_t label_object_id;
 uint16_t label2_object_id;
@@ -32,66 +37,66 @@ param_table = &parent->objectinstance_sketchy__params_i;
 renderer = &parent->objectinstance_sketchy__render_i;
 
 // Register and get ids - NO divider line
-label_object_id = object_table->registerEntry();
-label2_object_id = object_table->registerEntry();
+label_object_id = OBJ_TBL->registerEntry();
+label2_object_id = OBJ_TBL->registerEntry();
 
-label_text_id = text_table->registerEntry();
-label2_text_id = text_table->registerEntry();
+label_text_id = TXT_TBL->registerEntry();
+label2_text_id = TXT_TBL->registerEntry();
 
 // Setup label object
-object_table->array[label_object_id][object_table->FIELD_TYPE] = 6;
-object_table->array[label_object_id][object_table->FIELD_X] =  2;
-object_table->array[label_object_id][object_table->FIELD_Y] = 2;
-object_table->array[label_object_id][object_table->FIELD_W] = 100;
-object_table->array[label_object_id][object_table->FIELD_H] = 25;
-object_table->array[label_object_id][object_table->FIELD_COLOR] = 2;
-object_table->array[label_object_id][object_table->FIELD_SCALE] = 1;
-object_table->array[label_object_id][object_table->FIELD_TEXT_ID] = label_text_id;
-object_table->array[label_object_id][object_table->FIELD_PAGE] = -1; // Show on all pages
+OBJ_TBL->array[label_object_id][OBJ_TBL->FIELD_TYPE] = 6;
+OBJ_TBL->array[label_object_id][OBJ_TBL->FIELD_X] =  2;
+OBJ_TBL->array[label_object_id][OBJ_TBL->FIELD_Y] = 2;
+OBJ_TBL->array[label_object_id][OBJ_TBL->FIELD_W] = 100;
+OBJ_TBL->array[label_object_id][OBJ_TBL->FIELD_H] = 25;
+OBJ_TBL->array[label_object_id][OBJ_TBL->FIELD_COLOR] = 2;
+OBJ_TBL->array[label_object_id][OBJ_TBL->FIELD_SCALE] = 1;
+OBJ_TBL->array[label_object_id][OBJ_TBL->FIELD_TEXT_ID] = label_text_id;
+OBJ_TBL->array[label_object_id][OBJ_TBL->FIELD_PAGE] = -1; // Show on all pages
 
 // Setup label2 object [8/10]
-object_table->array[label2_object_id][object_table->FIELD_TYPE] = 6;
-object_table->array[label2_object_id][object_table->FIELD_X] = 60;
-object_table->array[label2_object_id][object_table->FIELD_Y] = 2;
-object_table->array[label2_object_id][object_table->FIELD_W] = 100;
-object_table->array[label2_object_id][object_table->FIELD_H] = 25;
-object_table->array[label2_object_id][object_table->FIELD_COLOR] = 2;
-object_table->array[label2_object_id][object_table->FIELD_SCALE] = 1;
-object_table->array[label2_object_id][object_table->FIELD_TEXT_ID] = label2_text_id;
-object_table->array[label2_object_id][object_table->FIELD_PAGE] = -1; // Show on all pages
+OBJ_TBL->array[label2_object_id][OBJ_TBL->FIELD_TYPE] = 6;
+OBJ_TBL->array[label2_object_id][OBJ_TBL->FIELD_X] = 60;
+OBJ_TBL->array[label2_object_id][OBJ_TBL->FIELD_Y] = 2;
+OBJ_TBL->array[label2_object_id][OBJ_TBL->FIELD_W] = 100;
+OBJ_TBL->array[label2_object_id][OBJ_TBL->FIELD_H] = 25;
+OBJ_TBL->array[label2_object_id][OBJ_TBL->FIELD_COLOR] = 2;
+OBJ_TBL->array[label2_object_id][OBJ_TBL->FIELD_SCALE] = 1;
+OBJ_TBL->array[label2_object_id][OBJ_TBL->FIELD_TEXT_ID] = label2_text_id;
+OBJ_TBL->array[label2_object_id][OBJ_TBL->FIELD_PAGE] = -1; // Show on all pages
 
 // Setup label text
-strcpy(text_table->array[label_text_id], "attr_label");
+strcpy(TXT_TBL->array[label_text_id], "attr_label");
 
-num_pagenames = renderer->count_tokens("attr_list");]]></code.init>
-      <code.krate><![CDATA[if (page != renderer->getCurrentPage()) {
+num_pagenames = RNDR->count_tokens("attr_list");]]></code.init>
+      <code.krate><![CDATA[if (page != RNDR->getCurrentPage()) {
 	
-	page = renderer->getCurrentPage();
+	page = RNDR->getCurrentPage();
 	int desired_index = page - attr_firstpage;
 	
 	char str[] = "attr_list";
-	const char* pagename = renderer->get_token_at_index(str, desired_index);
+	const char* pagename = RNDR->get_token_at_index(str, desired_index);
 	
 	// copy page name to label
-	strcpy(text_table->array[label_text_id], pagename);
+	strcpy(TXT_TBL->array[label_text_id], pagename);
 	
 	// set pager string [7/8]
 	char pager_str[16] = "";
 	char page_str[4] = "";
 	char num_pagenames_str[4] = "";
 
-	text_table->itoa(page_str, page+1);
-	text_table->itoa(num_pagenames_str, num_pagenames);
+	TXT_TBL->itoa(page_str, page+1);
+	TXT_TBL->itoa(num_pagenames_str, num_pagenames);
 	
 	strcat(pager_str, "[");
 	strcat(pager_str, page_str);
 	strcat(pager_str, "/");
 	strcat(pager_str, num_pagenames_str);
 	strcat(pager_str, "]");
-	strcpy(text_table->array[label2_text_id], pager_str);
+	strcpy(TXT_TBL->array[label2_text_id], pager_str);
 	
 	uint16_t pager_str_w = strlen(pager_str) * 6;
-	object_table->array[label2_object_id][object_table->FIELD_X] = 128 - pager_str_w;
+	OBJ_TBL->array[label2_object_id][OBJ_TBL->FIELD_X] = 128 - pager_str_w;
 }]]></code.krate>
    </obj.normal>
 </objdefs> 
