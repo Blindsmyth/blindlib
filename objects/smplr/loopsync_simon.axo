@@ -1,0 +1,256 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="loopsync_simon" uuid="5224773f-18de-4231-8f92-b1f22bb953BC">
+      <sDescription>Loopsync with optional resync-on-cycle (based on RBRT loopsync dev 14). When resyncOnCycle is on, this loop resyncs to clock phase at the start of each of its cycles to reduce drift.</sDescription>
+      <author>Simon Reeve (based on Robert Schirmer)</author>
+      <license>BSD</license>
+      <helpPatch>filter.axh</helpPatch>
+      <inlets>
+         <frac32.positive name="syncPhase"/>
+         <int32.positive name="syncDurSMPS"/>
+         <int32.positive name="slot"/>
+         <bool32.risingfalling name="gate" description="if high :wait for syncpos to be reached.low is passed through."/>
+         <bool32.rising name="resync" description="resync to input phase (also performed when slotstart,quantization,length or divider is changed)"/>
+         <bool32 name="stopmode"/>
+         <bool32 name="syncedStartOFF"/>
+         <bool32.rising name="stop"/>
+      </inlets>
+      <outlets>
+         <bool32 name="play"/>
+         <bool32.pulse name="reset"/>
+         <bool32.pulse name="stop"/>
+         <bool32 name="waiting"/>
+         <bool32 name="test"/>
+         <int32 name="v003" description="Object version (incremented each release)"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <combo name="stopmode">
+            <MenuEntries>
+               <string>immediately</string>
+               <string>on next trig</string>
+            </MenuEntries>
+            <CEntries>
+               <string>0</string>
+               <string>1</string>
+            </CEntries>
+         </combo>
+         <combo name="resyncOnCycle" description="Resync this loop to clock phase at the start of each of its cycles (reduces drift)">
+            <MenuEntries>
+               <string>off</string>
+               <string>on</string>
+            </MenuEntries>
+            <CEntries>
+               <string>0</string>
+               <string>1</string>
+            </CEntries>
+         </combo>
+      </attribs>
+      <includes>
+         <include>../../../Axolonatics/objects/rbrt_new/rbrt_classes/Smplr.h</include>
+         <include>../../../Axolonatics/objects/rbrt_new/rbrt_classes/sync.h</include>
+      </includes>
+      <code.declaration><![CDATA[SYNC sync;
+Smplr smplr;
+
+bool rsync;
+bool rs;
+bool wait;
+bool gate;
+bool strig;
+
+uint32_t _ro;
+bool synctrig;
+bool nexttrig;
+bool otrig;
+uint32_t premod;
+uint8_t count;
+uint8_t preclim;
+uint32_t pos;
+uint32_t preslotstart;
+uint32_t presyncstart;
+
+bool gon;
+bool goff;
+bool play;
+bool reset;
+bool stop;
+
+uint8_t resync_clock_bar_count;  // clock bars since last resync (each ro wrap = 1 bar = 96 ppq ticks)
+bool resync_reset_pulse;         // pulse reset outlet when we resync so play object realigns playback]]></code.declaration>
+      <code.init><![CDATA[sync.loopsync = 1;
+resync_clock_bar_count = 0;]]></code.init>
+      <code.krate><![CDATA[uint16_t adr = inlet_slot * 128;
+float frac;
+if (!smplr.RAW) frac = float (smplr.BARS) / (1<<21);
+	else frac = float (smplr.calc_dur(inlet_slot)) / inlet_syncDurSMPS;
+
+uint32_t lim = (float(inlet_syncDurSMPS)*frac);
+uint8_t clim = int (frac);
+clim = (clim) ? clim : 1;
+uint32_t mod = (1<<27) * frac;
+uint32_t  slotstart = (smplr.STARTPOINT + smplr.SPMOD ) & ((1<<27)-1);
+uint32_t  syncstart = smplr.leader_start;
+if (frac < 1.0f) { //wrap the startpoints
+		slotstart = int(slotstart * frac) & ((1<<27)-1);
+		syncstart = int(syncstart * frac) & ((1<<27)-1);
+	}
+
+if (!inlet_syncedStartOFF && !smplr.RAW){
+	if (clim != preclim){
+		preclim = clim;
+		count = clim;
+	}
+	if ( (mod != premod)){
+		premod = mod;
+		_ro = 0;
+		rsync = 1;
+	}	
+	if ((syncstart != presyncstart)||(slotstart != preslotstart)){
+		rsync = 1;
+		nexttrig = 1;
+		_ro = 0;
+		presyncstart = syncstart;
+		preslotstart = slotstart;
+	} 
+}
+
+int32_t ro = ((inlet_syncPhase + syncstart) - slotstart) & ((1<<27)-1);
+ro = ro % mod;
+if (ro < _ro){
+	count ++;
+	// Resync internal state every cycle (clim bars) to reduce drift. Do NOT pulse reset - that breaks playback.
+	if (attr_resyncOnCycle && clim > 0) {
+		resync_clock_bar_count++;
+		if (resync_clock_bar_count >= clim) {
+			sync.resync = inlet_slot + 1;
+			resync_clock_bar_count = 0;
+		}
+	} else {
+		resync_clock_bar_count = 0;
+	}
+	if (count >= clim){
+		synctrig = 1;
+		count = 0;
+	}
+	if (nexttrig){ //trigger NOW
+		nexttrig = 0;
+		synctrig = 1;
+		count = 0;
+	}
+}
+_ro = ro;		
+
+// pos was here
+
+if (synctrig){   //keep the loops together with fuzzy logic
+	uint32_t fuzz = ((lim>>12)>32)? lim>>12 : 32;
+	if ((pos < (fuzz + 128)) && (pos > fuzz)) rsync = 1;
+	if ((pos > (lim - (fuzz+128))) && (pos < (lim -fuzz))) rsync = 1;
+}
+
+if (inlet_gate && !gate){
+	wait = 1;
+	count = clim;
+	//pos = lim;
+	if (smplr.RAW ||inlet_syncedStartOFF) synctrig = 1;
+}
+if (!inlet_gate && gate){
+	if ((!attr_stopmode && !inlet_stopmode) || smplr.RAW) gate = 0;
+		else wait = 1;
+}
+if (wait && synctrig){
+	wait = 0;
+	gate = !gate;
+	count = 0;
+	//rsync = 1;
+	pos = lim;
+	_ro = 0;
+	rsync = 0;
+}
+//resync
+if ((inlet_resync && !rs)|| (sync.resync  == (inlet_slot +1)) || (sync.resync == -1)){
+	if (sync.resync  == (inlet_slot +1)) sync.resync = 0;
+	rsync = 1;
+	rs = 1;
+	nexttrig = 1;
+}
+if (!inlet_resync) rs = 0;
+
+//RESYNC
+outlet_test = rsync;
+resync_reset_pulse = 0;
+if (rsync && synctrig){
+	pos = lim;
+	_ro = 0;
+	rsync = 0;
+	// resync_reset_pulse disabled: was causing loop to silence then play once out of sync
+}
+
+//OUTPUT
+if (inlet_stop){
+	gate = 0;
+	stop = 1;
+}
+otrig = (otrig && gate && !rsync);
+
+switch (smplr.PLAYMODE){
+	case 0:
+		play = 0;
+		stop = 1;
+		break;
+	case 1:
+		play = inlet_gate;
+		stop = 0;
+		break;
+	case 2:
+		stop = 0;
+		play = 0;
+		if (inlet_gate && !gon){
+			play = 1;
+			gon = 1;
+		}
+		if (!inlet_gate) gon = 0;		
+		break;
+	case 3:
+		stop = 0;
+		play = inlet_gate;		
+		break;
+	case 4:
+		play = 0;
+		stop = 0;
+		play = otrig;
+		if (gate && !gon){
+			play = 1;
+			gon = 1;
+		}
+		if (!gate && !goff){
+			stop = 1;
+			goff = 1;
+		}
+		if (inlet_gate) goff = 0;
+			else gon = 0;
+			
+		break;
+				
+	case 5:
+		play = gate;
+		reset = otrig;
+		break;
+}
+
+outlet_play = play;
+outlet_reset = reset || resync_reset_pulse;
+outlet_stop = stop;
+
+outlet_waiting = wait;
+outlet_v003 = 3;
+synctrig = 0;
+otrig = 0;
+stop = 0;]]></code.krate>
+      <code.srate><![CDATA[if (pos >= lim){
+	pos = 0;
+	otrig = 1;
+} else pos ++;]]></code.srate>
+   </obj.normal>
+</objdefs>

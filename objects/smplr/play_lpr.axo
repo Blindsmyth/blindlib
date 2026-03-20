@@ -1,0 +1,131 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="play_lpr" uuid="5224773f-18de-4231-8f92-b1f22bb953BF">
+      <sDescription>LPR player with position output. Uses float-based sample indexing for non-power-of-2 wave buffer compatibility.</sDescription>
+      <author>Robert Schirmer / Simon</author>
+      <license>BSD</license>
+      <helpPatch>ldrive.axh</helpPatch>
+      <inlets>
+         <int32.positive name="slot"/>
+         <bool32 name="play"/>
+         <bool32.rising name="reset"/>
+         <bool32.rising name="stop" description="reset to start"/>
+      </inlets>
+      <outlets>
+         <frac32buffer.bipolar name="wave"/>
+         <frac32buffer name="pos"/>
+         <bool32 name="play"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <combo name="interpolation">
+            <MenuEntries>
+               <string>on</string>
+               <string>off</string>
+            </MenuEntries>
+            <CEntries>
+               <string>1</string>
+               <string>0</string>
+            </CEntries>
+         </combo>
+         <spinner name="attackScale" MinValue="0" MaxValue="8" DefaultValue="4"/>
+         <spinner name="releaseScale" MinValue="0" MaxValue="8" DefaultValue="6"/>
+      </attribs>
+      <includes>
+         <include>../../../Axolonatics/objects/rbrt_new/rbrt_classes/Smplr.h</include>
+      </includes>
+      <code.declaration><![CDATA[Smplr smplr;
+
+float index;
+float inv_wlength;
+bool strig;
+bool rtrig;
+bool ptrig;
+uint8_t preslot;
+bool play;
+int32_t env;
+bool premode;
+bool skip;]]></code.declaration>
+      <code.krate><![CDATA[uint16_t adr = inlet_slot * 128;
+bool mode = ((smplr.PLAYMODE == 2) || (smplr.PLAYMODE == 4));
+int start = smplr.calc_start(inlet_slot);
+uint32_t length = smplr.calc_length(inlet_slot);
+float t_speed = smplr.calc_speed (inlet_slot,smplr.PMOD);
+
+inv_wlength = (smplr.W_LENGTH > 0) ? (float)(1 << 27) / (float)smplr.W_LENGTH : 0.0f;
+
+if (!smplr.PLAYMODE || !play) {
+	skip = 0;
+	premode = mode;
+} else if (mode != premode){
+		skip = premode;
+		premode = mode;
+	}
+
+if (inlet_play && !ptrig) {
+	ptrig = 1;
+	play = 1;
+	if (!skip) index = (t_speed>0) ? 0:length;
+		else skip = 0;
+}
+if (!inlet_play) ptrig = 0;
+
+if (!mode && !inlet_play) play = 0;
+	
+if (inlet_reset && !rtrig) {
+		index = (t_speed>0) ? 0:length;
+		rtrig = 1;
+}
+if (!inlet_reset) rtrig = 0;
+		
+if (inlet_stop && !strig){
+	play = 0;
+	strig = 1;
+	env = 0;
+}
+if (!inlet_stop) strig = 0;
+
+int32_t t;
+if (play) {
+	MTOF(- smplr.ATTACK,t);
+	env += (smplr.ATTACK) ? t>>attr_attackScale : 1<<27;
+	} else {
+  		MTOF (-((mode) ? 1<<27 : smplr.RELEASE),t);
+  		env -= t>>attr_releaseScale;
+	}
+env = __USAT(env,27);
+int32_t vol = ___SMMUL(env<<3,(smplr.VOL + smplr.VOLMOD)<<2)<<3;
+vol = (vol > 0) ?  vol : 0;
+
+if (!mode) play = env > 0;
+	else if (!play) env = 0;
+outlet_play = play;
+smplr.PLAY = play;
+smplr.POS = (smplr.PLAY) ? index : 0;]]></code.krate>
+      <code.srate><![CDATA[if (t_speed > 0){
+      if (index >= length) {index = 0;if (mode) play = 0;} 
+      } 
+      else if (index <= 0) {index = length;if (mode) play = 0;} 
+
+int32_t out = 0;
+if (play){
+	float pos_f = index + start;
+	uint32_t s_index = (uint32_t)pos_f;
+
+	outlet_pos = (int32_t)(pos_f * inv_wlength);
+
+	int32_t y1 = smplr.wave[s_index]<<smplr.W_GAIN;
+	if (attr_interpolation){
+		int32_t y2 = smplr.wave[(s_index+1) % smplr.END]<<smplr.W_GAIN;
+		int32_t frac = (int32_t)((pos_f - (float)s_index) * (float)(1 << 30));
+		out = ___SMMUL(y1,(1<<30)-frac);
+		out = ___SMMLA(y2,frac,out) << 2;
+	} else out = y1;
+} else {
+	outlet_pos = 1 << 27;
+}
+
+outlet_wave = ___SMMUL(vol,out<<2);
+index += t_speed;]]></code.srate>
+   </obj.normal>
+</objdefs>
