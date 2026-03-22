@@ -1,0 +1,269 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="rec_lpr" uuid="5224773f-18de-4231-8f92-b1f22bb953C0">
+      <sDescription>Static LPR recorder/overdub. Each slot records into its own fixed region of the wave buffer (slot_size = W_LENGTH / slots). Uses float-based position conversion for non-power-of-2 compatibility.</sDescription>
+      <author>Robert Schirmer / Simon</author>
+      <license>BSD</license>
+      <helpPatch>smplr overview.axh</helpPatch>
+      <inlets>
+         <frac32buffer name="wave" description="audio in"/>
+         <int32.positive name="slot" description="select a slot to record/overdub into (0 - 127)"/>
+         <bool32.risingfalling name="rec" description="arm the recorder"/>
+         <bool32.risingfalling name="overdub" description="arm overdubbing (only works on existing samples)"/>
+         <frac32.positive name="feedback" description="overdub feedback amount"/>
+         <bool32.rising name="slicetrig" description="trigger recording a new slice"/>
+         <int32.positive name="playmode" description="playback mode the recorded slot will be set to"/>
+         <int32.positive name="preset"/>
+         <int32.positive name="slothandling" description="what happens if the slot already has a sample?"/>
+         <bool32.risingfalling name="syncRec" description="recording continues until sync boundary"/>
+         <frac32.positive name="phase" description="sync phase position"/>
+         <frac32buffer.positive name="pos" description="playback position for overdubbing"/>
+         <bool32 name="disable" description="disable recording/overdubbing"/>
+      </inlets>
+      <outlets>
+         <int32.positive name="recslot" description="slot currently recording to"/>
+         <int32.positive name="playmode"/>
+         <bool32 name="recstate" description="recording status"/>
+         <bool32 name="overdubstate" description="overdubbing status"/>
+         <bool32 name="fadestate" description="rec/overdub status with fade"/>
+         <bool32.pulse name="recdone" description="pulse when recording is done"/>
+         <bool32.pulse name="slicedone"/>
+         <frac32.positive name="remain" description="remaining recording-time"/>
+         <int32 name="v001"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <combo name="playmode">
+            <MenuEntries>
+               <string>gate</string>
+               <string>1-shot</string>
+               <string>toggle</string>
+            </MenuEntries>
+            <CEntries>
+               <string>1</string>
+               <string>2</string>
+               <string>3</string>
+            </CEntries>
+         </combo>
+         <combo name="slothandling">
+            <MenuEntries>
+               <string>ignore full</string>
+               <string>delete full</string>
+               <string>find empty from 0</string>
+               <string>find empty from slot</string>
+            </MenuEntries>
+            <CEntries>
+               <string>0</string>
+               <string>1</string>
+               <string>2</string>
+               <string>3</string>
+            </CEntries>
+         </combo>
+         <combo name="fadeIn">
+            <MenuEntries>
+               <string>fast</string>
+               <string>medium</string>
+               <string>slow</string>
+               <string>none</string>
+            </MenuEntries>
+            <CEntries>
+               <string>1764</string>
+               <string>2040</string>
+               <string>2045</string>
+               <string>0</string>
+            </CEntries>
+         </combo>
+         <combo name="fadeOut">
+            <MenuEntries>
+               <string>fast</string>
+               <string>medium</string>
+               <string>slow</string>
+            </MenuEntries>
+            <CEntries>
+               <string>1764</string>
+               <string>2040</string>
+               <string>2046</string>
+            </CEntries>
+         </combo>
+      </attribs>
+      <includes>
+         <include>../../../Axolonatics/objects/rbrt_new/rbrt_classes/Smplr.h</include>
+      </includes>
+      <code.declaration><![CDATA[Smplr smplr;
+
+bool fade;
+uint32_t fadepos;
+uint32_t recstart;
+uint32_t recend;
+uint32_t reclim;
+uint32_t rechead;
+int32_t env;
+bool syncmode;
+int32_t _ap;
+bool strig;
+uint8_t sdel;
+uint16_t adr;
+uint32_t sphase;
+bool ptrig;
+uint8_t rcount;
+uint8_t outslot;
+
+uint32_t csample;
+uint32_t dub;
+int32_t overdub_env;
+bool overdub_state;
+uint32_t preindex;
+float wlength_scale;]]></code.declaration>
+      <code.krate><![CDATA[bool rectrig = 0;
+smplr.RECDONE = 0;
+outlet_slicedone = 0;
+outlet_recslot = smplr.RECSLOT;
+int8_t mslot = inlet_slot % smplr.slots;
+bool slicetrig = 0;
+ptrig = 0;
+
+wlength_scale = (smplr.W_LENGTH > 0) ? (float)smplr.W_LENGTH / (float)(1 << 27) : 0.0f;
+float inv_wlength = (smplr.W_LENGTH > 0) ? (float)(1 << 27) / (float)smplr.W_LENGTH : 0.0f;
+
+bool recording_allowed = (!smplr.EDIT && !inlet_disable);
+bool can_start_rec = (recording_allowed && !syncmode);
+bool overdubbing_allowed = !smplr.REC && !inlet_disable && smplr.has_sample(mslot);
+
+uint8_t slothandling = (inlet_slothandling)? inlet_slothandling:attr_slothandling;
+if (recording_allowed) {
+	smplr.CANCEL = 0;
+	if (!smplr.REC) {
+		if (can_start_rec && inlet_rec){
+			rectrig = 1;
+			sdel = 0;
+			overdub_state = false;
+			}
+		}
+}else smplr.CANCEL = 1;
+
+if (rectrig) {
+	switch(slothandling){
+		case 0:
+			if (smplr.has_sample(mslot)) mslot = -1;
+			break;
+		case 1:
+			smplr.delete_slot (mslot);
+			break;
+		case 2:
+			mslot = smplr.find_empty (0);
+			break;
+		case 3:
+			mslot = smplr.find_empty (mslot);
+			break;
+	}
+	if (mslot == -1) {smplr.REC = 0;smplr.RECSTATE = 0;smplr.CANCEL = 1;}
+		else {
+			smplr.REC = 1;
+			smplr.RECSLOT = mslot;
+			adr = smplr.RECSLOT * 128;
+			smplr.RECSTATE = 1;
+			fade = 0;
+			uint32_t slot_size = smplr.W_LENGTH / smplr.slots;
+			recstart = smplr.RECSLOT * slot_size;
+			reclim = recstart + slot_size;
+			rechead = recstart;
+			smplr.PLAYMODE = 0;
+			smplr.START = recstart;
+			smplr.END = recstart;
+			int8_t shift = (18 - (smplr.leader_tempo / 30000));
+			shift = (shift < 13) ? 13 : shift;
+			smplr.STARTPOINT  = ((inlet_phase + smplr.leader_start)+ (7 << shift) & ((1<<27)-1));
+			sphase = inlet_phase;
+			_ap = 0;
+			rcount = 0;
+		}
+}
+
+int32_t phase = (inlet_phase - sphase) & ((1<<27)-1);
+if (phase < _ap) {
+	ptrig = 1;
+	rcount ++;
+}
+_ap = phase;
+
+if (!inlet_rec && smplr.REC)  {
+	smplr.init_slot (smplr.RECSLOT,(inlet_playmode)? inlet_playmode :attr_playmode,inlet_preset);
+	if (!syncmode) ptrig = 1;
+	if (ptrig) {
+        	smplr.REC = 0;
+		smplr.END = rechead;
+		smplr.BARS = (syncmode) ? rcount * (1<<21) : (float(smplr.END - smplr.START) / smplr.leader_tempo) * (1<<21);
+		smplr.RAW = !syncmode;
+		smplr.RECDONE = 1;
+		outlet_slicedone = 1;
+		outslot = smplr.RECSLOT;
+		syncmode = 0;
+		}
+}
+
+if (smplr.REC) {
+	env = (1<<27) - (___SMMUL((1<<27)-env,(attr_fadeIn<<20))<<1);
+	if (sdel>128) syncmode = inlet_syncRec;
+	else sdel ++;
+	}
+else {
+   	env = ___SMMUL(env,(attr_fadeOut<<20))<<1;
+   		if (!fade) {
+   			fade = 1;
+   			recend = rechead;
+   			fadepos = recstart;
+   			}
+   	}
+smplr.RECSTATE = env;
+
+if (overdubbing_allowed && inlet_overdub) {
+	overdub_state = true;
+	if (inlet_overdub) {
+		overdub_env = (1<<27) - (___SMMUL((1<<27)-overdub_env,(attr_fadeIn<<20))<<1);
+	} else {
+		overdub_env = ___SMMUL(overdub_env,(attr_fadeOut<<20))<<1;
+	}
+} else {
+	if (overdub_state) {
+		overdub_env = ___SMMUL(overdub_env,(attr_fadeOut<<20))<<1;
+		if (overdub_env < (1<<20)) overdub_state = false;
+	}
+}
+
+outlet_remain = (reclim > rechead) ? (int32_t)((float)(reclim - rechead) * inv_wlength) : 0;
+
+outlet_recstate = smplr.REC;
+outlet_overdubstate = overdub_state;
+outlet_fadestate = smplr.RECSTATE || overdub_state;
+outlet_recdone = smplr.RECDONE;
+outlet_recslot = outslot;
+outlet_playmode = (inlet_playmode)? inlet_playmode :attr_playmode;
+outlet_v001 = 1;]]></code.krate>
+      <code.srate><![CDATA[if (smplr.RECSTATE) {
+	int rv =  __SSAT((___SMMUL(inlet_wave,env)<<5),28 ) >> smplr.W_GAIN;
+     	if (smplr.REC) {
+     		smplr.wave[rechead]=rv;
+     		if (rechead >= reclim) rechead = recstart;
+     		else rechead++;
+     		}
+ 		else {
+ 			rv += (smplr.wave[fadepos]);
+     		smplr.wave[fadepos]=rv;
+ 			if (fadepos >= recend) fadepos = recstart;
+ 			else fadepos ++;
+ 			}
+}
+
+if (overdub_state && !smplr.REC) {
+	csample = (uint32_t)((float)__USAT(inlet_pos,27) * wlength_scale);
+
+	if (csample != preindex) {
+		int32_t existing = (smplr.wave[csample] << smplr.W_GAIN);
+		dub = ___SMMUL(existing, inlet_feedback) << 5;
+		int32_t new_audio = ___SMMUL(inlet_wave, overdub_env) << 5;
+		smplr.wave[csample] = __SSAT(new_audio + dub, 28) >> smplr.W_GAIN;
+		preindex = csample;
+	}
+}]]></code.srate>
+   </obj.normal>
+</objdefs>

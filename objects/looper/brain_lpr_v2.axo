@@ -1,6 +1,6 @@
 <objdefs appVersion="1.0.12">
    <obj.normal id="brain_lpr_v2" uuid="5224773f-18de-4231-8f92-b1f22bb953A6">
-      <sDescription>Brain v2 - LPR mode only. Save/load system for looper with fixed-size slots.</sDescription>
+      <sDescription>Brain v2 - smplr/lpr mode with progressive chunked defrag and auto-delete. In smplr mode the full wave pool is allocated dynamically; defrag reclaims holes left by deleted loops without glitching audio.</sDescription>
       <author>Robert Schirmer / Simon</author>
       <license>GPL</license>
       <inlets>
@@ -10,12 +10,18 @@
          <bool32.rising name="saveSlot"/>
          <bool32.rising name="loadSlot"/>
          <int32.positive name="targetSlot"/>
+         <bool32.rising name="defrag"/>
+         <bool32.rising name="autoDelete"/>
+         <int32.positive name="autoDeleteSlot"/>
          <bool32.rising name="clearALL"/>
          <bool32 name="ParameterPage"/>
          <bool32.rising name="revert"/>
          <bool32.rising name="setRevert"/>
       </inlets>
       <outlets>
+         <int32 name="remaining"/>
+         <bool32 name="defragBusy"/>
+         <int32 name="v002"/>
          <int32 name="test"/>
       </outlets>
       <displays/>
@@ -69,6 +75,16 @@
                <string>21</string>
             </CEntries>
          </combo>
+         <combo name="mode">
+            <MenuEntries>
+               <string>smplr</string>
+               <string>lpr</string>
+            </MenuEntries>
+            <CEntries>
+               <string>0</string>
+               <string>1</string>
+            </CEntries>
+         </combo>
       </attribs>
       <includes>
          <include>../../../Axolonatics/objects/rbrt_new/rbrt_classes/Smplr.h</include>
@@ -77,94 +93,155 @@
       <code.declaration><![CDATA[SD sd;
 Smplr smplr;
 
-//waveform data
 static const uint32_t LENGTHPOW = (attr_size);
 static const uint32_t LENGTH = (1<<attr_size);
 static const uint32_t LENGTHMASK = ((1<<attr_size)-1);
 static const uint32_t BITS = 16;
 static const uint32_t GAIN = 12;
 
-//brain variables
 bool trig;
 bool swait;
 uint16_t rcount;
 uint16_t rscount;
 
-//IO
-void load_set (const char* ff)__attribute__((noinline)) {
+// Defrag state
+uint32_t hihi;
+uint32_t hilo;
+uint32_t defrag_dst;
+uint32_t defrag_src;
+uint32_t defrag_end;
+uint32_t defrag_gap;
+uint32_t defrag_threshold;
+static const uint32_t DEFRAG_CHUNK = 4096;
+
+// Find and set up the next gap to close; sets smplr.DEFRAG=1 if a gap exists.
+void defrag_find_gap() __attribute__((noinline)) {
+	uint32_t lohi, lolo;
+	uint8_t count;
+	for (count = 0; count < smplr.slots; count++) {
+		lohi = 0;
+		lolo = 0;
+		uint16_t i;
+		for (i = 0; i < (smplr.slots << 7); i += 128)
+			if (smplr.data[i+1] > lohi && smplr.data[i+1] <= hilo) {
+				lolo = smplr.data[i];
+				lohi = smplr.data[i+1];
+			}
+		int32_t gap = (int32_t)hilo - (int32_t)lohi;
+		if (gap > 0) {
+			defrag_gap = (uint32_t)gap;
+			defrag_dst = lohi;
+			defrag_src = hilo;
+			defrag_end = hihi;
+			defrag_threshold = lohi;
+			smplr.DEFRAG = 1;
+			return;
+		}
+		hilo = lolo;
+	}
+	smplr.DEFRAG = 0;
+}
+
+// Scan slots, reset REC_HEAD to the true high-water mark, then kick off gap search.
+void defrag() __attribute__((noinline)) {
+	hihi = 0;
+	hilo = 0;
+	uint16_t i;
+	for (i = 0; i < (smplr.slots << 7); i += 128) {
+		if (!smplr.data[i+3]) {
+			smplr.data[i] = 0;
+			smplr.data[i+1] = 0;
+		} else if (smplr.data[i+1] > hihi) {
+			hilo = smplr.data[i];
+			hihi = smplr.data[i+1];
+		}
+	}
+	smplr.REC_HEAD = hihi;
+	if (!hihi) { smplr.DEFRAG = 0; return; }
+	defrag_find_gap();
+}
+
+void load_set (const char* ff) __attribute__((noinline)) {
 	sd.prep_name (ff,".spm");
-	if (!sd.fsize(sd.fn)) return;	
-		uint8_t tmpslots = smplr.slots;
-		uint8_t tmpparams = smplr.params;
-		uint8_t tmpmode = smplr.MODE;
-		//load parameters
-		sd.fload(sd.fn,0,(char*)&smplr.data[0],sd.fsize(sd.fn) << 2);
-		uint8_t saved_slots = smplr.slots;
-		smplr.slots = tmpslots;
-		smplr.params = tmpparams;
-		smplr.MODE = tmpmode;
-		//load wave in slices and expand to lpr-mode (fixed slots)
-		sd.prep_name (ff,".swf");
-		uint8_t wsize = (smplr.W_GAIN == 12) ? 2 : 4;
+	if (!sd.fsize(sd.fn)) return;
+	uint8_t tmpslots = smplr.slots;
+	uint8_t tmpparams = smplr.params;
+	uint8_t tmpmode = smplr.MODE;
+	sd.fload(sd.fn,0,(char*)&smplr.data[0],sd.fsize(sd.fn) << 2);
+	uint8_t saved_slots = smplr.slots;
+	smplr.slots = tmpslots;
+	smplr.params = tmpparams;
+	smplr.MODE = tmpmode;
+	sd.prep_name (ff,".swf");
+	uint8_t wsize = (smplr.W_GAIN == 12) ? 2 : 4;
+	if (!smplr.MODE) {
+		// smplr: load wave contiguously up to file size
+		smplr.REC_HEAD = sd.fsize(sd.fn) / wsize;
+		smplr.REC_HEAD = (smplr.REC_HEAD >= LENGTH) ? LENGTH : smplr.REC_HEAD;
+		sd.fload(sd.fn,0,(char *) &smplr.wave[0],smplr.REC_HEAD * wsize);
+	} else {
+		// lpr: load into fixed per-slot regions
 		uint8_t i;
 		uint32_t load_max = (LENGTH / smplr.slots);
 		uint32_t dst = 0;
-		for (i = 0;i < saved_slots;i++){
+		for (i = 0; i < saved_slots; i++) {
 			uint16_t adr = i * 128;
-			uint32_t saved_length = smplr.END - smplr.START;			
-			saved_length = (saved_length > load_max) ? load_max : saved_length;		
+			uint32_t saved_length = smplr.END - smplr.START;
+			saved_length = (saved_length > load_max) ? load_max : saved_length;
 			sd.fload(sd.fn,smplr.START * wsize,(char *) &smplr.wave[dst],saved_length * wsize);
 			smplr.START = dst;
 			smplr.END = dst + saved_length;
 			dst += load_max;
 		}
+	}
 }
 
-void save_set (const char* ff)__attribute__((noinline)) {
-	if (smplr.POLYFB){
+void save_set (const char* ff) __attribute__((noinline)) {
+	if (smplr.POLYFB) {
 		uint8_t i;
-		for (i = 0;i < smplr.slots;i++) memset(&smplr.data[((i+1) * 128) - smplr.POLYFB],0,smplr.POLYFB <<2);
+		for (i = 0; i < smplr.slots; i++)
+			memset(&smplr.data[((i+1) * 128) - smplr.POLYFB],0,smplr.POLYFB <<2);
 	}
 	sd.prep_name (ff,".spm");
-	sd.fsave(sd.fn,(char *) &smplr.data[0],34832 << 2);	
+	sd.fsave(sd.fn,(char *) &smplr.data[0],34832 << 2);
 	sd.prep_name (ff,".swf");
-	// For LPR mode, calculate total size based on slots
-	uint32_t total_size = 0;
-	for (uint8_t i = 0; i < smplr.slots; i++) {
-		uint16_t adr = i * 128;
-		uint32_t slot_size = smplr.data[adr+1] - smplr.data[adr];
-		total_size += slot_size;
+	if (!smplr.MODE) {
+		sd.fsave(sd.fn,(char *) &smplr.wave[0],smplr.REC_HEAD * sizeof(*smplr.wave));
+	} else {
+		uint32_t total_size = 0;
+		for (uint8_t i = 0; i < smplr.slots; i++) {
+			uint16_t adr = i * 128;
+			total_size += smplr.data[adr+1] - smplr.data[adr];
+		}
+		sd.fsave(sd.fn,(char *) &smplr.wave[0],total_size * sizeof(*smplr.wave));
 	}
-	sd.fsave(sd.fn,(char *) &smplr.wave[0], total_size * sizeof (*smplr.wave));
 }
 
-void load_slot (const char* ff,uint8_t slot) __attribute__((noinline)){
+void load_slot (const char* ff,uint8_t slot) __attribute__((noinline)) {
 	smplr.delete_slot(slot);
 	sd.prep_name (ff,".slw");
-	uint32_t dstsize = (LENGTH - smplr.REC_HEAD) * sizeof (*smplr.wave);
+	uint32_t dstsize = (LENGTH - smplr.REC_HEAD) * sizeof(*smplr.wave);
 	uint32_t wsize = sd.fsize(sd.fn);
-	if (!wsize || (wsize > dstsize)) return;	
+	if (!wsize || (wsize > dstsize)) return;
 	sd.fload(sd.fn,0,(char *) &smplr.wave[smplr.REC_HEAD],wsize);
-	//load slot parameters
 	sd.prep_name (ff,".slp");
-	uint16_t srcsize = sd.fsize(sd.fn) >>2;
+	uint16_t srcsize = sd.fsize(sd.fn) >> 2;
 	dstsize = smplr.params;
-	uint16_t rem_sz = ((srcsize > dstsize)? dstsize:srcsize)<<2;		
- 	sd.fload(sd.fn,0,(char *) &smplr.data[slot* smplr.params],rem_sz);
+	uint16_t rem_sz = ((srcsize > dstsize) ? dstsize : srcsize) << 2;
+	sd.fload(sd.fn,0,(char *) &smplr.data[slot * smplr.params],rem_sz);
 	smplr.data[slot * smplr.params] = smplr.REC_HEAD;
-	smplr.REC_HEAD += (wsize /sizeof (*smplr.wave));
+	smplr.REC_HEAD += (wsize / sizeof(*smplr.wave));
 	smplr.data[(slot * smplr.params)+1] = smplr.REC_HEAD;
 }
 
-void save_slot (const char* ff,uint8_t slot) __attribute__((noinline)){
-	uint32_t rem_sz = (smplr.data[(slot* smplr.params)+1]-smplr.data[slot* smplr.params]) * sizeof (*smplr.wave);
+void save_slot (const char* ff,uint8_t slot) __attribute__((noinline)) {
+	uint32_t rem_sz = (smplr.data[(slot * smplr.params)+1] - smplr.data[slot * smplr.params]) * sizeof(*smplr.wave);
 	sd.prep_name (ff,".slw");
-	sd.fsave(sd.fn,(char *) &smplr.wave[smplr.data[slot* smplr.params]],rem_sz);
+	sd.fsave(sd.fn,(char *) &smplr.wave[smplr.data[slot * smplr.params]],rem_sz);
 	sd.prep_name (ff,".slp");
-	sd.fsave(sd.fn,(char *) &smplr.data[slot * smplr.params],4 * smplr.params);	
+	sd.fsave(sd.fn,(char *) &smplr.data[slot * smplr.params],4 * smplr.params);
 }]]></code.declaration>
-      <code.init><![CDATA[//data
-static int32_t _data[65536] __attribute__ ((section (".sdram")));
+      <code.init><![CDATA[static int32_t _data[65536] __attribute__ ((section (".sdram")));
 memset (&_data[0],0,65536 << 2);
 smplr.data = &_data[0];
 smplr.prm = &smplr.data[0];
@@ -172,85 +249,137 @@ smplr.presets = &smplr.data[32768];
 smplr.paramtemp = &smplr.data[51232];
 smplr.USER = &smplr.data[51360];
 
-//waveform
 static int16_t _array[LENGTH] __attribute__ ((section (".sdram")));
 smplr.wave = &_array[0];
 smplr.W_LENGTH = LENGTH;
 smplr.W_LENGTHPOW = LENGTHPOW;
-smplr.SHIFT = (27- smplr.W_LENGTHPOW);
+smplr.SHIFT = (27 - smplr.W_LENGTHPOW);
 
 smplr.slots = attr_slots;
 smplr.params = attr_params;
 smplr.W_GAIN = GAIN;
 smplr.POLYFB = 2;
-smplr.MODE = 1; // LPR mode only
+smplr.MODE = attr_mode;
 
-//sync stuff
 smplr.leader = -1;
 smplr.leader_start = 0;
 smplr.leader_tempo = 96000;
 
-//SD
 sd.setpath ("/");]]></code.init>
-      <code.krate><![CDATA[smplr.prm = (inlet_ParameterPage) ? &smplr.data [16384] : &smplr.data[0];
+      <code.krate><![CDATA[smplr.prm = (inlet_ParameterPage) ? &smplr.data[16384] : &smplr.data[0];
 
-if (!smplr.RECSTATE){
+if (!smplr.RECSTATE) {
 	uint8_t slot = inlet_targetSlot % smplr.slots;
-	//save set
+
 	if (inlet_saveSet && !trig) {
 		trig = 1;
 		swait = 1;
+		if (!smplr.MODE) defrag();
 	}
-	if (swait){
+	if (!smplr.DEFRAG && swait) {
 		swait = 0;
 		save_set(inlet_name);
-		load_set(inlet_name); // reload after saving to maintain lpr format
-	}	
-	//load set
+		if (smplr.MODE) load_set(inlet_name);
+	}
+
 	if (inlet_loadSet && !trig) {
 		trig = 1;
-		load_set (inlet_name);	
+		load_set(inlet_name);
 		rscount = (smplr.slots << 7);
 	}
-	//save slot
-	if (inlet_saveSlot && !trig){
+
+	if (inlet_saveSlot && !trig) {
 		trig = 1;
-		save_slot (inlet_name,slot);		
+		save_slot(inlet_name,slot);
 	}
-	//load slot								
-	if (inlet_loadSlot && !trig){
+
+	if (inlet_loadSlot && !trig) {
 		trig = 1;
-		load_slot (inlet_name,slot);
+		load_slot(inlet_name,slot);
 	}
-	//clear all
-	if (inlet_clearALL && !trig){
+
+	if (inlet_clearALL && !trig) {
 		trig = 1;
 		smplr.clear_all();
 	}
-	// revert to saved
-	if (inlet_revert && !trig){
+
+	// Manual defrag (smplr mode only); guarded to avoid restarting a running defrag
+	if (!smplr.MODE && (inlet_defrag && !trig) && !smplr.DEFRAG) {
+		trig = 1;
+		defrag();
+	}
+
+	// Auto delete + defrag: delete the named slot then start defrag
+	if (!smplr.MODE && (inlet_autoDelete && !trig) && !smplr.DEFRAG) {
+		trig = 1;
+		smplr.delete_slot(inlet_autoDeleteSlot % smplr.slots);
+		defrag();
+	}
+
+	if (inlet_revert && !trig) {
 		rcount = (smplr.slots << 7);
 		trig = 1;
 	}
-	if (rcount){
-		rcount -= 32;	
+	if (rcount) {
+		rcount -= 32;
 		memcpy(&smplr.prm[rcount],&smplr.data[34848 + rcount],128);
 	}
-	// set revert point
-	if (inlet_setRevert && !trig){
+
+	if (inlet_setRevert && !trig) {
 		rscount = (smplr.slots << 7);
 		trig = 1;
 	}
-	if (rscount){
-		rscount -= 32;	
+	if (rscount) {
+		rscount -= 32;
 		memcpy(&smplr.data[34848 + rscount],&smplr.prm[rscount],128);
 	}
 }
 
-outlet_test = rcount;
+if (!inlet_loadSet && !inlet_saveSet && !inlet_saveSlot && !inlet_loadSlot &&
+    !inlet_clearALL && !inlet_defrag && !inlet_autoDelete && !inlet_revert && !inlet_setRevert)
+	trig = 0;
 
-if (!inlet_loadSet && !inlet_saveSet && !inlet_saveSlot && !inlet_loadSlot && !inlet_clearALL && !inlet_revert && !inlet_setRevert) trig = 0;]]></code.krate>
+// Auto-defrag: only when no slots are playing and reclaimable space exists
+if (!smplr.MODE && !smplr.DEFRAG && !smplr.REC) {
+	bool any_playing = false;
+	bool any_dead = false;
+	for (uint16_t i = 0; i < (smplr.slots << 7); i += 128) {
+		if (smplr.data[i+3]) any_playing |= (smplr.data[i + 127] != 0);
+		else if (smplr.data[i] || smplr.data[i+1]) any_dead = true;
+	}
+	if (!any_playing && any_dead) defrag();
+}
+
+if (smplr.DEFRAG) {
+	uint32_t n = defrag_end - defrag_src;
+	if (n > DEFRAG_CHUNK) n = DEFRAG_CHUNK;
+	if (n > 0) {
+		memmove(&smplr.wave[defrag_dst], &smplr.wave[defrag_src], n * sizeof(*smplr.wave));
+		defrag_dst += n;
+		defrag_src += n;
+	}
+	if (defrag_src >= defrag_end) {
+		// All samples for this gap moved — update slot pointers atomically
+		uint16_t i;
+		for (i = 0; i < (smplr.slots << 7); i += 128)
+			if (smplr.data[i] >= defrag_threshold) {
+				smplr.data[i]   -= defrag_gap;
+				smplr.data[i+1] -= defrag_gap;
+			}
+		smplr.REC_HEAD -= defrag_gap;
+		hihi -= defrag_gap;
+		hilo -= defrag_gap;
+		smplr.DEFRAG = 0;
+		defrag_find_gap();
+	}
+}
+
+outlet_remaining = smplr.W_LENGTH - smplr.REC_HEAD;
+outlet_defragBusy = smplr.DEFRAG;
+outlet_v002 = 2;
+outlet_test = rcount;]]></code.krate>
    </obj.normal>
 </objdefs>
+
 
 

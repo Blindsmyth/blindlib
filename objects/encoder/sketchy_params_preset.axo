@@ -1,0 +1,149 @@
+<objdefs appVersion="1.1.0">
+  <obj.normal id="sketchy_params_preset" uuid="5224773f-18de-4231-8f92-b1f22bb953BB">
+    <sDescription>Parameter table with preset save/load to SD. Drop-in replacement for sketchy_params: same pages/params/init attribs and array layout, plus int preset index and save/load triggers. Presets are value-only (preset0.bin, preset1.bin, ...). Does not block audio (background thread with fbuff).</sDescription>
+    <author>AI Assistant / Simon</author>
+    <license>BSD</license>
+    <helpPatch></helpPatch>
+    <inlets>
+      <bool32 name="print" description="Trigger dump of params to log"/>
+      <int32 name="index" description="Preset slot (0..N, used as presetN.bin)"/>
+      <bool32.rising name="save" description="Save current params to SD"/>
+      <bool32.rising name="load" description="Load params from SD"/>
+    </inlets>
+    <outlets>
+      <int32 name="v002" description="Object version (incremented each release)"/>
+    </outlets>
+    <displays>
+      <bool32 name="busy" description="True while save or load in progress"/>
+    </displays>
+    <params/>
+    <attribs>
+      <text name="init" description="Edit to pre-define some objects when patch starts"/>
+      <spinner name="pages" description="Number of pages" MinValue="1" MaxValue="128" DefaultValue="8"/>
+      <spinner name="params" description="Number of parameters per page" MinValue="1" MaxValue="128" DefaultValue="8"/>
+    </attribs>
+    <includes>
+      <include>chibios/ext/fatfs/src/ff.h</include>
+    </includes>
+    <depends>
+      <depend>fatfs</depend>
+    </depends>
+    <code.declaration><![CDATA[#define NUM_PAGES attr_pages
+#define NUM_PARAMS attr_params
+
+int32_t (*array)[NUM_PARAMS];
+
+bool pprint;
+int trig_load, trig_save, ntrig;
+volatile int32_t cur_index;
+char fname[24];
+
+void buildFilename(int idx) {
+    char *p = fname;
+    const char *pre = "preset";
+    while (*pre) *p++ = *pre++;
+    if (idx == 0) { *p++ = '0'; }
+    else {
+        char rev[4]; int rp = 0;
+        while (idx > 0) { rev[rp++] = '0' + (idx % 10); idx /= 10; }
+        while (rp > 0) *p++ = rev[--rp];
+    }
+    const char *ext = ".bin";
+    while (*ext) *p++ = *ext++;
+    *p = '\0';
+}
+
+__attribute__((noinline)) msg_t ThreadPreset2() {
+    while (!chThdShouldTerminate()) {
+        if (trig_save && !ntrig) {
+            ntrig = 1;
+            int idx = (cur_index < 0) ? 0 : (cur_index > 999 ? 999 : cur_index);
+            buildFilename(idx);
+
+            FIL f;
+            FRESULT err;
+            UINT bw;
+            err = f_open(&f, fname, FA_WRITE | FA_CREATE_ALWAYS);
+            if (err == FR_OK) {
+                int rem = (int)(NUM_PAGES * NUM_PARAMS * sizeof(int32_t));
+                int offset = 0;
+                while (rem > 0) {
+                    int chunk = (rem > (int)sizeof(fbuff)) ? (int)sizeof(fbuff) : rem;
+                    memcpy((char*)fbuff, (char*)(&array[0][0]) + offset, chunk);
+                    err = f_write(&f, fbuff, chunk, &bw);
+                    rem -= chunk;
+                    offset += chunk;
+                }
+                f_close(&f);
+            } else
+                report_fatfs_error(err, fname);
+            chThdSleepMilliseconds(33);
+        }
+        else if (trig_load && !ntrig) {
+            ntrig = 1;
+            int idx = (cur_index < 0) ? 0 : (cur_index > 999 ? 999 : cur_index);
+            buildFilename(idx);
+
+            FIL f;
+            FRESULT err;
+            UINT br;
+            err = f_open(&f, fname, FA_READ | FA_OPEN_EXISTING);
+            if (err == FR_OK) {
+                int rem = (int)(NUM_PAGES * NUM_PARAMS * sizeof(int32_t));
+                int offset = 0;
+                while (rem > 0) {
+                    int chunk = (rem > (int)sizeof(fbuff)) ? (int)sizeof(fbuff) : rem;
+                    err = f_read(&f, fbuff, chunk, &br);
+                    if (br == 0) break;
+                    memcpy((char*)(&array[0][0]) + offset, (char*)fbuff, br);
+                    rem -= br;
+                    offset += br;
+                }
+                f_close(&f);
+            } else
+                report_fatfs_error(err, fname);
+            chThdSleepMilliseconds(33);
+        }
+        else if (!trig_save && !trig_load && ntrig) {
+            ntrig = 0;
+        }
+        chThdSleepMicroseconds(333);
+    }
+    chThdExit((msg_t)0);
+}
+
+static msg_t ThreadPreset(void *arg) {
+    ((attr_parent *)arg)->ThreadPreset2();
+}
+
+WORKING_AREA(waThreadPreset, 1024);
+Thread *ThdPreset;
+]]></code.declaration>
+    <code.init><![CDATA[static int32_t _param_sdram[NUM_PAGES][NUM_PARAMS] __attribute__ ((section (".sdram")));
+array = _param_sdram;
+memset(array, 0, (size_t)(NUM_PAGES * NUM_PARAMS * sizeof(int32_t)));
+pprint = false;
+trig_load = trig_save = ntrig = 0;
+cur_index = 0;
+attr_init;
+
+ThdPreset = chThdCreateStatic(waThreadPreset, sizeof(waThreadPreset), LOWPRIO, (tfunc_t)ThreadPreset, (void *)this);]]></code.init>
+    <code.dispose><![CDATA[chThdTerminate(ThdPreset);
+chThdWait(ThdPreset);]]></code.dispose>
+    <code.krate><![CDATA[outlet_v002 = 2;
+
+trig_save = inlet_save;
+trig_load = inlet_load;
+cur_index = inlet_index;
+disp_busy = ntrig;
+
+if (!pprint && inlet_print) {
+    for (uint16_t page = 0; page < NUM_PAGES; page++) {
+        for (uint16_t param = 0; param < NUM_PARAMS; param++) {
+            LogTextMessage("page[%d] param[%d] = %d", page, param, array[page][param]);
+        }
+    }
+}
+pprint = inlet_print;]]></code.krate>
+  </obj.normal>
+</objdefs>

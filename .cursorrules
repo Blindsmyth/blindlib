@@ -93,6 +93,12 @@
  * recordlogic_refactored_mute.axo: 5224773f-18de-4231-8f92-b1f22bb953B8
  * sum6_stereo.axo: 5224773f-18de-4231-8f92-b1f22bb953B9
  * sketchy_render_kso_fw_sram3.axo: 5224773f-18de-4231-8f92-b1f22bb953BA
+ * sketchy_params_preset.axo: 5224773f-18de-4231-8f92-b1f22bb953BB
+ * loopsync_simon.axo: 5224773f-18de-4231-8f92-b1f22bb953BC
+ * rec_overdub_dynamic.axo: 5224773f-18de-4231-8f92-b1f22bb953BD
+ * brain_lpr_v3.axo: 5224773f-18de-4231-8f92-b1f22bb953BE
+ * play_lpr.axo: 5224773f-18de-4231-8f92-b1f22bb953BF
+ * rec_lpr.axo: 5224773f-18de-4231-8f92-b1f22bb953C0
 - **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
 - **MANDATORY**: Document all new UUIDs in this file immediately after creation
 

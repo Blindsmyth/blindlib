@@ -45,7 +45,7 @@
         <bool32 name="extSync" description="High when syncing to external MIDI clock"/>
         <bool32 name="clockIsLeader" description="High when internal clock running with no loop leader (clock is virtual leader; use for first-loop sync/quantize)"/>
         <bool32 name="continueOnStopStatus" description="Debug: shows current continueOnStop state"/>
-        <int32 name="v021" description="Object version (incremented each release)"/>
+        <int32 name="v023" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -559,9 +559,20 @@ if (smplr.leader != prev_leader && smplr.leader >= 0 && prev_leader == -1) {
 prev_leader = smplr.leader;
 
 outlet_isPlaying = clock_playing;
-// Clear leader when leader slot was killed (delete_slot doesn't clear leader in Smplr)
-if (smplr.leader >= 0 && !smplr.has_sample((uint8_t)smplr.leader))
+// Clear leader when leader slot was killed (delete_slot doesn't clear leader in Smplr).
+// On transition to no-leader, resync and reset so clock becomes virtual leader without hiccup.
+if (smplr.leader >= 0 && !smplr.has_sample((uint8_t)smplr.leader)) {
     smplr.leader = -1;
+    if (clock_playing && !use_external && current_bpm > 0) {
+        resync = 8;
+        outlet_reset = 1;
+        smplr.leader_tempo = bpmToTempo(current_bpm, 16, current_beats, current_measure);
+        pos = (smplr.leader_tempo > 64) ? (smplr.leader_tempo - 64) : 0;
+        sync.syncer_pos = (float(pos) / (float)smplr.leader_tempo) * (1 << 27);
+        prev_clock_pos = sync.syncer_pos;
+        clock_count = 0;
+    }
+}
 // High when internal clock running and no valid leader; stay high for a short hold after we get a leader so sync logic can react
 {
     bool no_valid_leader = (smplr.leader < 0 || (smplr.leader >= 0 && !smplr.has_sample((uint8_t)smplr.leader)));
@@ -640,13 +651,18 @@ if (inlet_EXTsync){
         smplr.STARTPOINT = (smplr.STARTPOINT + (smplr.SPMOD >> 1)) & ((1<<27)-1);
         smplr.SPMOD = 0;
         smplr.leader_start = smplr.STARTPOINT;
+        // When clock is master, use new loop's actual duration so BARS is correct (avoids 0/wrong slot BARS => fast tempo)
+        bool clock_is_master = (clock_playing && !use_external);
         uint32_t stempo;
-        if (smplr.RAW || (inlet_setToRaw || attr_setTempoTo)) stempo = smplr.calc_dur(smplr.leader);
-        else stempo = smplr.leader_tempo * float(smplr.BARS) / (1<<21);
+        if (clock_is_master)
+            stempo = smplr.calc_dur(smplr.leader);
+        else if (smplr.RAW || (inlet_setToRaw || attr_setTempoTo))
+            stempo = smplr.calc_dur(smplr.leader);
+        else
+            stempo = smplr.leader_tempo * float(smplr.BARS) / (1<<21);
         bool stempo_valid = (stempo >= 1000);  // guard: re-record on cleared slot can give 0 and corrupt leader_tempo
 
         // When internal clock is running, any new loop slaves to the clock. Only when clock is off does the new loop become leader and set tempo.
-        bool clock_is_master = (clock_playing && !use_external);
         if (clock_is_master) {
             if (smplr.leader_tempo <= 0)
                 smplr.leader_tempo = bpmToTempo(current_bpm > 0 ? current_bpm : 120, 16, current_beats, current_measure);
@@ -806,7 +822,7 @@ start_pulse_request = 0;
 stop_pulse_request = 0;
 
 // Version outlet: increment with each release (v0_0_1 = 1, v0_0_2 = 2, ...)
-outlet_v021 = 21;]]></code.krate>
+outlet_v023 = 23;]]></code.krate>
       <code.srate><![CDATA[if (tap_timer < tap_wait_samples) {
     tap_timer++;
 }
