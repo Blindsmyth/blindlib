@@ -22,26 +22,7 @@
       <displays/>
       <params/>
       <attribs>
-         <combo name="slots">
-            <MenuEntries>
-               <string>128</string>
-               <string>64</string>
-               <string>32</string>
-               <string>16</string>
-               <string>8</string>
-               <string>4</string>
-               <string>2</string>
-            </MenuEntries>
-            <CEntries>
-               <string>128</string>
-               <string>64</string>
-               <string>32</string>
-               <string>16</string>
-               <string>8</string>
-               <string>4</string>
-               <string>2</string>
-            </CEntries>
-         </combo>
+         <spinner name="slots" MinValue="1" MaxValue="8" DefaultValue="4"/>
          <combo name="params">
             <MenuEntries>
                <string>32</string>
