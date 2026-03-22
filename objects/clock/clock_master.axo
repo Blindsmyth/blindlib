@@ -45,7 +45,7 @@
         <bool32 name="extSync" description="High when syncing to external MIDI clock"/>
         <bool32 name="clockIsLeader" description="High when internal clock running with no loop leader (clock is virtual leader; use for first-loop sync/quantize)"/>
         <bool32 name="continueOnStopStatus" description="Debug: shows current continueOnStop state"/>
-        <int32 name="v023" description="Object version (incremented each release)"/>
+        <int32 name="v024" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -85,6 +85,18 @@
          <spinner name="defaultBeats" MinValue="1" MaxValue="16" DefaultValue="4"/>
          <spinner name="defaultMeasure" MinValue="1" MaxValue="16" DefaultValue="4"/>
          <spinner name="defaultLowerBPM" MinValue="40" MaxValue="180" DefaultValue="90"/>
+         <combo name="leaderKillMode" description="What happens when the leader loop is deleted while playing: preserve=keep tempo, promote=hand off to another loop, free=recalculate from BPM">
+            <MenuEntries>
+               <string>preserve</string>
+               <string>promote</string>
+               <string>free</string>
+            </MenuEntries>
+            <CEntries>
+               <string>0</string>
+               <string>1</string>
+               <string>2</string>
+            </CEntries>
+         </combo>
       </attribs>
       <includes>
          <include>../../../Axolonatics/objects/rbrt_new/rbrt_classes/Smplr.h</include>
@@ -560,17 +572,30 @@ prev_leader = smplr.leader;
 
 outlet_isPlaying = clock_playing;
 // Clear leader when leader slot was killed (delete_slot doesn't clear leader in Smplr).
-// On transition to no-leader, resync and reset so clock becomes virtual leader without hiccup.
 if (smplr.leader >= 0 && !smplr.has_sample((uint8_t)smplr.leader)) {
+    int8_t killed = smplr.leader;
     smplr.leader = -1;
-    if (clock_playing && !use_external && current_bpm > 0) {
-        resync = 8;
-        outlet_reset = 1;
-        smplr.leader_tempo = bpmToTempo(current_bpm, 16, current_beats, current_measure);
-        pos = (smplr.leader_tempo > 64) ? (smplr.leader_tempo - 64) : 0;
-        sync.syncer_pos = (float(pos) / (float)smplr.leader_tempo) * (1 << 27);
-        prev_clock_pos = sync.syncer_pos;
-        clock_count = 0;
+    if (clock_playing && !use_external) {
+        if (attr_leaderKillMode == 1) {
+            // Promote: find another slot with a sample and hand off leadership
+            for (uint8_t i = 0; i < smplr.slots; i++) {
+                if (i != killed && smplr.has_sample(i)) {
+                    smplr.leader = i;
+                    break;
+                }
+            }
+            // If no candidate found, fall through to preserve (leader stays -1, tempo untouched)
+        } else if (attr_leaderKillMode == 2) {
+            // Free: recalculate leader_tempo from BPM (use detected_bars, not hardcoded 1 bar)
+            resync = 8;
+            outlet_reset = 1;
+            smplr.leader_tempo = bpmToTempo(current_bpm, detected_bars, current_beats, current_measure);
+            pos = (smplr.leader_tempo > 64) ? (smplr.leader_tempo - 64) : 0;
+            sync.syncer_pos = (float(pos) / (float)smplr.leader_tempo) * (1 << 27);
+            prev_clock_pos = sync.syncer_pos;
+            clock_count = 0;
+        }
+        // Mode 0 (preserve) and promote-with-no-candidate: don't touch leader_tempo or phase
     }
 }
 // High when internal clock running and no valid leader; stay high for a short hold after we get a leader so sync logic can react
@@ -615,9 +640,15 @@ if (inlet_EXTsync){
         }
     }
 } else {
-    // When internal clock is running with no loop leader, drive phase from BPM (clock is virtual leader) so sync phase advances for first-loop quantization
+    // When internal clock is running with no loop leader, drive phase from BPM (clock is virtual leader)
     if (smplr.leader < 0 && clock_playing && !use_external && current_bpm > 0) {
-        smplr.leader_tempo = bpmToTempo(current_bpm, 16, current_beats, current_measure);
+        if (attr_leaderKillMode == 2) {
+            // Free: always recalculate from BPM
+            smplr.leader_tempo = bpmToTempo(current_bpm, detected_bars, current_beats, current_measure);
+        } else if (smplr.leader_tempo <= 0) {
+            // Preserve / Promote fallback: only set initial tempo if none exists yet
+            smplr.leader_tempo = bpmToTempo(current_bpm, detected_bars, current_beats, current_measure);
+        }
     }
     if (inlet_setNow && !strig){
         strig = 1;
@@ -665,7 +696,7 @@ if (inlet_EXTsync){
         // When internal clock is running, any new loop slaves to the clock. Only when clock is off does the new loop become leader and set tempo.
         if (clock_is_master) {
             if (smplr.leader_tempo <= 0)
-                smplr.leader_tempo = bpmToTempo(current_bpm > 0 ? current_bpm : 120, 16, current_beats, current_measure);
+                smplr.leader_tempo = bpmToTempo(current_bpm > 0 ? current_bpm : 120, detected_bars, current_beats, current_measure);
             if (stempo_valid)
                 smplr.BARS = sync.calc_bars(stempo, smplr.leader_tempo);
             else
@@ -680,7 +711,7 @@ if (inlet_EXTsync){
             if (stempo_valid) {
                 smplr.leader_tempo = scale_tempo_musical(stempo, current_lower_bpm, current_beats, current_measure, &calculated_bars);
             } else {
-                smplr.leader_tempo = old_tempo > 0 ? old_tempo : bpmToTempo(current_bpm > 0 ? current_bpm : 120, 16, current_beats, current_measure);
+                smplr.leader_tempo = old_tempo > 0 ? old_tempo : bpmToTempo(current_bpm > 0 ? current_bpm : 120, detected_bars, current_beats, current_measure);
             }
             detected_bars = calculated_bars;
             smplr.BARS = stempo_valid ? sync.calc_bars(stempo, smplr.leader_tempo) : (1<<21);
@@ -748,7 +779,7 @@ if (inlet_EXTsync){
     }
 
     outlet_syncPhase = sync.syncer_pos;
-    outlet_syncDurSMPS = (smplr.leader_tempo > 0) ? smplr.leader_tempo : bpmToTempo(current_bpm > 0 ? current_bpm : 120, 16, current_beats, current_measure);
+    outlet_syncDurSMPS = (smplr.leader_tempo > 0) ? smplr.leader_tempo : bpmToTempo(current_bpm > 0 ? current_bpm : 120, detected_bars, current_beats, current_measure);
     outlet_rollover = ro;
     outlet_syncSlot = smplr.leader;
 }
@@ -822,7 +853,7 @@ start_pulse_request = 0;
 stop_pulse_request = 0;
 
 // Version outlet: increment with each release (v0_0_1 = 1, v0_0_2 = 2, ...)
-outlet_v023 = 23;]]></code.krate>
+outlet_v024 = 24;]]></code.krate>
       <code.srate><![CDATA[if (tap_timer < tap_wait_samples) {
     tap_timer++;
 }
