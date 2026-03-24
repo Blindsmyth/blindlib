@@ -1,6 +1,6 @@
 <objdefs appVersion="1.0.12">
    <obj.normal id="play_lpr" uuid="5224773f-18de-4231-8f92-b1f22bb953BF">
-      <sDescription>LPR player with position output. Uses float-based sample indexing for non-power-of-2 wave buffer compatibility.</sDescription>
+      <sDescription>LPR player with raw sample-index position output for overdub. Outputs absolute wave-buffer index on pos (not normalized 27-bit).</sDescription>
       <author>Robert Schirmer / Simon</author>
       <license>BSD</license>
       <helpPatch>ldrive.axh</helpPatch>
@@ -14,6 +14,7 @@
          <frac32buffer.bipolar name="wave"/>
          <frac32buffer name="pos"/>
          <bool32 name="play"/>
+         <int32 name="v001"/>
       </outlets>
       <displays/>
       <params/>
@@ -37,7 +38,6 @@
       <code.declaration><![CDATA[Smplr smplr;
 
 float index;
-float inv_wlength;
 bool strig;
 bool rtrig;
 bool ptrig;
@@ -51,8 +51,6 @@ bool mode = ((smplr.PLAYMODE == 2) || (smplr.PLAYMODE == 4));
 int start = smplr.calc_start(inlet_slot);
 uint32_t length = smplr.calc_length(inlet_slot);
 float t_speed = smplr.calc_speed (inlet_slot,smplr.PMOD);
-
-inv_wlength = (smplr.W_LENGTH > 0) ? (float)(1 << 27) / (float)smplr.W_LENGTH : 0.0f;
 
 if (!smplr.PLAYMODE || !play) {
 	skip = 0;
@@ -101,7 +99,8 @@ if (!mode) play = env > 0;
 	else if (!play) env = 0;
 outlet_play = play;
 smplr.PLAY = play;
-smplr.POS = (smplr.PLAY) ? index : 0;]]></code.krate>
+smplr.POS = (smplr.PLAY) ? index : 0;
+outlet_v001 = 1;]]></code.krate>
       <code.srate><![CDATA[if (t_speed > 0){
       if (index >= length) {index = 0;if (mode) play = 0;} 
       } 
@@ -112,7 +111,7 @@ if (play){
 	float pos_f = index + start;
 	uint32_t s_index = (uint32_t)pos_f;
 
-	outlet_pos = (int32_t)(pos_f * inv_wlength);
+	outlet_pos = (int32_t)pos_f;
 
 	int32_t y1 = smplr.wave[s_index]<<smplr.W_GAIN;
 	if (attr_interpolation){
@@ -122,7 +121,7 @@ if (play){
 		out = ___SMMLA(y2,frac,out) << 2;
 	} else out = y1;
 } else {
-	outlet_pos = 1 << 27;
+	outlet_pos = -1;
 }
 
 outlet_wave = ___SMMUL(vol,out<<2);

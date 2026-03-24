@@ -99,6 +99,12 @@
  * brain_lpr_v3.axo: 5224773f-18de-4231-8f92-b1f22bb953BE
  * play_lpr.axo: 5224773f-18de-4231-8f92-b1f22bb953BF
  * rec_lpr.axo: 5224773f-18de-4231-8f92-b1f22bb953C0
+ * simon_lpr/brain_lpr_v3.axo (Axolonatics mirror, distinct UUID from blindlib smplr/): 5224773f-18de-4231-8f92-b1f22bb953C1
+ * simon_lpr/play_lpr.axo (Axolonatics mirror): 5224773f-18de-4231-8f92-b1f22bb953C2
+ * simon_lpr/rec_lpr.axo (Axolonatics mirror): 5224773f-18de-4231-8f92-b1f22bb953C3
+ * midi/out/note thin serial.axo (Axolonatics): 5224773f-18de-4231-8f92-b1f22bb953C4
+ * float param get half page kso.axo: 5224773f-18de-4231-8f92-b1f22bb953C5
+ * clock_master_sram3.axo: 5224773f-18de-4231-8f92-b1f22bb953C6
 - **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
 - **MANDATORY**: Document all new UUIDs in this file immediately after creation
 

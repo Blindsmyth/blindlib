@@ -1,6 +1,6 @@
 <objdefs appVersion="1.0.12">
    <obj.normal id="rec_lpr" uuid="5224773f-18de-4231-8f92-b1f22bb953C0">
-      <sDescription>Static LPR recorder/overdub. Each slot records into its own fixed region of the wave buffer (slot_size = W_LENGTH / slots). Uses float-based position conversion for non-power-of-2 compatibility.</sDescription>
+      <sDescription>Static LPR recorder/overdub. Each slot records into its own fixed region of the wave buffer (slot_size = W_LENGTH / slots). Expects raw sample-index on pos inlet (from play_lpr).</sDescription>
       <author>Robert Schirmer / Simon</author>
       <license>BSD</license>
       <helpPatch>smplr overview.axh</helpPatch>
@@ -28,7 +28,7 @@
          <bool32.pulse name="recdone" description="pulse when recording is done"/>
          <bool32.pulse name="slicedone"/>
          <frac32.positive name="remain" description="remaining recording-time"/>
-         <int32 name="v001"/>
+         <int32 name="v003"/>
       </outlets>
       <displays/>
       <params/>
@@ -109,11 +109,10 @@ uint8_t rcount;
 uint8_t outslot;
 
 uint32_t csample;
-uint32_t dub;
+int32_t dub;
 int32_t overdub_env;
 bool overdub_state;
-uint32_t preindex;
-float wlength_scale;]]></code.declaration>
+uint32_t preindex;]]></code.declaration>
       <code.krate><![CDATA[bool rectrig = 0;
 smplr.RECDONE = 0;
 outlet_slicedone = 0;
@@ -122,7 +121,6 @@ int8_t mslot = inlet_slot % smplr.slots;
 bool slicetrig = 0;
 ptrig = 0;
 
-wlength_scale = (smplr.W_LENGTH > 0) ? (float)smplr.W_LENGTH / (float)(1 << 27) : 0.0f;
 float inv_wlength = (smplr.W_LENGTH > 0) ? (float)(1 << 27) / (float)smplr.W_LENGTH : 0.0f;
 
 bool recording_allowed = (!smplr.EDIT && !inlet_disable);
@@ -217,6 +215,7 @@ else {
 smplr.RECSTATE = env;
 
 if (overdubbing_allowed && inlet_overdub) {
+	if (!overdub_state) preindex = UINT32_MAX;
 	overdub_state = true;
 	if (inlet_overdub) {
 		overdub_env = (1<<27) - (___SMMUL((1<<27)-overdub_env,(attr_fadeIn<<20))<<1);
@@ -238,7 +237,7 @@ outlet_fadestate = smplr.RECSTATE || overdub_state;
 outlet_recdone = smplr.RECDONE;
 outlet_recslot = outslot;
 outlet_playmode = (inlet_playmode)? inlet_playmode :attr_playmode;
-outlet_v001 = 1;]]></code.krate>
+outlet_v003 = 3;]]></code.krate>
       <code.srate><![CDATA[if (smplr.RECSTATE) {
 	int rv =  __SSAT((___SMMUL(inlet_wave,env)<<5),28 ) >> smplr.W_GAIN;
      	if (smplr.REC) {
@@ -254,10 +253,9 @@ outlet_v001 = 1;]]></code.krate>
  			}
 }
 
-if (overdub_state && !smplr.REC) {
-	csample = (uint32_t)((float)__USAT(inlet_pos,27) * wlength_scale);
-
-	if (csample != preindex) {
+if (overdub_state && !smplr.REC && inlet_pos >= 0) {
+	csample = (uint32_t)inlet_pos;
+	if (csample < (uint32_t)smplr.W_LENGTH && csample != preindex) {
 		int32_t existing = (smplr.wave[csample] << smplr.W_GAIN);
 		dub = ___SMMUL(existing, inlet_feedback) << 5;
 		int32_t new_audio = ___SMMUL(inlet_wave, overdub_env) << 5;
