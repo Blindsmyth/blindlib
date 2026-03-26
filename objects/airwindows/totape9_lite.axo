@@ -118,8 +118,8 @@ int32_t clip_post_mul_q31;
 int32_t tapehack_clamp_q27;
 int32_t th_div6_q31, th_div69_q31, th_div2530_q31, th_div224985_q31, th_div9979200_q31;
 
-int32_t iirEncL_q, iirDecL_q, compEncL_q, avgEncL_q, avgDecL_q;
-int32_t iirEncR_q, iirDecR_q, compEncR_q, avgEncR_q, avgDecR_q;
+int32_t iirEncL_q, iirDecL_q, compEncL_q, compDecL_q, avgEncL_q, avgDecL_q;
+int32_t iirEncR_q, iirDecR_q, compEncR_q, compDecR_q, avgEncR_q, avgDecR_q;
 
 int32_t* dL;
 int32_t* dR;
