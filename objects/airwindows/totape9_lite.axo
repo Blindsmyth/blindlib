@@ -1,6 +1,6 @@
 <objdefs appVersion="1.0.12">
    <obj.normal id="totape9_lite" uuid="5224773f-18de-4231-8f92-b1f22bb953C9">
-      <sDescription>ToTape9 Lite: full flutter (.sdram delays), 3-band bias, single head biquad; skips hysteresis; skips Dubly log when tilt enc/dec inactive (CPU). v004. 48 kHz; MIT.</sDescription>
+      <sDescription>ToTape9 Lite: full flutter (.sdram delays), 3-band bias, single head biquad; Q27 hysteresis (fixed-point exp.); skips Dubly log when tilt enc/dec inactive. v005. 48 kHz; MIT.</sDescription>
       <author>Chris Johnson (Airwindows) / blindlib port</author>
       <license>MIT</license>
       <inlets>
@@ -10,7 +10,7 @@
       <outlets>
          <frac32buffer.bipolar name="outL" description="Audio out L"/>
          <frac32buffer.bipolar name="outR" description="Audio out R"/>
-         <int32 name="v004" description="Object version"/>
+         <int32 name="v005" description="Object version"/>
       </outlets>
       <displays/>
       <params>
@@ -68,6 +68,13 @@ static inline float aw_sin_fast(float x) {
 
 static const int kGslewTotal = 9;
 
+/* Hysteresis in Q27 (match frac32 buffer); int64 for products. Rest of chain stays float. */
+static const int32_t aw_q27_one = (int32_t)(1 << 27);
+static const float aw_q27_to_float = 1.0f / (float)(1 << 27);
+static const int32_t aw_hyst_q_lim = (int32_t)(0.011449f * (float)(1 << 27));
+static const int32_t aw_hyst_q_decay = (int32_t)(0.999f * (float)(1 << 27));
+static const int32_t aw_hyst_q_amp = (int32_t)(0.012f * (float)(1 << 27));
+
 enum {
   hdb_freq, hdb_reso, hdb_a0, hdb_a1, hdb_a2, hdb_b1, hdb_b2,
   hdb_sL1, hdb_sL2, hdb_sR1, hdb_sR2, hdb_total
@@ -103,6 +110,9 @@ float nextmaxL, nextmaxR;
 int gcount;
 
 float gslew[9];
+
+int32_t hysteresisL_q;
+int32_t hysteresisR_q;
 
 float headBumpL, headBumpR;
 float hdbA[11];
@@ -149,6 +159,7 @@ sweepL = sweepR = AW_M_PI;
 nextmaxL = nextmaxR = 0.5f;
 gcount = 0;
 for (i = 0; i < kGslewTotal; i++) gslew[i] = 0.0f;
+hysteresisL_q = hysteresisR_q = 0;
 headBumpL = headBumpR = 0.0f;
 for (i = 0; i < hdb_total; i++) { hdbA[i] = 0.0f; }
 for (i = 0; i < 33; i++) {
@@ -250,7 +261,7 @@ hdbA[hdb_b2] = (1.0f - K / hdbA[hdb_reso] + K * K) * norm;
 
 k_outputGain = I * 2.0f;
 
-outlet_v004 = 4;
+outlet_v005 = 5;
 ]]></code.krate>
       <code.srate><![CDATA[{
 float inputSampleL = (float)inlet_inL * (1.0f / (float)(1 << 27));
@@ -350,6 +361,38 @@ if (fabsf(k_bias) > 0.001f) {
     if (-(inputSampleR - gslew[x+1]) > gslew[x+2]) inputSampleR = gslew[x+1] - gslew[x+2];
     gslew[x+1] = inputSampleR * 0.975f;
   }
+}
+
+// Hysteresis (Airwindows recipe; sample in Q27 to avoid float in this block)
+{
+  int32_t xLq = __SSAT((int32_t)(inputSampleL * (float)(1 << 27)), 28);
+  int32_t xRq = __SSAT((int32_t)(inputSampleR * (float)(1 << 27)), 28);
+  int32_t axL = (xLq >= 0) ? xLq : -xLq;
+  int32_t axR = (xRq >= 0) ? xRq : -xRq;
+  int32_t ompL = aw_q27_one - axL;
+  if (ompL < 0) ompL = 0;
+  int32_t ompR = aw_q27_one - axR;
+  if (ompR < 0) ompR = 0;
+  int64_t sqL = ((int64_t)ompL * (int64_t)ompL) >> 27;
+  int64_t sqR = ((int64_t)ompR * (int64_t)ompR) >> 27;
+  int64_t applyL = (sqL * (int64_t)aw_hyst_q_amp) >> 27;
+  int64_t applyR = (sqR * (int64_t)aw_hyst_q_amp) >> 27;
+  int64_t xaxL = ((int64_t)xLq * (int64_t)axL) >> 27;
+  int64_t xaxR = ((int64_t)xRq * (int64_t)axR) >> 27;
+  int64_t hL = (int64_t)hysteresisL_q + xaxL;
+  if (hL > (int64_t)aw_hyst_q_lim) hL = (int64_t)aw_hyst_q_lim;
+  if (hL < -(int64_t)aw_hyst_q_lim) hL = -(int64_t)aw_hyst_q_lim;
+  int64_t hR = (int64_t)hysteresisR_q + xaxR;
+  if (hR > (int64_t)aw_hyst_q_lim) hR = (int64_t)aw_hyst_q_lim;
+  if (hR < -(int64_t)aw_hyst_q_lim) hR = -(int64_t)aw_hyst_q_lim;
+  hL = (hL * (int64_t)aw_hyst_q_decay) >> 27;
+  hR = (hR * (int64_t)aw_hyst_q_decay) >> 27;
+  hysteresisL_q = (int32_t)hL;
+  hysteresisR_q = (int32_t)hR;
+  xLq = __SSAT(xLq + (int32_t)((hL * applyL) >> 27), 28);
+  xRq = __SSAT(xRq + (int32_t)((hR * applyR) >> 27), 28);
+  inputSampleL = (float)xLq * aw_q27_to_float;
+  inputSampleR = (float)xRq * aw_q27_to_float;
 }
 
 // TapeHack2 pre
