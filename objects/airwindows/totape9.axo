@@ -1,6 +1,6 @@
 <objdefs appVersion="1.0.12">
    <obj.normal id="totape9" uuid="5224773f-18de-4231-8f92-b1f22bb953C8">
-      <sDescription>Airwindows ToTape9 tape emulation (stereo). Flutter delay lines in SDRAM; fast sin/flutter + k-rate sqrt/div factors to reduce CPU. 48 kHz; MIT.</sDescription>
+      <sDescription>Airwindows ToTape9 (stereo). Flutter delays via sdram_malloc; aw_sin_fast + k-rate factors. v003. 48 kHz; MIT.</sDescription>
       <author>Chris Johnson (Airwindows) / blindlib port</author>
       <license>MIT</license>
       <inlets>
@@ -10,7 +10,7 @@
       <outlets>
          <frac32buffer.bipolar name="outL" description="Audio out L"/>
          <frac32buffer.bipolar name="outR" description="Audio out R"/>
-         <int32 name="v002" description="Object version"/>
+         <int32 name="v003" description="Object version"/>
       </outlets>
       <displays/>
       <params>
@@ -95,8 +95,9 @@ float k_outputGain;
 float iirEncL, iirDecL, compEncL, compDecL, avgEncL, avgDecL;
 float iirEncR, iirDecR, compEncR, compDecR, avgEncR, avgDecR;
 
-__attribute__((section(".sdram"), aligned(4))) float dL[1002];
-__attribute__((section(".sdram"), aligned(4))) float dR[1002];
+/* Delay lines allocated in SDRAM per instance (sdram_malloc); not class members with section(). */
+float* dL;
+float* dR;
 float sweepL, sweepR;
 float nextmaxL, nextmaxR;
 int gcount;
@@ -136,7 +137,11 @@ int wasPosClipR;
 int wasNegClipR;
 ]]></code.declaration>
       <code.init><![CDATA[int i;
-for (i = 0; i < 1001; i++) { dL[i] = 0.0f; dR[i] = 0.0f; }
+dL = (float*)sdram_malloc(sizeof(float) * 1002);
+dR = (float*)sdram_malloc(sizeof(float) * 1002);
+if (dL && dR) {
+for (i = 0; i < 1002; i++) { dL[i] = 0.0f; dR[i] = 0.0f; }
+}
 iirEncL = iirDecL = 0.0f;
 compEncL = compDecL = 1.0f;
 avgEncL = avgDecL = 0.0f;
@@ -264,7 +269,7 @@ hdbB[hdb_b2] = (1.0f - K / hdbB[hdb_reso] + K * K) * norm;
 
 k_outputGain = I * 2.0f;
 
-outlet_v002 = 2;
+outlet_v003 = 3;
 ]]></code.krate>
       <code.srate><![CDATA[{
 float inputSampleL = (float)inlet_inL * (1.0f / (float)(1 << 27));
@@ -302,7 +307,7 @@ if (dubly > 0.0f) {
 }
 
 // Flutter
-if (k_flutDepth > 0.0f) {
+if (k_flutDepth > 0.0f && dL && dR) {
   if (gcount < 0 || gcount > 999) gcount = 999;
   dL[gcount] = inputSampleL;
   int count = gcount;
