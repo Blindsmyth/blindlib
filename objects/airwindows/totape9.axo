@@ -1,6 +1,6 @@
 <objdefs appVersion="1.0.12">
    <obj.normal id="totape9" uuid="5224773f-18de-4231-8f92-b1f22bb953C8">
-      <sDescription>Airwindows ToTape9 (stereo). Flutter delays via sdram_malloc; aw_sin_fast + k-rate factors. v003. 48 kHz; MIT.</sDescription>
+      <sDescription>Airwindows ToTape9 (stereo). Flutter delays in linker .sdram (attr_poly rows); aw_sin_fast + k-rate factors. v004. 48 kHz; MIT.</sDescription>
       <author>Chris Johnson (Airwindows) / blindlib port</author>
       <license>MIT</license>
       <inlets>
@@ -10,7 +10,7 @@
       <outlets>
          <frac32buffer.bipolar name="outL" description="Audio out L"/>
          <frac32buffer.bipolar name="outR" description="Audio out R"/>
-         <int32 name="v003" description="Object version"/>
+         <int32 name="v004" description="Object version"/>
       </outlets>
       <displays/>
       <params>
@@ -95,7 +95,7 @@ float k_outputGain;
 float iirEncL, iirDecL, compEncL, compDecL, avgEncL, avgDecL;
 float iirEncR, iirDecR, compEncR, compDecR, avgEncR, avgDecR;
 
-/* Delay lines allocated in SDRAM per instance (sdram_malloc); not class members with section(). */
+/* Flutter delay lines: pointers set in init to parent voice row in static .sdram 2D array. */
 float* dL;
 float* dR;
 float sweepL, sweepR;
@@ -137,11 +137,11 @@ int wasPosClipR;
 int wasNegClipR;
 ]]></code.declaration>
       <code.init><![CDATA[int i;
-dL = (float*)sdram_malloc(sizeof(float) * 1002);
-dR = (float*)sdram_malloc(sizeof(float) * 1002);
-if (dL && dR) {
+static float _dL[attr_poly][1002] __attribute__((section(".sdram"), aligned(4)));
+static float _dR[attr_poly][1002] __attribute__((section(".sdram"), aligned(4)));
+dL = &_dL[parent->polyIndex][0];
+dR = &_dR[parent->polyIndex][0];
 for (i = 0; i < 1002; i++) { dL[i] = 0.0f; dR[i] = 0.0f; }
-}
 iirEncL = iirDecL = 0.0f;
 compEncL = compDecL = 1.0f;
 avgEncL = avgDecL = 0.0f;
@@ -269,7 +269,7 @@ hdbB[hdb_b2] = (1.0f - K / hdbB[hdb_reso] + K * K) * norm;
 
 k_outputGain = I * 2.0f;
 
-outlet_v003 = 3;
+outlet_v004 = 4;
 ]]></code.krate>
       <code.srate><![CDATA[{
 float inputSampleL = (float)inlet_inL * (1.0f / (float)(1 << 27));
@@ -289,7 +289,7 @@ highPart += avgEncL; avgEncL = (inputSampleL-iirEncL)*1.152f;
 if (highPart > 1.0f) highPart = 1.0f; if (highPart < -1.0f) highPart = -1.0f;
 float dubly = fabsf(highPart);
 if (dubly > 0.0f) {
-  float adjust = logf(1.0f+(255.0f*dubly))/2.40823996531f;
+  float adjust = log1pf(255.0f*dubly)/2.40823996531f;
   if (adjust > 0.0f) dubly /= adjust;
   compEncL = (compEncL*(1.0f-k_iirEncFreq))+(dubly*k_iirEncFreq);
   inputSampleL += ((highPart*compEncL)*k_dublyAmount);
@@ -300,14 +300,14 @@ highPart += avgEncR; avgEncR = (inputSampleR-iirEncR)*1.152f;
 if (highPart > 1.0f) highPart = 1.0f; if (highPart < -1.0f) highPart = -1.0f;
 dubly = fabsf(highPart);
 if (dubly > 0.0f) {
-  float adjust = logf(1.0f+(255.0f*dubly))/2.40823996531f;
+  float adjust = log1pf(255.0f*dubly)/2.40823996531f;
   if (adjust > 0.0f) dubly /= adjust;
   compEncR = (compEncR*(1.0f-k_iirEncFreq))+(dubly*k_iirEncFreq);
   inputSampleR += ((highPart*compEncR)*k_dublyAmount);
 }
 
 // Flutter
-if (k_flutDepth > 0.0f && dL && dR) {
+if (k_flutDepth > 0.0f) {
   if (gcount < 0 || gcount > 999) gcount = 999;
   dL[gcount] = inputSampleL;
   int count = gcount;
@@ -318,11 +318,14 @@ if (k_flutDepth > 0.0f && dL && dR) {
     float flutA = 0.24f + (fpdL / (float)UINT32_MAX * 0.74f);
     fpdL ^= fpdL << 13; fpdL ^= fpdL >> 17; fpdL ^= fpdL << 5;
     float flutB = 0.24f + (fpdL / (float)UINT32_MAX * 0.74f);
-    if (fabsf(flutA-aw_sin_fast(sweepR+nextmaxR))<fabsf(flutB-aw_sin_fast(sweepR+nextmaxR))) nextmaxL = flutA; else nextmaxL = flutB;
+    float srRef = aw_sin_fast(sweepR+nextmaxR);
+    if (fabsf(flutA-srRef) < fabsf(flutB-srRef)) nextmaxL = flutA; else nextmaxL = flutB;
   }
-  count += (int)floorf(offset);
-  inputSampleL = (dL[count-((count > 999)?1000:0)] * (1.0f-(offset-floorf(offset))));
-  inputSampleL += (dL[count+1-((count+1 > 999)?1000:0)] * (offset-floorf(offset)));
+  float fo = floorf(offset);
+  count += (int)fo;
+  float fr = offset - fo;
+  inputSampleL = (dL[count-((count > 999)?1000:0)] * (1.0f-fr));
+  inputSampleL += (dL[count+1-((count+1 > 999)?1000:0)] * fr);
   dR[gcount] = inputSampleR;
   count = gcount;
   offset = k_flutDepth + (k_flutDepth * aw_sin_fast(sweepR));
@@ -332,11 +335,14 @@ if (k_flutDepth > 0.0f && dL && dR) {
     float flutA = 0.24f + (fpdR / (float)UINT32_MAX * 0.74f);
     fpdR ^= fpdR << 13; fpdR ^= fpdR >> 17; fpdR ^= fpdR << 5;
     float flutB = 0.24f + (fpdR / (float)UINT32_MAX * 0.74f);
-    if (fabsf(flutA-aw_sin_fast(sweepL+nextmaxL))<fabsf(flutB-aw_sin_fast(sweepL+nextmaxL))) nextmaxR = flutA; else nextmaxR = flutB;
+    float slRef = aw_sin_fast(sweepL+nextmaxL);
+    if (fabsf(flutA-slRef) < fabsf(flutB-slRef)) nextmaxR = flutA; else nextmaxR = flutB;
   }
-  count += (int)floorf(offset);
-  inputSampleR = (dR[count-((count > 999)?1000:0)] * (1.0f-(offset-floorf(offset))));
-  inputSampleR += (dR[count+1-((count+1 > 999)?1000:0)] * (offset-floorf(offset)));
+  fo = floorf(offset);
+  count += (int)fo;
+  fr = offset - fo;
+  inputSampleR = (dR[count-((count > 999)?1000:0)] * (1.0f-fr));
+  inputSampleR += (dR[count+1-((count+1 > 999)?1000:0)] * fr);
   gcount--;
 }
 
@@ -498,7 +504,7 @@ highPart += avgDecL; avgDecL = (inputSampleL-iirDecL)*1.372f;
 if (highPart > 1.0f) highPart = 1.0f; if (highPart < -1.0f) highPart = -1.0f;
 dubly = fabsf(highPart);
 if (dubly > 0.0f) {
-  float adjust = logf(1.0f+(255.0f*dubly))/2.40823996531f;
+  float adjust = log1pf(255.0f*dubly)/2.40823996531f;
   if (adjust > 0.0f) dubly /= adjust;
   compDecL = (compDecL*(1.0f-k_iirDecFreq))+(dubly*k_iirDecFreq);
   inputSampleL += ((highPart*compDecL)*k_outlyAmount);
@@ -509,7 +515,7 @@ highPart += avgDecR; avgDecR = (inputSampleR-iirDecR)*1.372f;
 if (highPart > 1.0f) highPart = 1.0f; if (highPart < -1.0f) highPart = -1.0f;
 dubly = fabsf(highPart);
 if (dubly > 0.0f) {
-  float adjust = logf(1.0f+(255.0f*dubly))/2.40823996531f;
+  float adjust = log1pf(255.0f*dubly)/2.40823996531f;
   if (adjust > 0.0f) dubly /= adjust;
   compDecR = (compDecR*(1.0f-k_iirDecFreq))+(dubly*k_iirDecFreq);
   inputSampleR += ((highPart*compDecR)*k_outlyAmount);
@@ -532,17 +538,28 @@ if (wasNegClipL) {
   else lastSampleL = -0.94f;
 } wasNegClipL = 0;
 if (inputSampleL<-0.9085097f) {wasNegClipL=1;inputSampleL=(-0.9085097f*noise)+(lastSampleL*(1.0f-noise));}
-slewClipL[ik_spacing*2] = fabsf(lastSampleL-inputSampleL);
+float finalSlew;
 int x;
-for (x = ik_spacing*2; x > 0; x--) slewClipL[x-1] = slewClipL[x];
-intermediateL[ik_spacing] = inputSampleL; inputSampleL = lastSampleL;
-for (x = ik_spacing; x > 0; x--) {intermediateL[x-1] = intermediateL[x];} lastSampleL = intermediateL[0];
-if (wasPosClipL || wasNegClipL) {
-  for (x = ik_spacing; x > 0; x--) lastSampleL += intermediateL[x];
-  lastSampleL /= (float)ik_spacing;
+if (ik_spacing == 1) {
+  slewClipL[2] = fabsf(lastSampleL-inputSampleL);
+  slewClipL[1] = slewClipL[2];
+  slewClipL[0] = slewClipL[1];
+  intermediateL[1] = inputSampleL; inputSampleL = lastSampleL;
+  intermediateL[0] = intermediateL[1]; lastSampleL = intermediateL[0];
+  if (wasPosClipL || wasNegClipL) lastSampleL += intermediateL[1];
+  finalSlew = fmaxf(fmaxf(slewClipL[0], slewClipL[1]), slewClipL[2]);
+} else {
+  slewClipL[ik_spacing*2] = fabsf(lastSampleL-inputSampleL);
+  for (x = ik_spacing*2; x > 0; x--) slewClipL[x-1] = slewClipL[x];
+  intermediateL[ik_spacing] = inputSampleL; inputSampleL = lastSampleL;
+  for (x = ik_spacing; x > 0; x--) {intermediateL[x-1] = intermediateL[x];} lastSampleL = intermediateL[0];
+  if (wasPosClipL || wasNegClipL) {
+    for (x = ik_spacing; x > 0; x--) lastSampleL += intermediateL[x];
+    lastSampleL /= (float)ik_spacing;
+  }
+  finalSlew = 0.0f;
+  for (x = ik_spacing*2; x >= 0; x--) if (finalSlew < slewClipL[x]) finalSlew = slewClipL[x];
 }
-float finalSlew = 0.0f;
-for (x = ik_spacing*2; x >= 0; x--) if (finalSlew < slewClipL[x]) finalSlew = slewClipL[x];
 float postclip = 0.94f / (1.0f+(finalSlew*1.3986013f));
 if (inputSampleL > postclip) inputSampleL = postclip; if (inputSampleL < -postclip) inputSampleL = -postclip;
 
@@ -557,16 +574,26 @@ if (wasNegClipR) {
   else lastSampleR = -0.94f;
 } wasNegClipR = 0;
 if (inputSampleR<-0.9085097f) {wasNegClipR=1;inputSampleR=(-0.9085097f*noise)+(lastSampleR*(1.0f-noise));}
-slewClipR[ik_spacing*2] = fabsf(lastSampleR-inputSampleR);
-for (x = ik_spacing*2; x > 0; x--) slewClipR[x-1] = slewClipR[x];
-intermediateR[ik_spacing] = inputSampleR; inputSampleR = lastSampleR;
-for (x = ik_spacing; x > 0; x--) {intermediateR[x-1] = intermediateR[x];} lastSampleR = intermediateR[0];
-if (wasPosClipR || wasNegClipR) {
-  for (x = ik_spacing; x > 0; x--) lastSampleR += intermediateR[x];
-  lastSampleR /= (float)ik_spacing;
+if (ik_spacing == 1) {
+  slewClipR[2] = fabsf(lastSampleR-inputSampleR);
+  slewClipR[1] = slewClipR[2];
+  slewClipR[0] = slewClipR[1];
+  intermediateR[1] = inputSampleR; inputSampleR = lastSampleR;
+  intermediateR[0] = intermediateR[1]; lastSampleR = intermediateR[0];
+  if (wasPosClipR || wasNegClipR) lastSampleR += intermediateR[1];
+  finalSlew = fmaxf(fmaxf(slewClipR[0], slewClipR[1]), slewClipR[2]);
+} else {
+  slewClipR[ik_spacing*2] = fabsf(lastSampleR-inputSampleR);
+  for (x = ik_spacing*2; x > 0; x--) slewClipR[x-1] = slewClipR[x];
+  intermediateR[ik_spacing] = inputSampleR; inputSampleR = lastSampleR;
+  for (x = ik_spacing; x > 0; x--) {intermediateR[x-1] = intermediateR[x];} lastSampleR = intermediateR[0];
+  if (wasPosClipR || wasNegClipR) {
+    for (x = ik_spacing; x > 0; x--) lastSampleR += intermediateR[x];
+    lastSampleR /= (float)ik_spacing;
+  }
+  finalSlew = 0.0f;
+  for (x = ik_spacing*2; x >= 0; x--) if (finalSlew < slewClipR[x]) finalSlew = slewClipR[x];
 }
-finalSlew = 0.0f;
-for (x = ik_spacing*2; x >= 0; x--) if (finalSlew < slewClipR[x]) finalSlew = slewClipR[x];
 postclip = 0.94f / (1.0f+(finalSlew*1.3986013f));
 if (inputSampleR > postclip) inputSampleR = postclip; if (inputSampleR < -postclip) inputSampleR = -postclip;
 
