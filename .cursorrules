@@ -105,6 +105,9 @@
  * midi/out/note thin serial.axo (Axolonatics): 5224773f-18de-4231-8f92-b1f22bb953C4
  * float param get half page kso.axo: 5224773f-18de-4231-8f92-b1f22bb953C5
  * clock_master_sram3.axo: 5224773f-18de-4231-8f92-b1f22bb953C6
+ * keyb_zone_extra.axo: 5224773f-18de-4231-8f92-b1f22bb953C7
+ * totape9.axo: 5224773f-18de-4231-8f92-b1f22bb953C8
+ * totape9_lite.axo: 5224773f-18de-4231-8f92-b1f22bb953C9
 - **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
 - **MANDATORY**: Document all new UUIDs in this file immediately after creation
 
