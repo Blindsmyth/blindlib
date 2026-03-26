@@ -1,6 +1,6 @@
 <objdefs appVersion="1.0.12">
    <obj.normal id="totape9" uuid="5224773f-18de-4231-8f92-b1f22bb953C8">
-      <sDescription>Airwindows ToTape9 (stereo). Flutter delays in linker .sdram (attr_poly rows); aw_sin_fast + k-rate factors. v004. 48 kHz; MIT.</sDescription>
+      <sDescription>Airwindows ToTape9 (stereo). Q27/SSAT28 int DSP; SDRAM int32 delays; firmware sin_q31 flutter; k-rate Dubly LUT; 9-band bias; dual head-bump biquads. v005. 48 kHz; MIT.</sDescription>
       <author>Chris Johnson (Airwindows) / blindlib port</author>
       <license>MIT</license>
       <inlets>
@@ -10,7 +10,7 @@
       <outlets>
          <frac32buffer.bipolar name="outL" description="Audio out L"/>
          <frac32buffer.bipolar name="outR" description="Audio out R"/>
-         <int32 name="v004" description="Object version"/>
+         <int32 name="v005" description="Object version"/>
       </outlets>
       <displays/>
       <params>
@@ -45,159 +45,189 @@
       <attribs/>
       <includes>
          <include>math.h</include>
+         <include>stdint.h</include>
+         <include>axoloti_math.h</include>
       </includes>
       <code.declaration><![CDATA[#include <math.h>
 #include <stdint.h>
-#ifndef AW_M_PI
-#define AW_M_PI 3.14159265358979323846f
-#endif
+
 #ifndef AW_PHI
 #define AW_PHI 1.618033988749894848204586f
 #endif
 
-/* Bhaskara-style sin on principal range; flutter LFO only (firmware has no public sin API in patch objects). */
-static inline float aw_sin_fast(float x) {
-  const float two_pi = 2.0f * AW_M_PI;
-  x -= two_pi * floorf((x + AW_M_PI) / two_pi);
-  float ax = fabsf(x);
-  float num = 16.0f * ax * (AW_M_PI - ax);
-  float den = 5.0f * AW_M_PI * AW_M_PI - 4.0f * ax * (AW_M_PI - ax);
-  float s = num / den;
-  return (x < 0.0f) ? -s : s;
+#define AW_Q27 ((int32_t)(1 << 27))
+#define AW_Q31_MAX ((int32_t)2147483647)
+
+static const int32_t aw_q27_one = AW_Q27;
+static const int32_t aw_hyst_q_lim = (int32_t)(0.011449f * (float)AW_Q27);
+static const int32_t aw_hyst_q_decay = (int32_t)(0.999f * (float)AW_Q27);
+static const int32_t aw_hyst_q_amp = (int32_t)(0.012f * (float)AW_Q27);
+
+static inline int32_t aw_smul2727(int32_t a, int32_t b) {
+  return (int32_t)(((int64_t)a * (int64_t)b) >> 27);
+}
+static inline int32_t aw_smul2731(int32_t a, int32_t b) {
+  return (int32_t)(((int64_t)a * (int64_t)b) >> 31);
+}
+static inline int32_t aw_abs27(int32_t x) { return (x >= 0) ? x : -x; }
+static inline uint32_t aw_rad_q27_to_phase_u32(int32_t rad_q27) {
+  return (uint32_t)(((uint64_t)(int64_t)rad_q27 * 683565276ULL) >> 27);
 }
 
 static const int kGslewTotal = 27;
 
-enum {
-  hdb_freq, hdb_reso, hdb_a0, hdb_a1, hdb_a2, hdb_b1, hdb_b2,
-  hdb_sL1, hdb_sL2, hdb_sR1, hdb_sR2, hdb_total
-};
-
 float k_overallscale;
 int ik_spacing;
 int k_slewsing;
-float k_inputGain;
-float k_dublyAmount;
-float k_outlyAmount;
-float k_iirEncFreq;
-float k_iirDecFreq;
-float k_flutDepth;
-float k_flutFrequency;
-float k_bias;
-float k_underBias;
-float k_headBumpDrive;
-float k_headBumpMix;
-float k_headBumpLim;
-float k_invUnderBias;
-float k_avgSlewScale;
-float k_outputGain;
+int32_t k_input_gain_q24;
+int32_t k_dubly_wet_q27;
+int32_t k_outly_wet_q27;
+int k_skip_dubly_enc;
+int k_skip_dubly_dec;
+int32_t g_iir_enc_q31;
+int32_t g_iir_dec_q31;
+int32_t k_flut_depth_q16;
+uint32_t k_flut_phase_inc_q32;
+uint32_t sweep_phaseL;
+uint32_t sweep_phaseR;
+int32_t nextmaxL_rad_q27;
+int32_t nextmaxR_rad_q27;
+int32_t k_bias_q27;
+int32_t k_bias_thr_q27;
+int32_t k_under_bias_q27;
+int32_t k_inv_under_q31;
+int32_t k_head_drive_q31;
+int32_t k_head_mix_q31;
+int32_t k_head_lim_q24;
+int32_t k_avg_slew_q31;
+int32_t k_out_gain_q27;
+int32_t k_mul_enc_hp_q27;
+int32_t k_mul_enc_avg_q27;
+int32_t k_mul_dec_hp_q27;
+int32_t k_mul_dec_avg_q27;
+int32_t k_inv975_q31;
+int32_t k_gs975_q31;
+int32_t dubly_adj_q31[256];
+int32_t hbA_b0_q27, hbA_fb1_q27, hbA_fb2_q27, hbA_a2_q27;
+int32_t hbB_b0_q27, hbB_fb1_q27, hbB_fb2_q27, hbB_a2_q27;
+int32_t clip_thr_q27;
+int32_t clip_thr_neg_q27;
+int32_t clip_last_q27;
+int32_t clip_post_nom_q27;
+int32_t clip_post_mul_q31;
+int32_t tapehack_clamp_q27;
+int32_t th_div6_q31, th_div69_q31, th_div2530_q31, th_div224985_q31, th_div9979200_q31;
 
-float iirEncL, iirDecL, compEncL, compDecL, avgEncL, avgDecL;
-float iirEncR, iirDecR, compEncR, compDecR, avgEncR, avgDecR;
+int32_t iirEncL_q, iirDecL_q, compEncL_q, avgEncL_q, avgDecL_q;
+int32_t iirEncR_q, iirDecR_q, compEncR_q, avgEncR_q, avgDecR_q;
 
-/* Flutter delay lines: pointers set in init to parent voice row in static .sdram 2D array. */
-float* dL;
-float* dR;
-float sweepL, sweepR;
-float nextmaxL, nextmaxR;
+int32_t* dL;
+int32_t* dR;
 int gcount;
 
-float gslew[27];
+int32_t gslew_q[27];
 
-float hysteresisL, hysteresisR;
+int32_t hysteresisL_q;
+int32_t hysteresisR_q;
 
-float headBumpL, headBumpR;
-float hdbA[11];
-float hdbB[11];
+int32_t headBumpL_q;
+int32_t headBumpR_q;
+int32_t hdbA_y1L_q, hdbA_y2L_q;
+int32_t hdbA_y1R_q, hdbA_y2R_q;
+int32_t hdbB_y1L_q, hdbB_y2L_q;
+int32_t hdbB_y1R_q, hdbB_y2R_q;
 
-float avg32L[33], avg32R[33];
-float avg16L[17], avg16R[17];
-float avg8L[9], avg8R[9];
-float avg4L[5], avg4R[5];
-float avg2L[3], avg2R[3];
-float post32L[33], post32R[33];
-float post16L[17], post16R[17];
-float post8L[9], post8R[9];
-float post4L[5], post4R[5];
-float post2L[3], post2R[3];
-float lastDarkL, lastDarkR;
+int32_t avg32L[33], avg32R[33];
+int32_t avg16L[17], avg16R[17];
+int32_t avg8L[9], avg8R[9];
+int32_t avg4L[5], avg4R[5];
+int32_t avg2L[3], avg2R[3];
+int32_t post32L[33], post32R[33];
+int32_t post16L[17], post16R[17];
+int32_t post8L[9], post8R[9];
+int32_t post4L[5], post4R[5];
+int32_t post2L[3], post2R[3];
+int32_t lastDarkL_q, lastDarkR_q;
 int avgPos;
 
 uint32_t fpdL, fpdR;
 
-float lastSampleL;
-float intermediateL[18];
-float slewClipL[34];
+int32_t lastSampleL_q;
+int32_t intermediateL[18];
+int32_t slewClipL[34];
 int wasPosClipL;
 int wasNegClipL;
-float lastSampleR;
-float intermediateR[18];
-float slewClipR[34];
+int32_t lastSampleR_q;
+int32_t intermediateR[18];
+int32_t slewClipR[34];
 int wasPosClipR;
 int wasNegClipR;
 ]]></code.declaration>
       <code.init><![CDATA[int i;
-static float _dL[attr_poly][1002] __attribute__((section(".sdram"), aligned(4)));
-static float _dR[attr_poly][1002] __attribute__((section(".sdram"), aligned(4)));
+static int32_t _dL[attr_poly][1002] __attribute__((section(".sdram"), aligned(4)));
+static int32_t _dR[attr_poly][1002] __attribute__((section(".sdram"), aligned(4)));
 dL = &_dL[parent->polyIndex][0];
 dR = &_dR[parent->polyIndex][0];
-for (i = 0; i < 1002; i++) { dL[i] = 0.0f; dR[i] = 0.0f; }
-iirEncL = iirDecL = 0.0f;
-compEncL = compDecL = 1.0f;
-avgEncL = avgDecL = 0.0f;
-iirEncR = iirDecR = 0.0f;
-compEncR = compDecR = 1.0f;
-avgEncR = avgDecR = 0.0f;
-sweepL = sweepR = AW_M_PI;
-nextmaxL = nextmaxR = 0.5f;
+for (i = 0; i < 1002; i++) { dL[i] = 0; dR[i] = 0; }
+iirEncL_q = iirDecL_q = avgEncL_q = avgDecL_q = 0;
+compEncL_q = AW_Q31_MAX;
+compDecL_q = AW_Q31_MAX;
+iirEncR_q = iirDecR_q = avgEncR_q = avgDecR_q = 0;
+compEncR_q = AW_Q31_MAX;
+compDecR_q = AW_Q31_MAX;
+sweep_phaseL = sweep_phaseR = (uint32_t)2147483648u;
+nextmaxL_rad_q27 = nextmaxR_rad_q27 = (int32_t)(0.5f * (float)AW_Q27);
 gcount = 0;
-for (i = 0; i < kGslewTotal; i++) gslew[i] = 0.0f;
-hysteresisL = hysteresisR = 0.0f;
-headBumpL = headBumpR = 0.0f;
-for (i = 0; i < hdb_total; i++) { hdbA[i] = 0.0f; hdbB[i] = 0.0f; }
+for (i = 0; i < kGslewTotal; i++) gslew_q[i] = 0;
+hysteresisL_q = hysteresisR_q = 0;
+headBumpL_q = headBumpR_q = 0;
+hdbA_y1L_q = hdbA_y2L_q = hdbA_y1R_q = hdbA_y2R_q = 0;
+hdbB_y1L_q = hdbB_y2L_q = hdbB_y1R_q = hdbB_y2R_q = 0;
 for (i = 0; i < 33; i++) {
-  avg32L[i] = post32L[i] = avg32R[i] = post32R[i] = 0.0f;
+  avg32L[i] = post32L[i] = avg32R[i] = post32R[i] = 0;
 }
 for (i = 0; i < 17; i++) {
-  avg16L[i] = post16L[i] = avg16R[i] = post16R[i] = 0.0f;
+  avg16L[i] = post16L[i] = avg16R[i] = post16R[i] = 0;
 }
 for (i = 0; i < 9; i++) {
-  avg8L[i] = post8L[i] = avg8R[i] = post8R[i] = 0.0f;
+  avg8L[i] = post8L[i] = avg8R[i] = post8R[i] = 0;
 }
 for (i = 0; i < 5; i++) {
-  avg4L[i] = post4L[i] = avg4R[i] = post4R[i] = 0.0f;
+  avg4L[i] = post4L[i] = avg4R[i] = post4R[i] = 0;
 }
 for (i = 0; i < 3; i++) {
-  avg2L[i] = post2L[i] = avg2R[i] = post2R[i] = 0.0f;
+  avg2L[i] = post2L[i] = avg2R[i] = post2R[i] = 0;
 }
 avgPos = 0;
-lastDarkL = lastDarkR = 0.0f;
-lastSampleL = lastSampleR = 0.0f;
+lastDarkL_q = lastDarkR_q = 0;
+lastSampleL_q = lastSampleR_q = 0;
 wasPosClipL = wasNegClipL = wasPosClipR = wasNegClipR = 0;
-for (i = 0; i < 18; i++) intermediateL[i] = intermediateR[i] = 0.0f;
-for (i = 0; i < 34; i++) slewClipL[i] = slewClipR[i] = 0.0f;
+for (i = 0; i < 18; i++) intermediateL[i] = intermediateR[i] = 0;
+for (i = 0; i < 34; i++) slewClipL[i] = slewClipR[i] = 0;
 fpdL = 0xACE1u;
 fpdR = 0xBEEFu;
 ]]></code.init>
-      <code.krate><![CDATA[const float q27 = 1.0f / (float)(1 << 27);
+      <code.krate><![CDATA[const float q27f = 1.0f / (float)(1 << 27);
 const float sr = 48000.0f;
-float A = param_input * q27;
+const float AW_M_PI_K = 3.14159265358979323846f;
+int ti;
+float A = param_input * q27f;
 if (A < 0.0f) A = 0.0f; if (A > 1.0f) A = 1.0f;
-float B = param_tilt * q27;
+float B = param_tilt * q27f;
 if (B < 0.0f) B = 0.0f; if (B > 1.0f) B = 1.0f;
-float C = param_shape * q27;
+float C = param_shape * q27f;
 if (C < 0.0f) C = 0.0f; if (C > 1.0f) C = 1.0f;
-float D = param_flutter * q27;
+float D = param_flutter * q27f;
 if (D < 0.0f) D = 0.0f; if (D > 1.0f) D = 1.0f;
-float E = param_flutspd * q27;
+float E = param_flutspd * q27f;
 if (E < 0.0f) E = 0.0f; if (E > 1.0f) E = 1.0f;
-float F = param_bias * q27;
+float F = param_bias * q27f;
 if (F < 0.0f) F = 0.0f; if (F > 1.0f) F = 1.0f;
-float G = param_headbmp * q27;
+float G = param_headbmp * q27f;
 if (G < 0.0f) G = 0.0f; if (G > 1.0f) G = 1.0f;
-float H = param_headfrq * q27;
+float H = param_headfrq * q27f;
 if (H < 0.0f) H = 0.0f; if (H > 1.0f) H = 1.0f;
-float I = param_output * q27;
+float I = param_output * q27f;
 if (I < 0.0f) I = 0.0f; if (I > 1.0f) I = 1.0f;
 
 k_overallscale = sr / 44100.0f;
@@ -206,402 +236,633 @@ if (ik_spacing < 1) ik_spacing = 1; if (ik_spacing > 16) ik_spacing = 16;
 k_slewsing = (int)floorf(k_overallscale * 2.0f);
 if (k_slewsing < 2) k_slewsing = 2; if (k_slewsing > 32) k_slewsing = 32;
 
-k_inputGain = powf(A * 2.0f, 2.0f);
-k_dublyAmount = B * 2.0f;
-k_outlyAmount = (1.0f - B) * -2.0f;
-if (k_outlyAmount < -1.0f) k_outlyAmount = -1.0f;
-k_iirEncFreq = (1.0f - C) / k_overallscale;
-k_iirDecFreq = C / k_overallscale;
+{
+  float g = powf(A * 2.0f, 2.0f);
+  if (g > 4.0f) g = 4.0f;
+  k_input_gain_q24 = (int32_t)(g * (float)(1 << 24));
+}
+k_skip_dubly_enc = 0;
+k_dubly_wet_q27 = float_to_q27(B * 2.0f);
+if (k_dubly_wet_q27 == 0) k_skip_dubly_enc = 1;
+float outly = (1.0f - B) * -2.0f;
+if (outly < -1.0f) outly = -1.0f;
+k_outly_wet_q27 = float_to_q27(outly);
+k_skip_dubly_dec = (k_outly_wet_q27 == 0) ? 1 : 0;
 
-k_flutDepth = powf(D, 6.0f) * k_overallscale * 50.0f;
-if (k_flutDepth > 498.0f) k_flutDepth = 498.0f;
-k_flutFrequency = (0.02f * powf(E, 3.0f)) / k_overallscale;
+float fenc = (1.0f - C) / k_overallscale;
+float fdec = C / k_overallscale;
+if (fenc > 1.0f) fenc = 1.0f; if (fenc < 0.0f) fenc = 0.0f;
+if (fdec > 1.0f) fdec = 1.0f; if (fdec < 0.0f) fdec = 0.0f;
+g_iir_enc_q31 = (int32_t)(fenc * (float)(1u << 31));
+g_iir_dec_q31 = (int32_t)(fdec * (float)(1u << 31));
 
-k_bias = (F * 2.0f) - 1.0f;
-k_underBias = (powf(k_bias, 4.0f) * 0.25f) / k_overallscale;
-float overBias = powf(1.0f - k_bias, 3.0f) / k_overallscale;
-if (k_bias > 0.0f) k_underBias = 0.0f;
-if (k_bias < 0.0f) overBias = 1.0f / k_overallscale;
+{
+  float fd = powf(D, 6.0f) * k_overallscale * 50.0f;
+  if (fd > 498.0f) fd = 498.0f;
+  k_flut_depth_q16 = (int32_t)(fd * 65536.0f);
+}
+{
+  float w = (0.02f * powf(E, 3.0f)) / k_overallscale;
+  if (w > 0.5f) w = 0.5f;
+  k_flut_phase_inc_q32 = (uint32_t)((double)w * (4294967296.0 / (2.0 * 3.14159265358979323846)));
+}
 
-gslew[26] = overBias;
-overBias *= AW_PHI;
-gslew[23] = overBias;
-overBias *= AW_PHI;
-gslew[20] = overBias;
-overBias *= AW_PHI;
-gslew[17] = overBias;
-overBias *= AW_PHI;
-gslew[14] = overBias;
-overBias *= AW_PHI;
-gslew[11] = overBias;
-overBias *= AW_PHI;
-gslew[8] = overBias;
-overBias *= AW_PHI;
-gslew[5] = overBias;
-overBias *= AW_PHI;
-gslew[2] = overBias;
-overBias *= AW_PHI;
+float k_bias_f = (F * 2.0f) - 1.0f;
+k_bias_q27 = float_to_q27(k_bias_f);
+k_bias_thr_q27 = (int32_t)(0.0011f * (float)AW_Q27);
+float ub = (powf(k_bias_f, 4.0f) * 0.25f) / k_overallscale;
+float ob = powf(1.0f - k_bias_f, 3.0f) / k_overallscale;
+if (k_bias_f > 0.0f) ub = 0.0f;
+if (k_bias_f < 0.0f) ob = 1.0f / k_overallscale;
+k_under_bias_q27 = float_to_q27(ub);
+if (ub > 1e-20f) {
+  k_inv_under_q31 = (int32_t)((1.0f / ub) * (float)(1u << 31));
+} else k_inv_under_q31 = 0;
 
-k_headBumpDrive = (G * 0.1f) / k_overallscale;
-k_headBumpMix = G * 0.5f;
-k_headBumpLim = 0.0618f / sqrtf(k_overallscale);
-k_invUnderBias = (k_underBias > 1e-20f) ? (1.0f / k_underBias) : 0.0f;
-k_avgSlewScale = 0.12f * k_overallscale;
+{
+  float v = ob;
+  gslew_q[26] = float_to_q27(v);
+  v *= AW_PHI;
+  gslew_q[23] = float_to_q27(v);
+  v *= AW_PHI;
+  gslew_q[20] = float_to_q27(v);
+  v *= AW_PHI;
+  gslew_q[17] = float_to_q27(v);
+  v *= AW_PHI;
+  gslew_q[14] = float_to_q27(v);
+  v *= AW_PHI;
+  gslew_q[11] = float_to_q27(v);
+  v *= AW_PHI;
+  gslew_q[8] = float_to_q27(v);
+  v *= AW_PHI;
+  gslew_q[5] = float_to_q27(v);
+  v *= AW_PHI;
+  gslew_q[2] = float_to_q27(v);
+}
 
-float fc = (((H * H) * 175.0f) + 25.0f) / sr;
-hdbA[hdb_freq] = fc;
-hdbB[hdb_freq] = hdbA[hdb_freq] * 0.9375f;
-hdbB[hdb_reso] = hdbA[hdb_reso] = 0.618033988749894848204586f;
-hdbB[hdb_a1] = hdbA[hdb_a1] = 0.0f;
+k_head_drive_q31 = (int32_t)(((G * 0.1f) / k_overallscale) * (float)(1u << 31));
+k_head_mix_q31 = (int32_t)((G * 0.5f) * (float)(1u << 31));
+{
+  float lim = 0.0618f / sqrtf(k_overallscale);
+  k_head_lim_q24 = (int32_t)(lim * (float)(1 << 24));
+}
+k_avg_slew_q31 = (int32_t)((0.12f * k_overallscale) * (float)(1u << 31));
+k_out_gain_q27 = float_to_q27(I * 2.0f);
 
-float K = tanf(hdbA[hdb_freq] * AW_M_PI);
-float norm = 1.0f / (1.0f + K / hdbA[hdb_reso] + K * K);
-hdbA[hdb_a0] = K / hdbA[hdb_reso] * norm;
-hdbA[hdb_a2] = -hdbA[hdb_a0];
-hdbA[hdb_b1] = 2.0f * (K * K - 1.0f) * norm;
-hdbA[hdb_b2] = (1.0f - K / hdbA[hdb_reso] + K * K) * norm;
-K = tanf(hdbB[hdb_freq] * AW_M_PI);
-norm = 1.0f / (1.0f + K / hdbB[hdb_reso] + K * K);
-hdbB[hdb_a0] = K / hdbB[hdb_reso] * norm;
-hdbB[hdb_a2] = -hdbB[hdb_a0];
-hdbB[hdb_b1] = 2.0f * (K * K - 1.0f) * norm;
-hdbB[hdb_b2] = (1.0f - K / hdbB[hdb_reso] + K * K) * norm;
+k_mul_enc_hp_q27 = (int32_t)(2.848f * (float)AW_Q27);
+k_mul_enc_avg_q27 = (int32_t)(1.152f * (float)AW_Q27);
+k_mul_dec_hp_q27 = (int32_t)(2.628f * (float)AW_Q27);
+k_mul_dec_avg_q27 = (int32_t)(1.372f * (float)AW_Q27);
+k_inv975_q31 = (int32_t)((1.0f / 0.975f) * (float)(1u << 31));
+k_gs975_q31 = (int32_t)(0.975f * (float)(1u << 31));
 
-k_outputGain = I * 2.0f;
+for (ti = 0; ti < 256; ti++) {
+  float d = (ti <= 0) ? 0.0f : (float)ti / 255.0f;
+  float adj = log1pf(255.0f * d) / 2.40823996531f;
+  if (adj < 1e-8f) adj = 1e-8f;
+  dubly_adj_q31[ti] = (int32_t)(adj * (float)(1u << 31));
+}
 
-outlet_v004 = 4;
+{
+  float res = 0.618033988749894848204586f;
+  float fc = (((H * H) * 175.0f) + 25.0f) / sr;
+  float fcB = fc * 0.9375f;
+  float K = tanf(fc * AW_M_PI_K);
+  float nrm = 1.0f / (1.0f + K / res + K * K);
+  float b0 = (K / res) * nrm;
+  float fb1 = 2.0f * (K * K - 1.0f) * nrm;
+  float fb2 = (1.0f - K / res + K * K) * nrm;
+  float a2c = -b0;
+  hbA_b0_q27 = (int32_t)(b0 * (float)AW_Q27);
+  hbA_fb1_q27 = (int32_t)(fb1 * (float)AW_Q27);
+  hbA_fb2_q27 = (int32_t)(fb2 * (float)AW_Q27);
+  hbA_a2_q27 = (int32_t)(a2c * (float)AW_Q27);
+  K = tanf(fcB * AW_M_PI_K);
+  nrm = 1.0f / (1.0f + K / res + K * K);
+  b0 = (K / res) * nrm;
+  fb1 = 2.0f * (K * K - 1.0f) * nrm;
+  fb2 = (1.0f - K / res + K * K) * nrm;
+  a2c = -b0;
+  hbB_b0_q27 = (int32_t)(b0 * (float)AW_Q27);
+  hbB_fb1_q27 = (int32_t)(fb1 * (float)AW_Q27);
+  hbB_fb2_q27 = (int32_t)(fb2 * (float)AW_Q27);
+  hbB_a2_q27 = (int32_t)(a2c * (float)AW_Q27);
+}
+
+clip_thr_q27 = float_to_q27(0.9085097f);
+clip_thr_neg_q27 = float_to_q27(-0.9085097f);
+clip_last_q27 = float_to_q27(0.94f);
+clip_post_nom_q27 = float_to_q27(0.94f);
+clip_post_mul_q31 = (int32_t)(1.3986013f * (float)(1u << 31));
+tapehack_clamp_q27 = float_to_q27(2.305929007734908f);
+th_div6_q31 = (int32_t)((1LL << 31) / 6);
+th_div69_q31 = (int32_t)((1LL << 31) / 69);
+th_div2530_q31 = (int32_t)((double)(1u << 31) / 2530.08);
+th_div224985_q31 = (int32_t)((double)(1u << 31) / 224985.6);
+th_div9979200_q31 = (int32_t)((double)(1u << 31) / 9979200.0);
+
+outlet_v005 = 5;
 ]]></code.krate>
       <code.srate><![CDATA[{
-float inputSampleL = (float)inlet_inL * (1.0f / (float)(1 << 27));
-float inputSampleR = (float)inlet_inR * (1.0f / (float)(1 << 27));
-if (fabsf(inputSampleL)<1.18e-23f) inputSampleL = (float)fpdL * 1.18e-17f;
-if (fabsf(inputSampleR)<1.18e-23f) inputSampleR = (float)fpdR * 1.18e-17f;
-
-if (k_inputGain != 1.0f) {
-  inputSampleL *= k_inputGain;
-  inputSampleR *= k_inputGain;
+int32_t xLq = __SSAT(inlet_inL, 28);
+int32_t xRq = __SSAT(inlet_inR, 28);
+if (xLq == 0) xLq = (int32_t)(((int64_t)(int32_t)fpdL * 311) >> 20);
+if (xRq == 0) xRq = (int32_t)(((int64_t)(int32_t)fpdR * 311) >> 20);
+if (k_input_gain_q24 != (1 << 24)) {
+  xLq = __SSAT((int32_t)(((int64_t)xLq * k_input_gain_q24) >> 24), 28);
+  xRq = __SSAT((int32_t)(((int64_t)xRq * k_input_gain_q24) >> 24), 28);
+}
+{
+  int32_t d = xLq - iirEncL_q;
+  iirEncL_q += aw_smul2731(d, g_iir_enc_q31);
+  int32_t hp = aw_smul2727(d, k_mul_enc_hp_q27);
+  hp += avgEncL_q; avgEncL_q = aw_smul2727(d, k_mul_enc_avg_q27);
+  if (hp > AW_Q27) hp = AW_Q27; else if (hp < -AW_Q27) hp = -AW_Q27;
+  int32_t dubm = aw_abs27(hp);
+  if (dubm > 0 && k_skip_dubly_enc == 0) {
+    int idx = (int)(((int64_t)dubm * 255 + (AW_Q27 / 2)) / (int64_t)AW_Q27);
+    if (idx < 0) idx = 0; if (idx > 255) idx = 255;
+    int32_t adj = dubly_adj_q31[idx];
+    dubm = (int32_t)(((int64_t)dubm << 31) / (int64_t)adj);
+    compEncL_q += aw_smul2731(dubm - compEncL_q, g_iir_enc_q31);
+    int32_t wet = aw_smul2727(aw_smul2731(hp, compEncL_q), k_dubly_wet_q27);
+    xLq = __SSAT(xLq + wet, 28);
+  } else if (dubm > 0) {
+    compEncL_q += aw_smul2731(dubm - compEncL_q, g_iir_enc_q31);
+  }
+}
+{
+  int32_t d = xRq - iirEncR_q;
+  iirEncR_q += aw_smul2731(d, g_iir_enc_q31);
+  int32_t hp = aw_smul2727(d, k_mul_enc_hp_q27);
+  hp += avgEncR_q; avgEncR_q = aw_smul2727(d, k_mul_enc_avg_q27);
+  if (hp > AW_Q27) hp = AW_Q27; else if (hp < -AW_Q27) hp = -AW_Q27;
+  int32_t dubm = aw_abs27(hp);
+  if (dubm > 0 && k_skip_dubly_enc == 0) {
+    int idx = (int)(((int64_t)dubm * 255 + (AW_Q27 / 2)) / (int64_t)AW_Q27);
+    if (idx < 0) idx = 0; if (idx > 255) idx = 255;
+    int32_t adj = dubly_adj_q31[idx];
+    dubm = (int32_t)(((int64_t)dubm << 31) / (int64_t)adj);
+    compEncR_q += aw_smul2731(dubm - compEncR_q, g_iir_enc_q31);
+    int32_t wet = aw_smul2727(aw_smul2731(hp, compEncR_q), k_dubly_wet_q27);
+    xRq = __SSAT(xRq + wet, 28);
+  } else if (dubm > 0) {
+    compEncR_q += aw_smul2731(dubm - compEncR_q, g_iir_enc_q31);
+  }
 }
 
-// Dubly encode
-iirEncL = (iirEncL * (1.0f - k_iirEncFreq)) + (inputSampleL * k_iirEncFreq);
-float highPart = ((inputSampleL-iirEncL)*2.848f);
-highPart += avgEncL; avgEncL = (inputSampleL-iirEncL)*1.152f;
-if (highPart > 1.0f) highPart = 1.0f; if (highPart < -1.0f) highPart = -1.0f;
-float dubly = fabsf(highPart);
-if (dubly > 0.0f) {
-  float adjust = log1pf(255.0f*dubly)/2.40823996531f;
-  if (adjust > 0.0f) dubly /= adjust;
-  compEncL = (compEncL*(1.0f-k_iirEncFreq))+(dubly*k_iirEncFreq);
-  inputSampleL += ((highPart*compEncL)*k_dublyAmount);
-}
-iirEncR = (iirEncR * (1.0f - k_iirEncFreq)) + (inputSampleR * k_iirEncFreq);
-highPart = ((inputSampleR-iirEncR)*2.848f);
-highPart += avgEncR; avgEncR = (inputSampleR-iirEncR)*1.152f;
-if (highPart > 1.0f) highPart = 1.0f; if (highPart < -1.0f) highPart = -1.0f;
-dubly = fabsf(highPart);
-if (dubly > 0.0f) {
-  float adjust = log1pf(255.0f*dubly)/2.40823996531f;
-  if (adjust > 0.0f) dubly /= adjust;
-  compEncR = (compEncR*(1.0f-k_iirEncFreq))+(dubly*k_iirEncFreq);
-  inputSampleR += ((highPart*compEncR)*k_dublyAmount);
-}
-
-// Flutter
-if (k_flutDepth > 0.0f) {
+if (k_flut_depth_q16 > 0) {
   if (gcount < 0 || gcount > 999) gcount = 999;
-  dL[gcount] = inputSampleL;
+  dL[gcount] = xLq;
   int count = gcount;
-  float offset = k_flutDepth + (k_flutDepth * aw_sin_fast(sweepL));
-  sweepL += nextmaxL * k_flutFrequency;
-  if (sweepL > (AW_M_PI*2.0f)) {
-    sweepL -= AW_M_PI*2.0f;
-    float flutA = 0.24f + (fpdL / (float)UINT32_MAX * 0.74f);
-    fpdL ^= fpdL << 13; fpdL ^= fpdL >> 17; fpdL ^= fpdL << 5;
-    float flutB = 0.24f + (fpdL / (float)UINT32_MAX * 0.74f);
-    float srRef = aw_sin_fast(sweepR+nextmaxR);
-    if (fabsf(flutA-srRef) < fabsf(flutB-srRef)) nextmaxL = flutA; else nextmaxL = flutB;
+  int32_t sv = sin_q31((int32_t)sweep_phaseL);
+  int64_t one_plus = (int64_t)(1 << 31) + (int64_t)sv;
+  int64_t off64 = ((int64_t)k_flut_depth_q16 * one_plus) >> 31;
+  if (off64 < 0) off64 = 0;
+  int fo = (int)(off64 >> 16);
+  int fr = (int)(off64 - ((int64_t)fo << 16));
+  if (fr < 0) fr = 0;
+  if (fr > 65535) fr = 65535;
+  count += fo;
+  int ci = count; while (ci > 999) ci -= 1000; while (ci < 0) ci += 1000;
+  int c1 = ci + 1; if (c1 > 999) c1 -= 1000;
+  int32_t s0 = dL[ci];
+  int32_t s1 = dL[c1];
+  xLq = (int32_t)(((int64_t)s0 * (65536 - fr) + (int64_t)s1 * fr) >> 16);
+  xLq = __SSAT(xLq, 28);
+  {
+    uint32_t oldph = sweep_phaseL;
+    uint32_t dph = (uint32_t)(((uint64_t)(uint32_t)nextmaxL_rad_q27 * (uint64_t)k_flut_phase_inc_q32) >> 27);
+    sweep_phaseL += dph;
+    if (sweep_phaseL < oldph) {
+      uint32_t poff = aw_rad_q27_to_phase_u32(nextmaxR_rad_q27);
+      int32_t srRef = sin_q31((int32_t)(sweep_phaseR + poff)) >> 3;
+      int32_t base24 = float_to_q27(0.24f);
+      int32_t sc74 = float_to_q27(0.74f);
+      int32_t flA = base24 + (int32_t)(((int64_t)fpdL * sc74) >> 32);
+      fpdL ^= fpdL << 13; fpdL ^= fpdL >> 17; fpdL ^= fpdL << 5;
+      int32_t flB = base24 + (int32_t)(((int64_t)fpdL * sc74) >> 32);
+      int32_t da = aw_abs27(flA - srRef);
+      int32_t db = aw_abs27(flB - srRef);
+      nextmaxL_rad_q27 = (da < db) ? flA : flB;
+    }
   }
-  float fo = floorf(offset);
-  count += (int)fo;
-  float fr = offset - fo;
-  inputSampleL = (dL[count-((count > 999)?1000:0)] * (1.0f-fr));
-  inputSampleL += (dL[count+1-((count+1 > 999)?1000:0)] * fr);
-  dR[gcount] = inputSampleR;
+  dR[gcount] = xRq;
   count = gcount;
-  offset = k_flutDepth + (k_flutDepth * aw_sin_fast(sweepR));
-  sweepR += nextmaxR * k_flutFrequency;
-  if (sweepR > (AW_M_PI*2.0f)) {
-    sweepR -= AW_M_PI*2.0f;
-    float flutA = 0.24f + (fpdR / (float)UINT32_MAX * 0.74f);
-    fpdR ^= fpdR << 13; fpdR ^= fpdR >> 17; fpdR ^= fpdR << 5;
-    float flutB = 0.24f + (fpdR / (float)UINT32_MAX * 0.74f);
-    float slRef = aw_sin_fast(sweepL+nextmaxL);
-    if (fabsf(flutA-slRef) < fabsf(flutB-slRef)) nextmaxR = flutA; else nextmaxR = flutB;
+  sv = sin_q31((int32_t)sweep_phaseR);
+  one_plus = (int64_t)(1 << 31) + (int64_t)sv;
+  off64 = ((int64_t)k_flut_depth_q16 * one_plus) >> 31;
+  if (off64 < 0) off64 = 0;
+  fo = (int)(off64 >> 16);
+  fr = (int)(off64 - ((int64_t)fo << 16));
+  if (fr < 0) fr = 0;
+  if (fr > 65535) fr = 65535;
+  count += fo;
+  ci = count; while (ci > 999) ci -= 1000; while (ci < 0) ci += 1000;
+  c1 = ci + 1; if (c1 > 999) c1 -= 1000;
+  s0 = dR[ci];
+  s1 = dR[c1];
+  xRq = (int32_t)(((int64_t)s0 * (65536 - fr) + (int64_t)s1 * fr) >> 16);
+  xRq = __SSAT(xRq, 28);
+  {
+    uint32_t oldph = sweep_phaseR;
+    uint32_t dph = (uint32_t)(((uint64_t)(uint32_t)nextmaxR_rad_q27 * (uint64_t)k_flut_phase_inc_q32) >> 27);
+    sweep_phaseR += dph;
+    if (sweep_phaseR < oldph) {
+      uint32_t poff = aw_rad_q27_to_phase_u32(nextmaxL_rad_q27);
+      int32_t slRef = sin_q31((int32_t)(sweep_phaseL + poff)) >> 3;
+      int32_t base24 = float_to_q27(0.24f);
+      int32_t sc74 = float_to_q27(0.74f);
+      int32_t flA = base24 + (int32_t)(((int64_t)fpdR * sc74) >> 32);
+      fpdR ^= fpdR << 13; fpdR ^= fpdR >> 17; fpdR ^= fpdR << 5;
+      int32_t flB = base24 + (int32_t)(((int64_t)fpdR * sc74) >> 32);
+      int32_t da = aw_abs27(flA - slRef);
+      int32_t db = aw_abs27(flB - slRef);
+      nextmaxR_rad_q27 = (da < db) ? flA : flB;
+    }
   }
-  fo = floorf(offset);
-  count += (int)fo;
-  fr = offset - fo;
-  inputSampleR = (dR[count-((count > 999)?1000:0)] * (1.0f-fr));
-  inputSampleR += (dR[count+1-((count+1 > 999)?1000:0)] * fr);
   gcount--;
 }
 
-// Bias
-if (fabsf(k_bias) > 0.001f) {
-  int x;
-  for (x = 0; x < kGslewTotal; x += 3) {
-    if (k_underBias > 0.0f) {
-      float stuck = fabsf(inputSampleL - (gslew[x]/0.975f)) * k_invUnderBias;
-      if (stuck < 1.0f) inputSampleL = (inputSampleL * stuck) + ((gslew[x]/0.975f)*(1.0f-stuck));
-      stuck = fabsf(inputSampleR - (gslew[x+1]/0.975f)) * k_invUnderBias;
-      if (stuck < 1.0f) inputSampleR = (inputSampleR * stuck) + ((gslew[x+1]/0.975f)*(1.0f-stuck));
+if (k_bias_q27 > k_bias_thr_q27 || k_bias_q27 < -k_bias_thr_q27) {
+  int bx;
+  for (bx = 0; bx < kGslewTotal; bx += 3) {
+    if (k_under_bias_q27 > 0) {
+      int32_t g0 = aw_smul2731(gslew_q[bx], k_gs975_q31);
+      int32_t dl = xLq - aw_smul2731(g0, k_inv975_q31);
+      int32_t st = aw_smul2731(aw_abs27(dl), k_inv_under_q31);
+      if (st < AW_Q27) {
+        int32_t om = AW_Q27 - st;
+        xLq = aw_smul2727(xLq, st) + aw_smul2727(aw_smul2731(g0, k_inv975_q31), om);
+        xLq = __SSAT(xLq, 28);
+      }
+      g0 = aw_smul2731(gslew_q[bx+1], k_gs975_q31);
+      dl = xRq - aw_smul2731(g0, k_inv975_q31);
+      st = aw_smul2731(aw_abs27(dl), k_inv_under_q31);
+      if (st < AW_Q27) {
+        int32_t om = AW_Q27 - st;
+        xRq = aw_smul2727(xRq, st) + aw_smul2727(aw_smul2731(g0, k_inv975_q31), om);
+        xRq = __SSAT(xRq, 28);
+      }
     }
-    if ((inputSampleL - gslew[x]) > gslew[x+2]) inputSampleL = gslew[x] + gslew[x+2];
-    if (-(inputSampleL - gslew[x]) > gslew[x+2]) inputSampleL = gslew[x] - gslew[x+2];
-    gslew[x] = inputSampleL * 0.975f;
-    if ((inputSampleR - gslew[x+1]) > gslew[x+2]) inputSampleR = gslew[x+1] + gslew[x+2];
-    if (-(inputSampleR - gslew[x+1]) > gslew[x+2]) inputSampleR = gslew[x+1] - gslew[x+2];
-    gslew[x+1] = inputSampleR * 0.975f;
+    if ((xLq - gslew_q[bx]) > gslew_q[bx+2]) xLq = gslew_q[bx] + gslew_q[bx+2];
+    if ((gslew_q[bx] - xLq)*2 > (gslew_q[bx+2]*2)) xLq = gslew_q[bx] - gslew_q[bx+2];
+    gslew_q[bx] = aw_smul2731(xLq, k_gs975_q31);
+    if ((xRq - gslew_q[bx+1]) > gslew_q[bx+2]) xRq = gslew_q[bx+1] + gslew_q[bx+2];
+    if ((gslew_q[bx+1] - xRq)*2 > (gslew_q[bx+2]*2)) xRq = gslew_q[bx+1] - gslew_q[bx+2];
+    gslew_q[bx+1] = aw_smul2731(xRq, k_gs975_q31);
   }
 }
 
-// Hysteresis
-float applyHysteresis = (1.0f-fabsf(inputSampleL))*(1.0f-fabsf(inputSampleL))*0.012f;
-hysteresisL = fmaxf(fminf(hysteresisL+((inputSampleL*fabsf(inputSampleL))),0.011449f),-0.011449f)*0.999f;
-inputSampleL += (hysteresisL*applyHysteresis);
-applyHysteresis = (1.0f-fabsf(inputSampleR))*(1.0f-fabsf(inputSampleR))*0.012f;
-hysteresisR = fmaxf(fminf(hysteresisR+((inputSampleR*fabsf(inputSampleR))),0.011449f),-0.011449f)*0.999f;
-inputSampleR += (hysteresisR*applyHysteresis);
-
-// TapeHack2 pre
-float darkSampleL = inputSampleL;
-float darkSampleR = inputSampleR;
-if (avgPos > 31) avgPos = 0;
-if (k_slewsing > 31) {
-  avg32L[avgPos] = darkSampleL; avg32R[avgPos] = darkSampleR;
-  darkSampleL = 0.0f; darkSampleR = 0.0f;
-  int x; for (x = 0; x < 32; x++) {darkSampleL += avg32L[x]; darkSampleR += avg32R[x];}
-  darkSampleL /= 32.0f; darkSampleR /= 32.0f;
-} if (k_slewsing > 15) {
-  avg16L[avgPos%16] = darkSampleL; avg16R[avgPos%16] = darkSampleR;
-  darkSampleL = 0.0f; darkSampleR = 0.0f;
-  int x; for (x = 0; x < 16; x++) {darkSampleL += avg16L[x]; darkSampleR += avg16R[x];}
-  darkSampleL /= 16.0f; darkSampleR /= 16.0f;
-} if (k_slewsing > 7) {
-  avg8L[avgPos%8] = darkSampleL; avg8R[avgPos%8] = darkSampleR;
-  darkSampleL = 0.0f; darkSampleR = 0.0f;
-  int x; for (x = 0; x < 8; x++) {darkSampleL += avg8L[x]; darkSampleR += avg8R[x];}
-  darkSampleL /= 8.0f; darkSampleR /= 8.0f;
-} if (k_slewsing > 3) {
-  avg4L[avgPos%4] = darkSampleL; avg4R[avgPos%4] = darkSampleR;
-  darkSampleL = 0.0f; darkSampleR = 0.0f;
-  int x; for (x = 0; x < 4; x++) {darkSampleL += avg4L[x]; darkSampleR += avg4R[x];}
-  darkSampleL /= 4.0f; darkSampleR /= 4.0f;
-} if (k_slewsing > 1) {
-  avg2L[avgPos%2] = darkSampleL; avg2R[avgPos%2] = darkSampleR;
-  darkSampleL = 0.0f; darkSampleR = 0.0f;
-  int x; for (x = 0; x < 2; x++) {darkSampleL += avg2L[x]; darkSampleR += avg2R[x];}
-  darkSampleL /= 2.0f; darkSampleR /= 2.0f;
+{
+  int32_t axL = (xLq >= 0) ? xLq : -xLq;
+  int32_t axR = (xRq >= 0) ? xRq : -xRq;
+  int32_t ompL = aw_q27_one - axL;
+  if (ompL < 0) ompL = 0;
+  int32_t ompR = aw_q27_one - axR;
+  if (ompR < 0) ompR = 0;
+  int64_t sqL = ((int64_t)ompL * (int64_t)ompL) >> 27;
+  int64_t sqR = ((int64_t)ompR * (int64_t)ompR) >> 27;
+  int64_t applyL = (sqL * (int64_t)aw_hyst_q_amp) >> 27;
+  int64_t applyR = (sqR * (int64_t)aw_hyst_q_amp) >> 27;
+  int64_t xaxL = ((int64_t)xLq * (int64_t)axL) >> 27;
+  int64_t xaxR = ((int64_t)xRq * (int64_t)axR) >> 27;
+  int64_t hL = (int64_t)hysteresisL_q + xaxL;
+  if (hL > (int64_t)aw_hyst_q_lim) hL = (int64_t)aw_hyst_q_lim;
+  if (hL < -(int64_t)aw_hyst_q_lim) hL = -(int64_t)aw_hyst_q_lim;
+  int64_t hR = (int64_t)hysteresisR_q + xaxR;
+  if (hR > (int64_t)aw_hyst_q_lim) hR = (int64_t)aw_hyst_q_lim;
+  if (hR < -(int64_t)aw_hyst_q_lim) hR = -(int64_t)aw_hyst_q_lim;
+  hL = (hL * (int64_t)aw_hyst_q_decay) >> 27;
+  hR = (hR * (int64_t)aw_hyst_q_decay) >> 27;
+  hysteresisL_q = (int32_t)hL;
+  hysteresisR_q = (int32_t)hR;
+  xLq = __SSAT(xLq + (int32_t)((hL * applyL) >> 27), 28);
+  xRq = __SSAT(xRq + (int32_t)((hR * applyR) >> 27), 28);
 }
-float avgSlewL = fminf(fabsf(lastDarkL-inputSampleL)*k_avgSlewScale,1.0f);
-avgSlewL = 1.0f-(1.0f-avgSlewL*1.0f-avgSlewL);
-inputSampleL = (inputSampleL*(1.0f-avgSlewL)) + (darkSampleL*avgSlewL);
-lastDarkL = darkSampleL;
-float avgSlewR = fminf(fabsf(lastDarkR-inputSampleR)*k_avgSlewScale,1.0f);
-avgSlewR = 1.0f-(1.0f-avgSlewR*1.0f-avgSlewR);
-inputSampleR = (inputSampleR*(1.0f-avgSlewR)) + (darkSampleR*avgSlewR);
-lastDarkR = darkSampleR;
 
-// TapeHack (sin-like soft clip)
-inputSampleL = fmaxf(fminf(inputSampleL,2.305929007734908f),-2.305929007734908f);
-float addtwo = inputSampleL * inputSampleL;
-float empower = inputSampleL * addtwo;
-inputSampleL -= (empower / 6.0f);
-empower *= addtwo;
-inputSampleL += (empower / 69.0f);
-empower *= addtwo;
-inputSampleL -= (empower / 2530.08f);
-empower *= addtwo;
-inputSampleL += (empower / 224985.6f);
-empower *= addtwo;
-inputSampleL -= (empower / 9979200.0f);
-
-inputSampleR = fmaxf(fminf(inputSampleR,2.305929007734908f),-2.305929007734908f);
-addtwo = inputSampleR * inputSampleR;
-empower = inputSampleR * addtwo;
-inputSampleR -= (empower / 6.0f);
-empower *= addtwo;
-inputSampleR += (empower / 69.0f);
-empower *= addtwo;
-inputSampleR -= (empower / 2530.08f);
-empower *= addtwo;
-inputSampleR += (empower / 224985.6f);
-empower *= addtwo;
-inputSampleR -= (empower / 9979200.0f);
-
-darkSampleL = inputSampleL;
-darkSampleR = inputSampleR;
+int32_t darkL = xLq;
+int32_t darkR = xRq;
 if (avgPos > 31) avgPos = 0;
 if (k_slewsing > 31) {
-  post32L[avgPos] = darkSampleL; post32R[avgPos] = darkSampleR;
-  darkSampleL = 0.0f; darkSampleR = 0.0f;
-  int x; for (x = 0; x < 32; x++) {darkSampleL += post32L[x]; darkSampleR += post32R[x];}
-  darkSampleL /= 32.0f; darkSampleR /= 32.0f;
+  avg32L[avgPos] = darkL; avg32R[avgPos] = darkR;
+  darkL = darkR = 0;
+  { int sx; for (sx = 0; sx < 32; sx++) { darkL += avg32L[sx]; darkR += avg32R[sx]; } }
+  darkL >>= 5; darkR >>= 5;
 } if (k_slewsing > 15) {
-  post16L[avgPos%16] = darkSampleL; post16R[avgPos%16] = darkSampleR;
-  darkSampleL = 0.0f; darkSampleR = 0.0f;
-  int x; for (x = 0; x < 16; x++) {darkSampleL += post16L[x]; darkSampleR += post16R[x];}
-  darkSampleL /= 16.0f; darkSampleR /= 16.0f;
+  avg16L[avgPos%16] = darkL; avg16R[avgPos%16] = darkR;
+  darkL = darkR = 0;
+  { int sx; for (sx = 0; sx < 16; sx++) { darkL += avg16L[sx]; darkR += avg16R[sx]; } }
+  darkL >>= 4; darkR >>= 4;
 } if (k_slewsing > 7) {
-  post8L[avgPos%8] = darkSampleL; post8R[avgPos%8] = darkSampleR;
-  darkSampleL = 0.0f; darkSampleR = 0.0f;
-  int x; for (x = 0; x < 8; x++) {darkSampleL += post8L[x]; darkSampleR += post8R[x];}
-  darkSampleL /= 8.0f; darkSampleR /= 8.0f;
+  avg8L[avgPos%8] = darkL; avg8R[avgPos%8] = darkR;
+  darkL = darkR = 0;
+  { int sx; for (sx = 0; sx < 8; sx++) { darkL += avg8L[sx]; darkR += avg8R[sx]; } }
+  darkL >>= 3; darkR >>= 3;
 } if (k_slewsing > 3) {
-  post4L[avgPos%4] = darkSampleL; post4R[avgPos%4] = darkSampleR;
-  darkSampleL = 0.0f; darkSampleR = 0.0f;
-  int x; for (x = 0; x < 4; x++) {darkSampleL += post4L[x]; darkSampleR += post4R[x];}
-  darkSampleL /= 4.0f; darkSampleR /= 4.0f;
+  avg4L[avgPos%4] = darkL; avg4R[avgPos%4] = darkR;
+  darkL = darkR = 0;
+  { int sx; for (sx = 0; sx < 4; sx++) { darkL += avg4L[sx]; darkR += avg4R[sx]; } }
+  darkL >>= 2; darkR >>= 2;
 } if (k_slewsing > 1) {
-  post2L[avgPos%2] = darkSampleL; post2R[avgPos%2] = darkSampleR;
-  darkSampleL = 0.0f; darkSampleR = 0.0f;
-  int x; for (x = 0; x < 2; x++) {darkSampleL += post2L[x]; darkSampleR += post2R[x];}
-  darkSampleL /= 2.0f; darkSampleR /= 2.0f;
+  avg2L[avgPos%2] = darkL; avg2R[avgPos%2] = darkR;
+  darkL = darkR = 0;
+  { int sx; for (sx = 0; sx < 2; sx++) { darkL += avg2L[sx]; darkR += avg2R[sx]; } }
+  darkL >>= 1; darkR >>= 1;
+}
+{
+  int32_t dff = aw_abs27(xLq - lastDarkL_q);
+  int32_t as = aw_smul2731(dff, k_avg_slew_q31);
+  if (as > AW_Q27) as = AW_Q27;
+  int32_t av = AW_Q27 - as - as;
+  if (av < 0) av = 0;
+  av = AW_Q27 - av;
+  xLq = __SSAT(aw_smul2727(xLq, AW_Q27 - av) + aw_smul2727(darkL, av), 28);
+  lastDarkL_q = darkL;
+}
+{
+  int32_t dff = aw_abs27(xRq - lastDarkR_q);
+  int32_t as = aw_smul2731(dff, k_avg_slew_q31);
+  if (as > AW_Q27) as = AW_Q27;
+  int32_t av = AW_Q27 - as - as;
+  if (av < 0) av = 0;
+  av = AW_Q27 - av;
+  xRq = __SSAT(aw_smul2727(xRq, AW_Q27 - av) + aw_smul2727(darkR, av), 28);
+  lastDarkR_q = darkR;
+}
+
+#define AW_TAPEHACK(CH) do { \
+  int32_t _t = CH; \
+  int32_t _ax = aw_abs27(_t); \
+  if (_ax > tapehack_clamp_q27) { _t = (_t >= 0) ? tapehack_clamp_q27 : -tapehack_clamp_q27; } \
+  int64_t _x = _t; \
+  int64_t _a = (_x * _x) >> 27; \
+  int64_t _e = (_a * _x) >> 27; \
+  int64_t _y = _x - (int32_t)((_e * (int64_t)th_div6_q31) >> 31); \
+  _e = (_e * _a) >> 27; \
+  _y += (int32_t)((_e * (int64_t)th_div69_q31) >> 31); \
+  _e = (_e * _a) >> 27; \
+  _y -= (int32_t)((_e * (int64_t)th_div2530_q31) >> 31); \
+  _e = (_e * _a) >> 27; \
+  _y += (int32_t)((_e * (int64_t)th_div224985_q31) >> 31); \
+  _e = (_e * _a) >> 27; \
+  _y -= (int32_t)((_e * (int64_t)th_div9979200_q31) >> 31); \
+  CH = __SSAT((int32_t)_y, 28); \
+} while (0)
+
+AW_TAPEHACK(xLq);
+AW_TAPEHACK(xRq);
+#undef AW_TAPEHACK
+
+darkL = xLq;
+darkR = xRq;
+if (avgPos > 31) avgPos = 0;
+if (k_slewsing > 31) {
+  post32L[avgPos] = darkL; post32R[avgPos] = darkR;
+  darkL = darkR = 0;
+  { int sx; for (sx = 0; sx < 32; sx++) { darkL += post32L[sx]; darkR += post32R[sx]; } }
+  darkL >>= 5; darkR >>= 5;
+} if (k_slewsing > 15) {
+  post16L[avgPos%16] = darkL; post16R[avgPos%16] = darkR;
+  darkL = darkR = 0;
+  { int sx; for (sx = 0; sx < 16; sx++) { darkL += post16L[sx]; darkR += post16R[sx]; } }
+  darkL >>= 4; darkR >>= 4;
+} if (k_slewsing > 7) {
+  post8L[avgPos%8] = darkL; post8R[avgPos%8] = darkR;
+  darkL = darkR = 0;
+  { int sx; for (sx = 0; sx < 8; sx++) { darkL += post8L[sx]; darkR += post8R[sx]; } }
+  darkL >>= 3; darkR >>= 3;
+} if (k_slewsing > 3) {
+  post4L[avgPos%4] = darkL; post4R[avgPos%4] = darkR;
+  darkL = darkR = 0;
+  { int sx; for (sx = 0; sx < 4; sx++) { darkL += post4L[sx]; darkR += post4R[sx]; } }
+  darkL >>= 2; darkR >>= 2;
+} if (k_slewsing > 1) {
+  post2L[avgPos%2] = darkL; post2R[avgPos%2] = darkR;
+  darkL = darkR = 0;
+  { int sx; for (sx = 0; sx < 2; sx++) { darkL += post2L[sx]; darkR += post2R[sx]; } }
+  darkL >>= 1; darkR >>= 1;
 }
 avgPos++;
-inputSampleL = (inputSampleL*(1.0f-avgSlewL)) + (darkSampleL*avgSlewL);
-inputSampleR = (inputSampleR*(1.0f-avgSlewR)) + (darkSampleR*avgSlewR);
-
-// HeadBump
-float headBumpSampleL = 0.0f;
-float headBumpSampleR = 0.0f;
-if (k_headBumpMix > 0.0f) {
-  headBumpL += (inputSampleL * k_headBumpDrive);
-  headBumpL -= (headBumpL * headBumpL * headBumpL * k_headBumpLim);
-  headBumpR += (inputSampleR * k_headBumpDrive);
-  headBumpR -= (headBumpR * headBumpR * headBumpR * k_headBumpLim);
-  float headBiqSampleL = (headBumpL * hdbA[hdb_a0]) + hdbA[hdb_sL1];
-  hdbA[hdb_sL1] = (headBumpL * hdbA[hdb_a1]) - (headBiqSampleL * hdbA[hdb_b1]) + hdbA[hdb_sL2];
-  hdbA[hdb_sL2] = (headBumpL * hdbA[hdb_a2]) - (headBiqSampleL * hdbA[hdb_b2]);
-  headBumpSampleL = (headBiqSampleL * hdbB[hdb_a0]) + hdbB[hdb_sL1];
-  hdbB[hdb_sL1] = (headBiqSampleL * hdbB[hdb_a1]) - (headBumpSampleL * hdbB[hdb_b1]) + hdbB[hdb_sL2];
-  hdbB[hdb_sL2] = (headBiqSampleL * hdbB[hdb_a2]) - (headBumpSampleL * hdbB[hdb_b2]);
-  float headBiqSampleR = (headBumpR * hdbA[hdb_a0]) + hdbA[hdb_sR1];
-  hdbA[hdb_sR1] = (headBumpR * hdbA[hdb_a1]) - (headBiqSampleR * hdbA[hdb_b1]) + hdbA[hdb_sR2];
-  hdbA[hdb_sR2] = (headBumpR * hdbA[hdb_a2]) - (headBiqSampleR * hdbA[hdb_b2]);
-  headBumpSampleR = (headBiqSampleR * hdbB[hdb_a0]) + hdbB[hdb_sR1];
-  hdbB[hdb_sR1] = (headBiqSampleR * hdbB[hdb_a1]) - (headBumpSampleR * hdbB[hdb_b1]) + hdbB[hdb_sR2];
-  hdbB[hdb_sR2] = (headBiqSampleR * hdbB[hdb_a2]) - (headBumpSampleR * hdbB[hdb_b2]);
+{
+  int32_t dff = aw_abs27(xLq - lastDarkL_q);
+  int32_t as = aw_smul2731(dff, k_avg_slew_q31);
+  if (as > AW_Q27) as = AW_Q27;
+  int32_t av = AW_Q27 - as - as;
+  if (av < 0) av = 0;
+  av = AW_Q27 - av;
+  xLq = __SSAT(aw_smul2727(xLq, AW_Q27 - av) + aw_smul2727(darkL, av), 28);
+}
+{
+  int32_t dff = aw_abs27(xRq - lastDarkR_q);
+  int32_t as = aw_smul2731(dff, k_avg_slew_q31);
+  if (as > AW_Q27) as = AW_Q27;
+  int32_t av = AW_Q27 - as - as;
+  if (av < 0) av = 0;
+  av = AW_Q27 - av;
+  xRq = __SSAT(aw_smul2727(xRq, AW_Q27 - av) + aw_smul2727(darkR, av), 28);
 }
 
-inputSampleL += (headBumpSampleL * k_headBumpMix);
-inputSampleR += (headBumpSampleR * k_headBumpMix);
-
-// Dubly decode
-iirDecL = (iirDecL * (1.0f - k_iirDecFreq)) + (inputSampleL * k_iirDecFreq);
-highPart = ((inputSampleL-iirDecL)*2.628f);
-highPart += avgDecL; avgDecL = (inputSampleL-iirDecL)*1.372f;
-if (highPart > 1.0f) highPart = 1.0f; if (highPart < -1.0f) highPart = -1.0f;
-dubly = fabsf(highPart);
-if (dubly > 0.0f) {
-  float adjust = log1pf(255.0f*dubly)/2.40823996531f;
-  if (adjust > 0.0f) dubly /= adjust;
-  compDecL = (compDecL*(1.0f-k_iirDecFreq))+(dubly*k_iirDecFreq);
-  inputSampleL += ((highPart*compDecL)*k_outlyAmount);
-}
-iirDecR = (iirDecR * (1.0f - k_iirDecFreq)) + (inputSampleR * k_iirDecFreq);
-highPart = ((inputSampleR-iirDecR)*2.628f);
-highPart += avgDecR; avgDecR = (inputSampleR-iirDecR)*1.372f;
-if (highPart > 1.0f) highPart = 1.0f; if (highPart < -1.0f) highPart = -1.0f;
-dubly = fabsf(highPart);
-if (dubly > 0.0f) {
-  float adjust = log1pf(255.0f*dubly)/2.40823996531f;
-  if (adjust > 0.0f) dubly /= adjust;
-  compDecR = (compDecR*(1.0f-k_iirDecFreq))+(dubly*k_iirDecFreq);
-  inputSampleR += ((highPart*compDecR)*k_outlyAmount);
-}
-
-if (k_outputGain != 1.0f) {
-  inputSampleL *= k_outputGain;
-  inputSampleR *= k_outputGain;
-}
-
-// ClipOnly3
-float noise = 1.0f-(((float)fpdL/(float)UINT32_MAX)*0.076f);
-if (wasPosClipL) {
-  if (inputSampleL<lastSampleL) lastSampleL=(0.9085097f*noise)+(inputSampleL*(1.0f-noise));
-  else lastSampleL = 0.94f;
-} wasPosClipL = 0;
-if (inputSampleL>0.9085097f) {wasPosClipL=1;inputSampleL=(0.9085097f*noise)+(lastSampleL*(1.0f-noise));}
-if (wasNegClipL) {
-  if (inputSampleL > lastSampleL) lastSampleL=(-0.9085097f*noise)+(inputSampleL*(1.0f-noise));
-  else lastSampleL = -0.94f;
-} wasNegClipL = 0;
-if (inputSampleL<-0.9085097f) {wasNegClipL=1;inputSampleL=(-0.9085097f*noise)+(lastSampleL*(1.0f-noise));}
-float finalSlew;
-int x;
-if (ik_spacing == 1) {
-  slewClipL[2] = fabsf(lastSampleL-inputSampleL);
-  slewClipL[1] = slewClipL[2];
-  slewClipL[0] = slewClipL[1];
-  intermediateL[1] = inputSampleL; inputSampleL = lastSampleL;
-  intermediateL[0] = intermediateL[1]; lastSampleL = intermediateL[0];
-  if (wasPosClipL || wasNegClipL) lastSampleL += intermediateL[1];
-  finalSlew = fmaxf(fmaxf(slewClipL[0], slewClipL[1]), slewClipL[2]);
-} else {
-  slewClipL[ik_spacing*2] = fabsf(lastSampleL-inputSampleL);
-  for (x = ik_spacing*2; x > 0; x--) slewClipL[x-1] = slewClipL[x];
-  intermediateL[ik_spacing] = inputSampleL; inputSampleL = lastSampleL;
-  for (x = ik_spacing; x > 0; x--) {intermediateL[x-1] = intermediateL[x];} lastSampleL = intermediateL[0];
-  if (wasPosClipL || wasNegClipL) {
-    for (x = ik_spacing; x > 0; x--) lastSampleL += intermediateL[x];
-    lastSampleL /= (float)ik_spacing;
+if (k_head_mix_q31 > 0) {
+  headBumpL_q += aw_smul2731(xLq, k_head_drive_q31);
+  {
+    int64_t c = (int64_t)headBumpL_q * headBumpL_q >> 27;
+    c = (c * headBumpL_q) >> 27;
+    headBumpL_q -= (int32_t)((c * (int64_t)k_head_lim_q24) >> 24);
   }
-  finalSlew = 0.0f;
-  for (x = ik_spacing*2; x >= 0; x--) if (finalSlew < slewClipL[x]) finalSlew = slewClipL[x];
-}
-float postclip = 0.94f / (1.0f+(finalSlew*1.3986013f));
-if (inputSampleL > postclip) inputSampleL = postclip; if (inputSampleL < -postclip) inputSampleL = -postclip;
-
-noise = 1.0f-(((float)fpdR/(float)UINT32_MAX)*0.076f);
-if (wasPosClipR) {
-  if (inputSampleR<lastSampleR) lastSampleR=(0.9085097f*noise)+(inputSampleR*(1.0f-noise));
-  else lastSampleR = 0.94f;
-} wasPosClipR = 0;
-if (inputSampleR>0.9085097f) {wasPosClipR=1;inputSampleR=(0.9085097f*noise)+(lastSampleR*(1.0f-noise));}
-if (wasNegClipR) {
-  if (inputSampleR > lastSampleR) lastSampleR=(-0.9085097f*noise)+(inputSampleR*(1.0f-noise));
-  else lastSampleR = -0.94f;
-} wasNegClipR = 0;
-if (inputSampleR<-0.9085097f) {wasNegClipR=1;inputSampleR=(-0.9085097f*noise)+(lastSampleR*(1.0f-noise));}
-if (ik_spacing == 1) {
-  slewClipR[2] = fabsf(lastSampleR-inputSampleR);
-  slewClipR[1] = slewClipR[2];
-  slewClipR[0] = slewClipR[1];
-  intermediateR[1] = inputSampleR; inputSampleR = lastSampleR;
-  intermediateR[0] = intermediateR[1]; lastSampleR = intermediateR[0];
-  if (wasPosClipR || wasNegClipR) lastSampleR += intermediateR[1];
-  finalSlew = fmaxf(fmaxf(slewClipR[0], slewClipR[1]), slewClipR[2]);
-} else {
-  slewClipR[ik_spacing*2] = fabsf(lastSampleR-inputSampleR);
-  for (x = ik_spacing*2; x > 0; x--) slewClipR[x-1] = slewClipR[x];
-  intermediateR[ik_spacing] = inputSampleR; inputSampleR = lastSampleR;
-  for (x = ik_spacing; x > 0; x--) {intermediateR[x-1] = intermediateR[x];} lastSampleR = intermediateR[0];
-  if (wasPosClipR || wasNegClipR) {
-    for (x = ik_spacing; x > 0; x--) lastSampleR += intermediateR[x];
-    lastSampleR /= (float)ik_spacing;
+  headBumpR_q += aw_smul2731(xRq, k_head_drive_q31);
+  {
+    int64_t c = (int64_t)headBumpR_q * headBumpR_q >> 27;
+    c = (c * headBumpR_q) >> 27;
+    headBumpR_q -= (int32_t)((c * (int64_t)k_head_lim_q24) >> 24);
   }
-  finalSlew = 0.0f;
-  for (x = ik_spacing*2; x >= 0; x--) if (finalSlew < slewClipR[x]) finalSlew = slewClipR[x];
+  int32_t yA = aw_smul2727(headBumpL_q, hbA_b0_q27) + hdbA_y1L_q;
+  hdbA_y1L_q = aw_smul2727(headBumpL_q, 0) - aw_smul2727(yA, hbA_fb1_q27) + hdbA_y2L_q;
+  hdbA_y2L_q = aw_smul2727(headBumpL_q, hbA_a2_q27) - aw_smul2727(yA, hbA_fb2_q27);
+  int32_t yBL = aw_smul2727(yA, hbB_b0_q27) + hdbB_y1L_q;
+  hdbB_y1L_q = aw_smul2727(yA, 0) - aw_smul2727(yBL, hbB_fb1_q27) + hdbB_y2L_q;
+  hdbB_y2L_q = aw_smul2727(yA, hbB_a2_q27) - aw_smul2727(yBL, hbB_fb2_q27);
+  xLq = __SSAT(xLq + aw_smul2727(yBL, k_head_mix_q31), 28);
+  yA = aw_smul2727(headBumpR_q, hbA_b0_q27) + hdbA_y1R_q;
+  hdbA_y1R_q = aw_smul2727(headBumpR_q, 0) - aw_smul2727(yA, hbA_fb1_q27) + hdbA_y2R_q;
+  hdbA_y2R_q = aw_smul2727(headBumpR_q, hbA_a2_q27) - aw_smul2727(yA, hbA_fb2_q27);
+  int32_t yBR = aw_smul2727(yA, hbB_b0_q27) + hdbB_y1R_q;
+  hdbB_y1R_q = aw_smul2727(yA, 0) - aw_smul2727(yBR, hbB_fb1_q27) + hdbB_y2R_q;
+  hdbB_y2R_q = aw_smul2727(yA, hbB_a2_q27) - aw_smul2727(yBR, hbB_fb2_q27);
+  xRq = __SSAT(xRq + aw_smul2727(yBR, k_head_mix_q31), 28);
 }
-postclip = 0.94f / (1.0f+(finalSlew*1.3986013f));
-if (inputSampleR > postclip) inputSampleR = postclip; if (inputSampleR < -postclip) inputSampleR = -postclip;
+
+{
+  int32_t d = xLq - iirDecL_q;
+  iirDecL_q += aw_smul2731(d, g_iir_dec_q31);
+  int32_t hp = aw_smul2727(d, k_mul_dec_hp_q27);
+  hp += avgDecL_q; avgDecL_q = aw_smul2727(d, k_mul_dec_avg_q27);
+  if (hp > AW_Q27) hp = AW_Q27; else if (hp < -AW_Q27) hp = -AW_Q27;
+  int32_t dubm = aw_abs27(hp);
+  if (dubm > 0 && k_skip_dubly_dec == 0) {
+    int idx = (int)(((int64_t)dubm * 255 + (AW_Q27 / 2)) / (int64_t)AW_Q27);
+    if (idx < 0) idx = 0; if (idx > 255) idx = 255;
+    int32_t adj = dubly_adj_q31[idx];
+    dubm = (int32_t)(((int64_t)dubm << 31) / (int64_t)adj);
+    compDecL_q += aw_smul2731(dubm - compDecL_q, g_iir_dec_q31);
+    int32_t wet = aw_smul2727(aw_smul2731(hp, compDecL_q), k_outly_wet_q27);
+    xLq = __SSAT(xLq + wet, 28);
+  } else if (dubm > 0) {
+    compDecL_q += aw_smul2731(dubm - compDecL_q, g_iir_dec_q31);
+  }
+}
+{
+  int32_t d = xRq - iirDecR_q;
+  iirDecR_q += aw_smul2731(d, g_iir_dec_q31);
+  int32_t hp = aw_smul2727(d, k_mul_dec_hp_q27);
+  hp += avgDecR_q; avgDecR_q = aw_smul2727(d, k_mul_dec_avg_q27);
+  if (hp > AW_Q27) hp = AW_Q27; else if (hp < -AW_Q27) hp = -AW_Q27;
+  int32_t dubm = aw_abs27(hp);
+  if (dubm > 0 && k_skip_dubly_dec == 0) {
+    int idx = (int)(((int64_t)dubm * 255 + (AW_Q27 / 2)) / (int64_t)AW_Q27);
+    if (idx < 0) idx = 0; if (idx > 255) idx = 255;
+    int32_t adj = dubly_adj_q31[idx];
+    dubm = (int32_t)(((int64_t)dubm << 31) / (int64_t)adj);
+    compDecR_q += aw_smul2731(dubm - compDecR_q, g_iir_dec_q31);
+    int32_t wet = aw_smul2727(aw_smul2731(hp, compDecR_q), k_outly_wet_q27);
+    xRq = __SSAT(xRq + wet, 28);
+  } else if (dubm > 0) {
+    compDecR_q += aw_smul2731(dubm - compDecR_q, g_iir_dec_q31);
+  }
+}
+
+if (k_out_gain_q27 != AW_Q27) {
+  xLq = __SSAT(aw_smul2727(xLq, k_out_gain_q27), 28);
+  xRq = __SSAT(aw_smul2727(xRq, k_out_gain_q27), 28);
+}
+
+{
+  int32_t noise_sub = (int32_t)(((int64_t)fpdL * (int64_t)(int32_t)(0.076f * (float)AW_Q27)) >> 32);
+  int32_t noise_q27 = AW_Q27 - noise_sub;
+  if (wasPosClipL) {
+    if (xLq < lastSampleL_q)
+      lastSampleL_q = aw_smul2727(clip_thr_q27, noise_q27) + aw_smul2727(xLq, AW_Q27 - noise_q27);
+    else lastSampleL_q = clip_last_q27;
+  }
+  wasPosClipL = 0;
+  if (xLq > clip_thr_q27) {
+    wasPosClipL = 1;
+    xLq = aw_smul2727(clip_thr_q27, noise_q27) + aw_smul2727(lastSampleL_q, AW_Q27 - noise_q27);
+  }
+  if (wasNegClipL) {
+    if (xLq > lastSampleL_q)
+      lastSampleL_q = aw_smul2727(clip_thr_neg_q27, noise_q27) + aw_smul2727(xLq, AW_Q27 - noise_q27);
+    else lastSampleL_q = -clip_last_q27;
+  }
+  wasNegClipL = 0;
+  if (xLq < clip_thr_neg_q27) {
+    wasNegClipL = 1;
+    xLq = aw_smul2727(clip_thr_neg_q27, noise_q27) + aw_smul2727(lastSampleL_q, AW_Q27 - noise_q27);
+  }
+  int32_t finalSlew_q;
+  int x;
+  if (ik_spacing == 1) {
+    slewClipL[2] = aw_abs27(lastSampleL_q - xLq);
+    slewClipL[1] = slewClipL[2];
+    slewClipL[0] = slewClipL[1];
+    intermediateL[1] = xLq;
+    xLq = lastSampleL_q;
+    intermediateL[0] = intermediateL[1];
+    lastSampleL_q = intermediateL[0];
+    if (wasPosClipL || wasNegClipL) lastSampleL_q = __SSAT(lastSampleL_q + intermediateL[1], 28);
+    finalSlew_q = slewClipL[0];
+    if (finalSlew_q < slewClipL[1]) finalSlew_q = slewClipL[1];
+    if (finalSlew_q < slewClipL[2]) finalSlew_q = slewClipL[2];
+  } else {
+    slewClipL[ik_spacing * 2] = aw_abs27(lastSampleL_q - xLq);
+    for (x = ik_spacing * 2; x > 0; x--) slewClipL[x - 1] = slewClipL[x];
+    intermediateL[ik_spacing] = xLq;
+    xLq = lastSampleL_q;
+    for (x = ik_spacing; x > 0; x--) intermediateL[x - 1] = intermediateL[x];
+    lastSampleL_q = intermediateL[0];
+    if (wasPosClipL || wasNegClipL) {
+      int64_t acc64 = 0;
+      for (x = ik_spacing; x > 0; x--) acc64 += (int64_t)intermediateL[x];
+      lastSampleL_q = (int32_t)(acc64 / ik_spacing);
+    }
+    finalSlew_q = 0;
+    for (x = ik_spacing * 2; x >= 0; x--) if (finalSlew_q < slewClipL[x]) finalSlew_q = slewClipL[x];
+  }
+  {
+    int64_t den = (int64_t)AW_Q27 + (((int64_t)finalSlew_q * (int64_t)clip_post_mul_q31) >> 31);
+    if (den < 1) den = 1;
+    int32_t postclip_q = (int32_t)(((int64_t)clip_post_nom_q27 * (int64_t)AW_Q27) / den);
+    if (xLq > postclip_q) xLq = postclip_q;
+    if (xLq < -postclip_q) xLq = -postclip_q;
+  }
+}
+
+{
+  int32_t noise_sub = (int32_t)(((int64_t)fpdR * (int64_t)(int32_t)(0.076f * (float)AW_Q27)) >> 32);
+  int32_t noise_q27 = AW_Q27 - noise_sub;
+  if (wasPosClipR) {
+    if (xRq < lastSampleR_q)
+      lastSampleR_q = aw_smul2727(clip_thr_q27, noise_q27) + aw_smul2727(xRq, AW_Q27 - noise_q27);
+    else lastSampleR_q = clip_last_q27;
+  }
+  wasPosClipR = 0;
+  if (xRq > clip_thr_q27) {
+    wasPosClipR = 1;
+    xRq = aw_smul2727(clip_thr_q27, noise_q27) + aw_smul2727(lastSampleR_q, AW_Q27 - noise_q27);
+  }
+  if (wasNegClipR) {
+    if (xRq > lastSampleR_q)
+      lastSampleR_q = aw_smul2727(clip_thr_neg_q27, noise_q27) + aw_smul2727(xRq, AW_Q27 - noise_q27);
+    else lastSampleR_q = -clip_last_q27;
+  }
+  wasNegClipR = 0;
+  if (xRq < clip_thr_neg_q27) {
+    wasNegClipR = 1;
+    xRq = aw_smul2727(clip_thr_neg_q27, noise_q27) + aw_smul2727(lastSampleR_q, AW_Q27 - noise_q27);
+  }
+  int32_t finalSlew_q;
+  int x;
+  if (ik_spacing == 1) {
+    slewClipR[2] = aw_abs27(lastSampleR_q - xRq);
+    slewClipR[1] = slewClipR[2];
+    slewClipR[0] = slewClipR[1];
+    intermediateR[1] = xRq;
+    xRq = lastSampleR_q;
+    intermediateR[0] = intermediateR[1];
+    lastSampleR_q = intermediateR[0];
+    if (wasPosClipR || wasNegClipR) lastSampleR_q = __SSAT(lastSampleR_q + intermediateR[1], 28);
+    finalSlew_q = slewClipR[0];
+    if (finalSlew_q < slewClipR[1]) finalSlew_q = slewClipR[1];
+    if (finalSlew_q < slewClipR[2]) finalSlew_q = slewClipR[2];
+  } else {
+    slewClipR[ik_spacing * 2] = aw_abs27(lastSampleR_q - xRq);
+    for (x = ik_spacing * 2; x > 360; x--) slewClipR[x - 1] = slewClipR[x];
+    intermediateR[ik_spacing] = xRq;
+    xRq = lastSampleR_q;
+    for (x = ik_spacing; x > 0; x--) intermediateR[x - 1] = intermediateR[x];
+    lastSampleR_q = intermediateR[0];
+    if (wasPosClipR || wasNegClipR) {
+      int64_t acc64 = 0;
+      for (x = ik_spacing; x > 0; x--) acc64 += (int64_t)intermediateR[x];
+      lastSampleR_q = (int32_t)(acc64 / ik_spacing);
+    }
+    finalSlew_q = 0;
+    for (x = ik_spacing * 2; x >= 0; x--) if (finalSlew_q < slewClipR[x]) finalSlew_q = slewClipR[x];
+  }
+  {
+    int64_t den = (int64_t)AW_Q27 + (((int64_t)finalSlew_q * (int64_t)clip_post_mul_q31) >> 31);
+    if (den < 1) den = 1;
+    int32_t postclip_q = (int32_t)(((int64_t)clip_post_nom_q27 * (int64_t)AW_Q27) / den);
+    if (xRq > postclip_q) xRq = postclip_q;
+    if (xRq < -postclip_q) xRq = -postclip_q;
+  }
+}
 
 fpdL ^= fpdL << 13; fpdL ^= fpdL >> 17; fpdL ^= fpdL << 5;
 fpdR ^= fpdR << 13; fpdR ^= fpdR >> 17; fpdR ^= fpdR << 5;
 
-outlet_outL = __SSAT((int32_t)(inputSampleL * (float)(1 << 27)), 28);
-outlet_outR = __SSAT((int32_t)(inputSampleR * (float)(1 << 27)), 28);
+outlet_outL = __SSAT(xLq, 28);
+outlet_outR = __SSAT(xRq, 28);
 }
 ]]></code.srate>
    </obj.normal>
