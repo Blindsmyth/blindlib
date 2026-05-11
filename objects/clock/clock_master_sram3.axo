@@ -46,7 +46,7 @@
         <bool32 name="clockIsLeader" description="High when internal clock running with no loop leader (clock is virtual leader; use for first-loop sync/quantize)"/>
         <bool32 name="continueOnStopStatus" description="Debug: shows current continueOnStop state"/>
         <int32 name="measured24ppqSMPS" description="Measured external MIDI clock interval in samples per 24ppq pulse (averaged)"/>
-        <int32 name="v006" description="Object version (incremented each release)"/>
+        <int32 name="v007" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -113,7 +113,7 @@ struct clock_io_t {
     int32_t setNow, inSync, setToRaw, resetPhase, NOrecalc, NOquantize, skipRaw;
     int32_t EXTsync, play, stop_in, playToggle, setBPM, tap, countIn, continueOnStop;
     int32_t syncSlot, syncPhase, syncDurSMPS, bpm, detectedBars, ppqPerBar;
-    int32_t measured24ppqSMPS, v006;
+    int32_t measured24ppqSMPS, v007;
     int32_t rollover, clock24ppq, reset, start, stop_out, isPlaying;
     int32_t extSync, clockIsLeader, continueOnStopStatus;
 } _io;
@@ -379,7 +379,7 @@ void krate_work() CLOCK_MASTER_SRAM3_FN(8) {
 #define outlet_clockIsLeader _io.clockIsLeader
 #define outlet_continueOnStopStatus _io.continueOnStopStatus
 #define outlet_measured24ppqSMPS _io.measured24ppqSMPS
-#define outlet_v006 _io.v006
+#define outlet_v007 _io.v007
 
 // ============ BEGIN krate logic (identical to clock_master except version) ============
 bool trig = 0;
@@ -704,11 +704,6 @@ if (ext_sync_inlets_live){
 
     if (trig){
         old_tempo = smplr.leader_tempo;
-        // #region agent log H4 - TRIG entry pre-mutate
-        uint32_t _dbg_sp_in = smplr.STARTPOINT;
-        int32_t _dbg_spmod_in = smplr.SPMOD;
-        int32_t _dbg_bars_in = smplr.BARS;
-        // #endregion
         smplr.leader = inlet_toSlot;
         smplr.STARTPOINT = (smplr.STARTPOINT + (smplr.SPMOD >> 1)) & ((1<<27)-1);
         smplr.SPMOD = 0;
@@ -737,10 +732,6 @@ if (ext_sync_inlets_live){
             // The loop's BARS tells loopsync how long it is relative to the clock,
             // but must not change the 24ppq tick rate.
             smplr.RAW = 0;
-            // #region agent log H2/H3/H4 - clock_is_master leader assigned
-            LogTextMessage("{\"sessionId\":\"95888a\",\"runId\":\"pre-fix\",\"hypothesisId\":\"H2\",\"location\":\"clock_master.axo:trig_master\",\"message\":\"leader assigned (clock_is_master)\",\"data\":{\"leader\":%d,\"sp_in\":%u,\"spmod_in\":%d,\"sp_out\":%u,\"bars_in\":%d,\"bars_out\":%d,\"leader_tempo\":%d,\"stempo\":%u,\"syncer_pos\":%u,\"raw_in\":%d},\"timestamp\":%u}",
-                (int)smplr.leader, (unsigned int)_dbg_sp_in, (int)_dbg_spmod_in, (unsigned int)smplr.STARTPOINT, (int)_dbg_bars_in, (int)smplr.BARS, (int)smplr.leader_tempo, (unsigned int)stempo, (unsigned int)sync.syncer_pos, (int)smplr.RAW, (unsigned int)hal_lld_get_counter_value());
-            // #endregion
         } else if (clock_transport_active) {
             /* Internal clock ticking OR MIDI clock flowing: locked grid owns leader_tempo
                / transport; trig only declares BARS relative to that tempo (loopsync dur). */
@@ -751,10 +742,6 @@ if (ext_sync_inlets_live){
             else
                 smplr.BARS = (1<<21);
             smplr.RAW = 0;
-            // #region agent log H8
-            LogTextMessage("{\"sessionId\":\"77e3dd\",\"runId\":\"post-fix3\",\"hypothesisId\":\"H8\",\"location\":\"clock_master_sram3:trig_clock_slave\",\"message\":\"trig_slave_no_tempo_rewrite\",\"data\":{\"cta\":1,\"master\":0,\"leader_tempo\":%d,\"bars\":%d,\"sync\":%u},\"timestamp\":%u}",
-                (int)smplr.leader_tempo, (int)smplr.BARS, (unsigned int)sync.syncer_pos, (unsigned int)hal_lld_get_counter_value());
-            // #endregion
             if (!clock_playing) {
                 clock_playing = 1;
                 clock_count = 0;
@@ -909,7 +896,7 @@ prev_clock_playing = clock_playing;
 start_pulse_request = 0;
 stop_pulse_request = 0;
 
-outlet_v006 = 6;
+outlet_v007 = 7;
 // ============ END krate logic ============
 
 #undef inlet_toSlot
@@ -952,7 +939,7 @@ outlet_v006 = 6;
 #undef outlet_clockIsLeader
 #undef outlet_continueOnStopStatus
 #undef outlet_measured24ppqSMPS
-#undef outlet_v006
+#undef outlet_v007
 }]]></code.declaration>
       <code.init><![CDATA[current_bpm = 120;
 detected_bars = 16;
@@ -1053,7 +1040,7 @@ outlet_extSync = _io.extSync;
 outlet_clockIsLeader = _io.clockIsLeader;
 outlet_continueOnStopStatus = _io.continueOnStopStatus;
 outlet_measured24ppqSMPS = _io.measured24ppqSMPS;
-outlet_v006 = _io.v006;]]></code.krate>
+outlet_v007 = _io.v007;]]></code.krate>
       <code.srate><![CDATA[srate_work();]]></code.srate>
       <code.midihandler><![CDATA[midi_work(status);]]></code.midihandler>
    </obj.normal>

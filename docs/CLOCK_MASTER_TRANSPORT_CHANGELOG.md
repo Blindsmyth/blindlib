@@ -14,13 +14,18 @@ Purpose: avoid “fix A, break B” by recording **invariants** each time we tou
 
 | Object                | Outlet | Summary |
 |----------------------|--------|---------|
-| `clock_master.axo`   | **v029** | Unify trig + leader with `clock_transport_active` (fixes loops trading bar phase vs leader_tempo gymnastics). |
-| `clock_master_sram3.axo` | **v006** | Same logic as SRAM1; fixed broken v004 shim in wrapper. |
+| `clock_master.axo`   | **v030** | Transport-active semantics; **instrumentation removed** (2026-05-11). |
+| `clock_master_sram3.axo` | **v007** | Same as SRAM1; **instrumentation removed** (2026-05-11). |
 
-## Debug log cues
+## Runtime verification (2026-05-11)
 
-- **`H8`** (`post-fix3`): trig took **slave branch** (`trig_slave_no_tempo_rewrite` / `clock_master*_trig_clock_slave`).
-- Older **`H5`** / **`H7`**: superseded — do not use for diagnosing current behaviour.
+Pre-strip logs showed:
+
+- **`loopsync dev 14`**: **`H9`** `nexttrig_immediate` (`post-fix4`) on same k-tick as `nexttrig` — confirms immediate `synctrig` path.
+- **`loopsync` case4**: **`H1`** `play=1 via gate&!gon` after record with expected `pos`/`lim`.
+- **`recordlogic_refactored_mute`**: **`H4`** on `recfeedback` fall.
+
+Temporary `LogTextMessage` blocks have been **removed** from `clock_master*` (previously `H2`/`H8`), `loopsync dev 14` (`H1`/`H2`/`H9`), and `recordlogic_refactored_mute` (`H1`/`H4`).
 
 ## File locations
 
@@ -29,6 +34,6 @@ Purpose: avoid “fix A, break B” by recording **invariants** each time we tou
 
 ## Related: `loopsync dev 14` (Axolonatics)
 
-**2026-05-11 — post-record / sync gap:** `nexttrig` was handled *inside* `if (ro < _ro)`, so a “trigger NOW” request from `slotstart`/`syncstart` or `inlet_resync` could wait until the next phase-wrap (up to ~one `mod` cycle), audibly delaying `wait && synctrig` → gate flip → case-4 `play`. Moved `nexttrig` handling **after** the `ro`-wrap block so it forces `synctrig` same k-tick. Instrumentation: **`H9`** `post-fix4` on that path.
+**2026-05-11 — post-record / sync gap:** `nexttrig` was handled *inside* `if (ro < _ro)`, so a “trigger NOW” request from `slotstart`/`syncstart` or `inlet_resync` could wait until the next phase-wrap (up to ~one `mod` cycle), audibly delaying `wait && synctrig` → gate flip → case-4 `play`. **Fix:** handle `nexttrig` **after** the `ro`-wrap block so it forces `synctrig` on the same k-tick.
 
 Path: `Axolonatics/objects/rbrt_new/smplr/loopsync dev 14.axo`

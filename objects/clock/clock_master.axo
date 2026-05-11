@@ -46,7 +46,7 @@
         <bool32 name="clockIsLeader" description="High when internal clock running with no loop leader (clock is virtual leader; use for first-loop sync/quantize)"/>
         <bool32 name="continueOnStopStatus" description="Debug: shows current continueOnStop state"/>
         <int32 name="measured24ppqSMPS" description="Measured external MIDI clock interval in samples per 24ppq pulse (averaged)"/>
-        <int32 name="v029" description="Object version (incremented each release)"/>
+        <int32 name="v030" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -734,10 +734,6 @@ if (ext_sync_inlets_live){
             else
                 smplr.BARS = (1<<21);
             smplr.RAW = 0;
-            // #region agent log H8
-            LogTextMessage("{\"sessionId\":\"77e3dd\",\"runId\":\"post-fix3\",\"hypothesisId\":\"H8\",\"location\":\"clock_master:trig_clock_slave\",\"message\":\"trig_slave_no_tempo_rewrite\",\"data\":{\"leader_tempo\":%d,\"bars\":%d,\"sync\":%u},\"timestamp\":%u}",
-                (int)smplr.leader_tempo, (int)smplr.BARS, (unsigned int)sync.syncer_pos, (unsigned int)hal_lld_get_counter_value());
-            // #endregion
             if (!clock_playing) {
                 clock_playing = 1;
                 clock_count = 0;
@@ -908,7 +904,7 @@ start_pulse_request = 0;
 stop_pulse_request = 0;
 
 // Version outlet: increment with each release (v0_0_1 = 1, v0_0_2 = 2, ...)
-outlet_v029 = 29;]]></code.krate>
+outlet_v030 = 30;]]></code.krate>
       <code.srate><![CDATA[if (tap_timer < tap_wait_samples) {
     tap_timer++;
 }
