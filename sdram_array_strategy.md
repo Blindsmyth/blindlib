@@ -1,4 +1,4 @@
-# SDRAM Array Strategy for Axoloti Objects
+# Axoloti Memory Placement Playbook (SRAM2/SRAM3/SDRAM)
 
 #As of the current firmware we can't properly implement this!! 
 
@@ -36,7 +36,7 @@ SRAM1 holds both **code** (`.text`) and **data** (`.bss`). The linker error mean
 **What you can do:** Simplify the patch to fit (fewer/smaller objects or fewer voices), or change the Ksoloti code generator to place the voice array in `.sram3` so it’s generated that way for all such patches.
 
 ## Overview
-This document outlines the technique for moving large arrays from SRAM to SDRAM in Axoloti objects, providing significant memory savings for objects that need to store large amounts of data. As of the current firmware we can't properly implement this.
+This document outlines practical memory-placement techniques for Axoloti/Ksoloti objects: moving buffers and code between SRAM1, SRAM2, SRAM3, and SDRAM to reduce SRAM1 pressure while keeping behavior unchanged.
 
 ## The Problem
 - **SRAM is limited**: Axoloti has limited SRAM (Static RAM) which is fast but scarce
@@ -266,3 +266,91 @@ The SDRAM array technique provides:
 - **Easy implementation** with copy-paste templates
 
 This technique is essential for complex objects that need to store large amounts of data while preserving precious SRAM for real-time processing. 
+
+## SRAM2/SRAM3 Conversion Playbook (Looper Objects)
+
+Use this checklist when converting an existing object to SRAM2/SRAM3 so the process is repeatable.
+
+### 1) Decide what to move
+
+- Move **large data buffers** first (`.bss` pressure): arrays/tables/ring buffers.
+- Move **hot helper functions** next (`.text` pressure): tempo/math/state helpers called from krate/srate/midi paths.
+- Keep the public interface identical where possible (same inlets/outlets/attribs) so patch rewiring is minimal.
+
+### 2) Create object variant naming
+
+- Keep original object unchanged, create a sibling variant:
+  - `foo.axo` -> `foo_sram3.axo` (or `foo_sram2.axo` if explicitly using SRAM2).
+- Update description to state it is the SRAM variant and what was moved.
+
+### 3) Data placement patterns
+
+- **SRAM3 data section**:
+```cpp
+static int32_t _buf[4096] __attribute__ ((section (".sram3")));
+```
+- **SRAM2 data section**:
+```cpp
+static int32_t _buf[4096] __attribute__ ((section (".sram2")));
+```
+- If codegen/member-layout conflicts occur, use pointer-in-declaration + static-local-in-init pattern:
+```cpp
+// code.declaration
+int32_t* buf;
+
+// code.init
+static int32_t _buf[4096] __attribute__ ((section (".sram3")));
+buf = _buf;
+```
+
+### 4) Function/code placement pattern (SRAM3 text)
+
+Use a macro and assign unique subsection suffixes so multiple functions can coexist cleanly:
+
+```cpp
+#define OBJNAME_SRAM3_FN(n) __attribute__((noinline, section(".sram3.text.obj" #n)))
+
+void helperA() OBJNAME_SRAM3_FN(1) { /* ... */ }
+int32_t helperB(int32_t x) OBJNAME_SRAM3_FN(2) { /* ... */ return x; }
+```
+
+Notes:
+- Give the macro a **unique prefix per .axo** (for example `TAP_IO_SRAM3_FN`, `LDUB_NEW_SRAM3_FN`). A **generic** name like `SRAM3_FN` is redefined when several SRAM3 objects are compiled into the same patch `.axp.cpp`, which breaks the build.
+- Prefer `noinline` for predictable placement.
+- Keep ISR/handler behavior unchanged; only move placement, not logic.
+- In Ksoloti, `inlet_*` / `outlet_*` names are only valid **inside** `code.krate` and `code.srate`. Helper functions in `code.declaration` do not see them; use thin stubs that read inlets, call `helper(inlet_foo, ...)`, then write outlets.
+
+### 5) Optional thin-stub pattern for large krate logic
+
+For big objects, keep `code.krate` as a stub that copies inlets to an IO struct, calls SRAM3 worker, then copies outlets back (see `clock_master_sram3.axo`).
+This avoids large logic in default text sections and keeps diffs manageable.
+
+Example: `objects/smplr/brain_lpr_v3_sram3.axo` — `load_set` / `save_set` / `load_slot` / `save_slot` placed with `BRAIN_LPR_V3_SRAM3_FN()` in `.sram3.text.blv31`…`4`; `_data` / wave pool stay in **SDRAM** like `brain_lpr_v3`.
+
+### 6) Required repository hygiene
+
+- Follow UUID workflow:
+  1. Run `./check_uuid_conflicts.sh` before creating object.
+  2. Allocate next UUID from `blindlib/.cursorrules`.
+  3. Add object entry to `blindlib/.cursorrules` immediately.
+  4. Run `./check_uuid_conflicts.sh` again.
+- Add/upgrade version outlet per project rule:
+  - New object: `v001`, set `outlet_v001 = 1;`
+  - Updated object: increment (`v00X -> v00X+1`) and output matching number.
+
+### 7) Validation checklist
+
+- Object loads in patch browser and compiles.
+- MIDI/start/stop/reset behavior matches original.
+- `24ppq`/phase/tempo outputs still match expected timing.
+- Link/build output confirms SRAM3 upload stage is present when SRAM3 sections are used.
+- No UUID conflicts after adding the new object.
+
+### 8) Quick conversion template
+
+1. Duplicate object -> `*_sram3.axo`.
+2. Add SRAM macro and move selected helpers to `.sram3.text.*`.
+3. Move large arrays to `.sram3` (or `.sram2`) with init-pointer pattern if needed.
+4. Add `v001` outlet (or bump version).
+5. Register UUID + run conflict check.
+6. Compile and A/B test against original.

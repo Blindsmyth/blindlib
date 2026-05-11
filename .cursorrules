@@ -108,7 +108,13 @@
  * keyb_zone_extra.axo: 5224773f-18de-4231-8f92-b1f22bb953C7
  * totape9.axo: 5224773f-18de-4231-8f92-b1f22bb953C8
  * totape9_lite.axo: 5224773f-18de-4231-8f92-b1f22bb953C9
-- **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
+ * simon_lpr/sram3_demo_multi.axo (Axolonatics): 5224773f-18de-4231-8f92-b1f22bb953CA
+ * launch_fixed_shift32.axo: 5224773f-18de-4231-8f92-b1f22bb953CB
+ * table_toggle_shift32.axo: 5224773f-18de-4231-8f92-b1f22bb953CC
+ * tap.io_sram3.axo: 5224773f-18de-4231-8f92-b1f22bb953CD
+ * ldub_new_sram3.axo: 5224773f-18de-4231-8f92-b1f22bb953CE
+ * brain_lpr_v3_sram3.axo: 5224773f-18de-4231-8f92-b1f22bb953CF
+ - **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
 - **MANDATORY**: Document all new UUIDs in this file immediately after creation
 
 ## Version outlet (v-outlet) - object revisions
@@ -223,6 +229,9 @@
 - Use SDRAM for large arrays: `__attribute__ ((section (".sdram")))`
 - Use SRAM2 for buffers: `__attribute__ ((section (".sram2")))`
 - Prefer object reuse over creating new objects for memory efficiency
+- For SRAM2/SRAM3/SDRAM conversions, **always consult** `sdram_array_strategy.md` first and follow its "SRAM2/SRAM3 Conversion Playbook" checklist.
+- For `_sram3` variants, keep the original object untouched and create a sibling object (for example `foo_sram3.axo`) with matching public IO unless a behavior change is explicitly requested.
+- Each SRAM3 `.axo` must use a **unique** preprocessor macro for section attributes (for example `TAP_IO_SRAM3_FN`, `LDUB_NEW_SRAM3_FN`, `CLOCK_MASTER_SRAM3_FN`). Never reuse a generic name like `SRAM3_FN` across objects; the patch build concatenates all objects into one translation unit and will redefine the macro.
 
 ## Error Prevention
 
