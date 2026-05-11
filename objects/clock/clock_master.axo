@@ -46,7 +46,7 @@
         <bool32 name="clockIsLeader" description="High when internal clock running with no loop leader (clock is virtual leader; use for first-loop sync/quantize)"/>
         <bool32 name="continueOnStopStatus" description="Debug: shows current continueOnStop state"/>
         <int32 name="measured24ppqSMPS" description="Measured external MIDI clock interval in samples per 24ppq pulse (averaged)"/>
-        <int32 name="v025" description="Object version (incremented each release)"/>
+        <int32 name="v029" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -184,6 +184,7 @@ const int ext_clock_avg_steps = 96;
 int16_t ext_clock_pool[96];
 int ext_clock_pool_index;
 float ext_clock_avg;
+uint8_t ext_leader_tempo_div;
 
 // Measure external MIDI clock timing (called on each MIDI_TIMING_CLOCK)
 void measureExternalClock() {
@@ -217,13 +218,17 @@ void measureExternalClock() {
             last_written_bpm = ext_bpm;
             last_read_bpm = ext_bpm;  // Update read tracker to prevent reading our own write
             
-            // Also update internal tempo so when ext clock drops out, 
-            // Auto mode can continue at same tempo
-            if (detected_bars > 0 && current_beats > 0 && current_measure > 0) {
-                smplr.leader_tempo = bpmToTempo(ext_bpm, detected_bars, current_beats, current_measure);
-            } else {
-                // No loop recorded yet - use default 16 bars to set tempo pace
-                smplr.leader_tempo = bpmToTempo(ext_bpm, 256, current_beats, current_measure);
+            ext_leader_tempo_div++;
+            if (ext_leader_tempo_div >= 24) ext_leader_tempo_div = 0;
+            /* Do not rewrite leader_tempo every PPQ tick — tiny BPM/tempo jitter retunes
+               pos % leader_tempo each k-frame and SYNC::syncer_pos is not a monotone
+               wrapped phase; synced record end (rec_lpr ptrig) waits forever. */
+            if (ext_leader_tempo_div == 0) {
+                if (detected_bars > 0 && current_beats > 0 && current_measure > 0) {
+                    smplr.leader_tempo = bpmToTempo(ext_bpm, detected_bars, current_beats, current_measure);
+                } else {
+                    smplr.leader_tempo = bpmToTempo(ext_bpm, 256, current_beats, current_measure);
+                }
             }
         }
     }
@@ -336,7 +341,9 @@ ext_clock_pool_index = 0;
 ext_clock_avg = 1000.0; // Default interval for 120 BPM (1000 samples @ 48kHz, 24ppq)
 for (int i = 0; i < ext_clock_avg_steps; i++) {
     ext_clock_pool[i] = 1000; // Initialize to 120 BPM timing
-}]]></code.init>
+}
+ext_leader_tempo_div = 0;
+]]></code.init>
       <code.krate><![CDATA[bool trig = 0;
 bool ttrig = 0;
 ro = 0;
@@ -554,20 +561,29 @@ if (!inlet_playToggle) play_toggle_trig = 0;
 
 // Match sync_clock_musical: start clock + reset one frame AFTER leader is set (not in trig block)
 if (smplr.leader != prev_leader && smplr.leader >= 0 && prev_leader == -1) {
-    clock_playing = 1;
-    clock_count = 0;
-    // Align clock phase to leader playhead only when NOT on external clock (external clock must drive phase)
-    if (!use_external && smplr.leader_tempo > 0) {
-        uint16_t lead_adr = (uint16_t)(smplr.leader * 128);
-        uint32_t lead_pos = (uint32_t)smplr.prm[lead_adr + 126];
-        pos = lead_pos % smplr.leader_tempo;
-        sync.syncer_pos = (float(pos) / (float)smplr.leader_tempo) * (1 << 27);
-        prev_clock_pos = sync.syncer_pos;
-    } else {
-        pos = smplr.leader_tempo > 0 ? smplr.leader_tempo - 64 : 0;
-        prev_clock_pos = 0;
+    bool clock_is_master_now = (clock_playing && !use_external);
+    bool clock_transport_active =
+        clock_playing || (use_external && isClockIncoming);
+    if (!clock_is_master_now) {
+        bool was_running = clock_playing;
+        clock_playing = 1;
+        clock_count = 0;
+        if (clock_transport_active) {
+            /* no pos/syncer/prev/reset side effects */
+        } else if (!use_external && smplr.leader_tempo > 0) {
+            uint16_t lead_adr = (uint16_t)(smplr.leader * 128);
+            uint32_t lead_pos = (uint32_t)smplr.prm[lead_adr + 126];
+            pos = lead_pos % smplr.leader_tempo;
+            sync.syncer_pos = (float(pos) / (float)smplr.leader_tempo) * (1 << 27);
+            prev_clock_pos = sync.syncer_pos;
+        } else {
+            pos = smplr.leader_tempo > 0 ? smplr.leader_tempo - 64 : 0;
+            prev_clock_pos = 0;
+        }
+        if (!clock_transport_active && (!use_external || !was_running)) {
+            outlet_reset = 1;
+        }
     }
-    outlet_reset = 1;
 }
 prev_leader = smplr.leader;
 
@@ -618,7 +634,10 @@ if (inlet_EXTsync != presrc){
     resync = 4;
 }
 
-if (inlet_EXTsync){
+bool ext_sync_inlets_live =
+    inlet_EXTsync && (((uint32_t)inlet_EXTdurSMPS) > 4096U);
+
+if (ext_sync_inlets_live){
     sync.syncer_pos = inlet_EXTphase;
     smplr.leader_tempo = inlet_EXTdurSMPS;
     smplr.leader = -1;
@@ -654,7 +673,6 @@ if (inlet_EXTsync){
     if (inlet_setNow && !strig){
         strig = 1;
         trig = 1;
-        resync = 4;
     }
     bool doit = 0;
     if (inlet_inSync && !strig){
@@ -672,7 +690,6 @@ if (inlet_EXTsync){
     if (doit){
         trig = 1;
         wait = 0;
-        resync = 4;
         adr = inlet_toSlot * 128;
     }
     if (!inlet_inSync && !inlet_setNow) strig = 0;
@@ -683,8 +700,9 @@ if (inlet_EXTsync){
         smplr.STARTPOINT = (smplr.STARTPOINT + (smplr.SPMOD >> 1)) & ((1<<27)-1);
         smplr.SPMOD = 0;
         smplr.leader_start = smplr.STARTPOINT;
-        // When clock is master, use new loop's actual duration so BARS is correct (avoids 0/wrong slot BARS => fast tempo)
         bool clock_is_master = (clock_playing && !use_external);
+        bool clock_transport_active =
+            clock_playing || (use_external && isClockIncoming);
         uint32_t stempo;
         if (clock_is_master)
             stempo = smplr.calc_dur(smplr.leader);
@@ -701,13 +719,41 @@ if (inlet_EXTsync){
             if (stempo_valid)
                 smplr.BARS = sync.calc_bars(stempo, smplr.leader_tempo);
             else
-                smplr.BARS = (1<<21);  // one bar when stempo invalid (e.g. BARS 0 on cleared slot)
-            detected_bars = (smplr.BARS * 16) >> 21;
-            if (detected_bars < 1) detected_bars = 1;
+                smplr.BARS = (1<<21);
+            // Don't update detected_bars in clock_is_master mode:
+            // detected_bars reflects the clock's own tempo setup (from BPM/tap).
+            // The loop's BARS tells loopsync how long it is relative to the clock,
+            // but must not change the 24ppq tick rate.
             smplr.RAW = 0;
             // Do not update pos, sync.syncer_pos or current_bpm — clock stays master
+        } else if (clock_transport_active) {
+            if (smplr.leader_tempo <= 0)
+                smplr.leader_tempo = bpmToTempo(current_bpm > 0 ? current_bpm : 120, detected_bars, current_beats, current_measure);
+            if (stempo_valid)
+                smplr.BARS = sync.calc_bars(stempo, smplr.leader_tempo);
+            else
+                smplr.BARS = (1<<21);
+            smplr.RAW = 0;
+            // #region agent log H8
+            LogTextMessage("{\"sessionId\":\"77e3dd\",\"runId\":\"post-fix3\",\"hypothesisId\":\"H8\",\"location\":\"clock_master:trig_clock_slave\",\"message\":\"trig_slave_no_tempo_rewrite\",\"data\":{\"leader_tempo\":%d,\"bars\":%d,\"sync\":%u},\"timestamp\":%u}",
+                (int)smplr.leader_tempo, (int)smplr.BARS, (unsigned int)sync.syncer_pos, (unsigned int)hal_lld_get_counter_value());
+            // #endregion
+            if (!clock_playing) {
+                clock_playing = 1;
+                clock_count = 0;
+                outlet_reset = 1;
+            }
+            resync = 4;
+            if (!use_external) {
+                int32_t calculated = calculateBPM(smplr.leader_tempo, detected_bars, current_beats, current_measure);
+                if (calculated == 120 && tap_bpm != 120) {
+                    current_bpm = tap_bpm;
+                } else {
+                    current_bpm = calculated;
+                }
+            }
         } else {
-            // Loop defines tempo (or external clock / clock was stopped)
+            // Clock stopped — loop derives tempo / phase baseline
             int32_t calculated_bars = 1;
             if (stempo_valid) {
                 smplr.leader_tempo = scale_tempo_musical(stempo, current_lower_bpm, current_beats, current_measure, &calculated_bars);
@@ -717,8 +763,13 @@ if (inlet_EXTsync){
             detected_bars = calculated_bars;
             smplr.BARS = stempo_valid ? sync.calc_bars(stempo, smplr.leader_tempo) : (1<<21);
             smplr.RAW = 0;
-            // Align clock phase to leader playhead only when NOT on external clock (external clock must drive phase; avoids offbeat + last part cut)
+            // Align clock phase to leader playhead only when NOT on external clock (external clock must drive phase)
             if (!use_external && smplr.leader_tempo > 0) {
+                uint32_t lead_pos = (uint32_t)smplr.POS;
+                pos = lead_pos % smplr.leader_tempo;
+                sync.syncer_pos = (float(pos) / (float)smplr.leader_tempo) * (1 << 27);
+                prev_clock_pos = sync.syncer_pos;
+            } else if (use_external && smplr.leader_tempo > 0) {
                 uint32_t lead_pos = (uint32_t)smplr.POS;
                 pos = lead_pos % smplr.leader_tempo;
                 sync.syncer_pos = (float(pos) / (float)smplr.leader_tempo) * (1 << 27);
@@ -733,8 +784,8 @@ if (inlet_EXTsync){
                 clock_playing = 1;
                 clock_count = 0;
                 outlet_reset = 1;
-                resync = 4;
             }
+            resync = 4;
             // Only recalculate BPM from leader tempo when NOT syncing to external clock
             if (!use_external) {
                 int32_t calculated = calculateBPM(smplr.leader_tempo, detected_bars, current_beats, current_measure);
@@ -857,7 +908,7 @@ start_pulse_request = 0;
 stop_pulse_request = 0;
 
 // Version outlet: increment with each release (v0_0_1 = 1, v0_0_2 = 2, ...)
-outlet_v025 = 25;]]></code.krate>
+outlet_v029 = 29;]]></code.krate>
       <code.srate><![CDATA[if (tap_timer < tap_wait_samples) {
     tap_timer++;
 }

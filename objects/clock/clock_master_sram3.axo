@@ -1,6 +1,6 @@
 <objdefs appVersion="1.0.12">
    <obj.normal id="clock_master_sram3" uuid="5224773f-18de-4231-8f92-b1f22bb953C6">
-      <sDescription>SRAM3 variant of clock_master. All code placed in SRAM3 to reduce SRAM1 pressure. Change SRAM3_FN(n) to empty define to revert. Unified clock: sync_clock_musical + tap tempo + external MIDI clock. RBRT sync inlets/outlets; tap and countIn for tap tempo; clockMode for Auto/Ext/Int.</sDescription>
+      <sDescription>SRAM3 variant of clock_master. All code placed in SRAM3 to reduce SRAM1 pressure. Change CLOCK_MASTER_SRAM3_FN(n) to empty define to revert. Unified clock: sync_clock_musical + tap tempo + external MIDI clock. RBRT sync inlets/outlets; tap and countIn for tap tempo; clockMode for Auto/Ext/Int.</sDescription>
       <author>Simon Reeve</author>
       <license>GPL</license>
       <inlets>
@@ -46,7 +46,7 @@
         <bool32 name="clockIsLeader" description="High when internal clock running with no loop leader (clock is virtual leader; use for first-loop sync/quantize)"/>
         <bool32 name="continueOnStopStatus" description="Debug: shows current continueOnStop state"/>
         <int32 name="measured24ppqSMPS" description="Measured external MIDI clock interval in samples per 24ppq pulse (averaged)"/>
-        <int32 name="v001" description="Object version (incremented each release)"/>
+        <int32 name="v006" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -104,7 +104,7 @@
          <include>../../../Axolonatics/objects/rbrt_new/rbrt_classes/sync.h</include>
       </includes>
       <code.declaration><![CDATA[// --- SRAM3 placement macro (change to empty #define to revert to SRAM1) ---
-#define SRAM3_FN(n) __attribute__((noinline, section(".sram3.text.cm" #n)))
+#define CLOCK_MASTER_SRAM3_FN(n) __attribute__((noinline, section(".sram3.text.cm" #n)))
 
 // --- IO shadow struct for krate worker ---
 struct clock_io_t {
@@ -113,7 +113,7 @@ struct clock_io_t {
     int32_t setNow, inSync, setToRaw, resetPhase, NOrecalc, NOquantize, skipRaw;
     int32_t EXTsync, play, stop_in, playToggle, setBPM, tap, countIn, continueOnStop;
     int32_t syncSlot, syncPhase, syncDurSMPS, bpm, detectedBars, ppqPerBar;
-    int32_t measured24ppqSMPS, v001;
+    int32_t measured24ppqSMPS, v006;
     int32_t rollover, clock24ppq, reset, start, stop_out, isPlaying;
     int32_t extSync, clockIsLeader, continueOnStopStatus;
 } _io;
@@ -194,10 +194,11 @@ const int ext_clock_avg_steps = 96;
 int16_t ext_clock_pool[96];
 int ext_clock_pool_index;
 float ext_clock_avg;
+uint8_t ext_leader_tempo_div;
 
 // --- Helper functions (SRAM3) ---
 
-void measureExternalClock() SRAM3_FN(1) {
+void measureExternalClock() CLOCK_MASTER_SRAM3_FN(1) {
     isClockIncoming = true;
     ext_clock_pool[ext_clock_pool_index] = midi_timer;
     midi_timer = 0;
@@ -217,17 +218,25 @@ void measureExternalClock() SRAM3_FN(1) {
             param_table->array[attr_bpmPage][attr_bpmParam] = ext_bpm;
             last_written_bpm = ext_bpm;
             last_read_bpm = ext_bpm;
-            if (detected_bars > 0 && current_beats > 0 && current_measure > 0) {
-                smplr.leader_tempo = bpmToTempo(ext_bpm, detected_bars, current_beats, current_measure);
-            } else {
-                smplr.leader_tempo = bpmToTempo(ext_bpm, 256, current_beats, current_measure);
+            ext_leader_tempo_div++;
+            if (ext_leader_tempo_div >= 24) ext_leader_tempo_div = 0;
+            /* leader_tempo every beat (24 PPQ pulses): rewriting it every TICK retunes
+               pos % tempo every k-frame and SYNC::syncer_pos no longer behaves as a
+               stable phase ramps — rec_lpr synced stop (phase wrap detect) waits forever */
+
+            if (ext_leader_tempo_div == 0) {
+                if (detected_bars > 0 && current_beats > 0 && current_measure > 0) {
+                    smplr.leader_tempo = bpmToTempo(ext_bpm, detected_bars, current_beats, current_measure);
+                } else {
+                    smplr.leader_tempo = bpmToTempo(ext_bpm, 256, current_beats, current_measure);
+                }
             }
         }
     }
     shouldTrigger24Ppq_ext = true;
 }
 
-int32_t interpretLoopLength(uint32_t loop_samples, int32_t lower_bpm, int32_t beats, int32_t measure) SRAM3_FN(2) {
+int32_t interpretLoopLength(uint32_t loop_samples, int32_t lower_bpm, int32_t beats, int32_t measure) CLOCK_MASTER_SRAM3_FN(2) {
     float quarter_note_duration = 60.0 / (float)lower_bpm;
     uint32_t samples_per_bar = (uint32_t)(quarter_note_duration * 48000.0 * (float)beats / ((float)measure / 4.0));
     float calculated_bars = (float)loop_samples / (float)samples_per_bar;
@@ -243,7 +252,7 @@ int32_t interpretLoopLength(uint32_t loop_samples, int32_t lower_bpm, int32_t be
     return closest_bars_x16;
 }
 
-int32_t calculateBPM(uint32_t tempo_samples, int32_t bars_x16, int32_t beats, int32_t measure) SRAM3_FN(3) {
+int32_t calculateBPM(uint32_t tempo_samples, int32_t bars_x16, int32_t beats, int32_t measure) CLOCK_MASTER_SRAM3_FN(3) {
     if (tempo_samples == 0 || bars_x16 == 0) return 120;
     float actual_bars = (float)bars_x16 / 16.0;
     float samples_per_bar = (float)tempo_samples / actual_bars;
@@ -252,7 +261,7 @@ int32_t calculateBPM(uint32_t tempo_samples, int32_t bars_x16, int32_t beats, in
     return (int32_t)(bpm + 0.5);
 }
 
-uint32_t bpmToTempo(int32_t bpm, int32_t bars_x16, int32_t beats, int32_t measure) SRAM3_FN(4) {
+uint32_t bpmToTempo(int32_t bpm, int32_t bars_x16, int32_t beats, int32_t measure) CLOCK_MASTER_SRAM3_FN(4) {
     if (bpm == 0) return 48000 * 2;
     float actual_bars = (float)bars_x16 / 16.0;
     float quarter_notes_per_bar = (float)beats / ((float)measure / 4.0);
@@ -260,7 +269,7 @@ uint32_t bpmToTempo(int32_t bpm, int32_t bars_x16, int32_t beats, int32_t measur
     return (uint32_t)(samples_per_bar * actual_bars);
 }
 
-uint32_t scale_tempo_musical(uint32_t raw_samples, int32_t lower_bpm, int32_t beats, int32_t measure, int32_t* out_bars) SRAM3_FN(5) {
+uint32_t scale_tempo_musical(uint32_t raw_samples, int32_t lower_bpm, int32_t beats, int32_t measure, int32_t* out_bars) CLOCK_MASTER_SRAM3_FN(5) {
     *out_bars = interpretLoopLength(raw_samples, lower_bpm, beats, measure);
     float calculated_bpm = (float)calculateBPM(raw_samples, *out_bars, beats, measure);
     float upper_bpm = (float)lower_bpm * 2.0;
@@ -276,7 +285,7 @@ uint32_t scale_tempo_musical(uint32_t raw_samples, int32_t lower_bpm, int32_t be
 }
 
 // --- SRAM3 worker: srate ---
-void srate_work() SRAM3_FN(6) {
+void srate_work() CLOCK_MASTER_SRAM3_FN(6) {
     if (tap_timer < tap_wait_samples) {
         tap_timer++;
     }
@@ -292,7 +301,7 @@ void srate_work() SRAM3_FN(6) {
 }
 
 // --- SRAM3 worker: MIDI handler ---
-void midi_work(int _status) SRAM3_FN(7) {
+void midi_work(int _status) CLOCK_MASTER_SRAM3_FN(7) {
     if (current_clock_mode == 2) return;
     switch (_status) {
         case MIDI_TIMING_CLOCK:
@@ -326,8 +335,9 @@ void midi_work(int _status) SRAM3_FN(7) {
     }
 }
 
+
 // --- SRAM3 worker: krate (main clock logic) ---
-void krate_work() SRAM3_FN(8) {
+void krate_work() CLOCK_MASTER_SRAM3_FN(8) {
 // Map _io fields to inlet_/outlet_ names so core logic is identical to clock_master
 #define inlet_toSlot _io.toSlot
 #define inlet_setNow _io.setNow
@@ -369,7 +379,7 @@ void krate_work() SRAM3_FN(8) {
 #define outlet_clockIsLeader _io.clockIsLeader
 #define outlet_continueOnStopStatus _io.continueOnStopStatus
 #define outlet_measured24ppqSMPS _io.measured24ppqSMPS
-#define outlet_v001 _io.v001
+#define outlet_v006 _io.v006
 
 // ============ BEGIN krate logic (identical to clock_master except version) ============
 bool trig = 0;
@@ -570,19 +580,30 @@ if (inlet_playToggle && !play_toggle_trig) {
 if (!inlet_playToggle) play_toggle_trig = 0;
 
 if (smplr.leader != prev_leader && smplr.leader >= 0 && prev_leader == -1) {
-    clock_playing = 1;
-    clock_count = 0;
-    if (!use_external && smplr.leader_tempo > 0) {
-        uint16_t lead_adr = (uint16_t)(smplr.leader * 128);
-        uint32_t lead_pos = (uint32_t)smplr.prm[lead_adr + 126];
-        pos = lead_pos % smplr.leader_tempo;
-        sync.syncer_pos = (float(pos) / (float)smplr.leader_tempo) * (1 << 27);
-        prev_clock_pos = sync.syncer_pos;
-    } else {
-        pos = smplr.leader_tempo > 0 ? smplr.leader_tempo - 64 : 0;
-        prev_clock_pos = 0;
+    bool clock_is_master_now = (clock_playing && !use_external);
+    /* Transport tied to MIDI or internal ticker: leader assignment must not nudge phase. */
+    bool clock_transport_active =
+        clock_playing || (use_external && isClockIncoming);
+    if (!clock_is_master_now) {
+        bool was_running = clock_playing;
+        clock_playing = 1;
+        clock_count = 0;
+        if (clock_transport_active) {
+            /* no pos/syncer/prev/reset side effects */
+        } else if (!use_external && smplr.leader_tempo > 0) {
+            uint16_t lead_adr = (uint16_t)(smplr.leader * 128);
+            uint32_t lead_pos = (uint32_t)smplr.prm[lead_adr + 126];
+            pos = lead_pos % smplr.leader_tempo;
+            sync.syncer_pos = (float(pos) / (float)smplr.leader_tempo) * (1 << 27);
+            prev_clock_pos = sync.syncer_pos;
+        } else {
+            pos = smplr.leader_tempo > 0 ? smplr.leader_tempo - 64 : 0;
+            prev_clock_pos = 0;
+        }
+        if (!clock_transport_active && (!use_external || !was_running)) {
+            outlet_reset = 1;
+        }
     }
-    outlet_reset = 1;
 }
 prev_leader = smplr.leader;
 
@@ -627,7 +648,10 @@ if (inlet_EXTsync != presrc){
     resync = 4;
 }
 
-if (inlet_EXTsync){
+bool ext_sync_inlets_live =
+    inlet_EXTsync && (((uint32_t)inlet_EXTdurSMPS) > 4096U);
+
+if (ext_sync_inlets_live){
     sync.syncer_pos = inlet_EXTphase;
     smplr.leader_tempo = inlet_EXTdurSMPS;
     smplr.leader = -1;
@@ -657,7 +681,6 @@ if (inlet_EXTsync){
     if (inlet_setNow && !strig){
         strig = 1;
         trig = 1;
-        resync = 4;
     }
     bool doit = 0;
     if (inlet_inSync && !strig){
@@ -675,18 +698,24 @@ if (inlet_EXTsync){
     if (doit){
         trig = 1;
         wait = 0;
-        resync = 4;
         adr = inlet_toSlot * 128;
     }
     if (!inlet_inSync && !inlet_setNow) strig = 0;
 
     if (trig){
         old_tempo = smplr.leader_tempo;
+        // #region agent log H4 - TRIG entry pre-mutate
+        uint32_t _dbg_sp_in = smplr.STARTPOINT;
+        int32_t _dbg_spmod_in = smplr.SPMOD;
+        int32_t _dbg_bars_in = smplr.BARS;
+        // #endregion
         smplr.leader = inlet_toSlot;
         smplr.STARTPOINT = (smplr.STARTPOINT + (smplr.SPMOD >> 1)) & ((1<<27)-1);
         smplr.SPMOD = 0;
         smplr.leader_start = smplr.STARTPOINT;
         bool clock_is_master = (clock_playing && !use_external);
+        bool clock_transport_active =
+            clock_playing || (use_external && isClockIncoming);
         uint32_t stempo;
         if (clock_is_master)
             stempo = smplr.calc_dur(smplr.leader);
@@ -703,9 +732,43 @@ if (inlet_EXTsync){
                 smplr.BARS = sync.calc_bars(stempo, smplr.leader_tempo);
             else
                 smplr.BARS = (1<<21);
-            detected_bars = (smplr.BARS * 16) >> 21;
-            if (detected_bars < 1) detected_bars = 1;
+            // Don't update detected_bars in clock_is_master mode:
+            // detected_bars reflects the clock's own tempo setup (from BPM/tap).
+            // The loop's BARS tells loopsync how long it is relative to the clock,
+            // but must not change the 24ppq tick rate.
             smplr.RAW = 0;
+            // #region agent log H2/H3/H4 - clock_is_master leader assigned
+            LogTextMessage("{\"sessionId\":\"95888a\",\"runId\":\"pre-fix\",\"hypothesisId\":\"H2\",\"location\":\"clock_master.axo:trig_master\",\"message\":\"leader assigned (clock_is_master)\",\"data\":{\"leader\":%d,\"sp_in\":%u,\"spmod_in\":%d,\"sp_out\":%u,\"bars_in\":%d,\"bars_out\":%d,\"leader_tempo\":%d,\"stempo\":%u,\"syncer_pos\":%u,\"raw_in\":%d},\"timestamp\":%u}",
+                (int)smplr.leader, (unsigned int)_dbg_sp_in, (int)_dbg_spmod_in, (unsigned int)smplr.STARTPOINT, (int)_dbg_bars_in, (int)smplr.BARS, (int)smplr.leader_tempo, (unsigned int)stempo, (unsigned int)sync.syncer_pos, (int)smplr.RAW, (unsigned int)hal_lld_get_counter_value());
+            // #endregion
+        } else if (clock_transport_active) {
+            /* Internal clock ticking OR MIDI clock flowing: locked grid owns leader_tempo
+               / transport; trig only declares BARS relative to that tempo (loopsync dur). */
+            if (smplr.leader_tempo <= 0)
+                smplr.leader_tempo = bpmToTempo(current_bpm > 0 ? current_bpm : 120, detected_bars, current_beats, current_measure);
+            if (stempo_valid)
+                smplr.BARS = sync.calc_bars(stempo, smplr.leader_tempo);
+            else
+                smplr.BARS = (1<<21);
+            smplr.RAW = 0;
+            // #region agent log H8
+            LogTextMessage("{\"sessionId\":\"77e3dd\",\"runId\":\"post-fix3\",\"hypothesisId\":\"H8\",\"location\":\"clock_master_sram3:trig_clock_slave\",\"message\":\"trig_slave_no_tempo_rewrite\",\"data\":{\"cta\":1,\"master\":0,\"leader_tempo\":%d,\"bars\":%d,\"sync\":%u},\"timestamp\":%u}",
+                (int)smplr.leader_tempo, (int)smplr.BARS, (unsigned int)sync.syncer_pos, (unsigned int)hal_lld_get_counter_value());
+            // #endregion
+            if (!clock_playing) {
+                clock_playing = 1;
+                clock_count = 0;
+                outlet_reset = 1;
+            }
+            resync = 4;
+            if (!use_external) {
+                int32_t calculated = calculateBPM(smplr.leader_tempo, detected_bars, current_beats, current_measure);
+                if (calculated == 120 && tap_bpm != 120) {
+                    current_bpm = tap_bpm;
+                } else {
+                    current_bpm = calculated;
+                }
+            }
         } else {
             int32_t calculated_bars = 1;
             if (stempo_valid) {
@@ -721,6 +784,11 @@ if (inlet_EXTsync){
                 pos = lead_pos % smplr.leader_tempo;
                 sync.syncer_pos = (float(pos) / (float)smplr.leader_tempo) * (1 << 27);
                 prev_clock_pos = sync.syncer_pos;
+            } else if (use_external && smplr.leader_tempo > 0) {
+                uint32_t lead_pos = (uint32_t)smplr.POS;
+                pos = lead_pos % smplr.leader_tempo;
+                sync.syncer_pos = (float(pos) / (float)smplr.leader_tempo) * (1 << 27);
+                prev_clock_pos = sync.syncer_pos;
             } else {
                 pos = (smplr.leader_tempo > 64) ? (smplr.leader_tempo - 64) : 0;
                 sync.syncer_pos = 0;
@@ -730,8 +798,8 @@ if (inlet_EXTsync){
                 clock_playing = 1;
                 clock_count = 0;
                 outlet_reset = 1;
-                resync = 4;
             }
+            resync = 4;
             if (!use_external) {
                 int32_t calculated = calculateBPM(smplr.leader_tempo, detected_bars, current_beats, current_measure);
                 if (calculated == 120 && tap_bpm != 120) {
@@ -841,7 +909,7 @@ prev_clock_playing = clock_playing;
 start_pulse_request = 0;
 stop_pulse_request = 0;
 
-outlet_v001 = 1;
+outlet_v006 = 6;
 // ============ END krate logic ============
 
 #undef inlet_toSlot
@@ -884,7 +952,7 @@ outlet_v001 = 1;
 #undef outlet_clockIsLeader
 #undef outlet_continueOnStopStatus
 #undef outlet_measured24ppqSMPS
-#undef outlet_v001
+#undef outlet_v006
 }]]></code.declaration>
       <code.init><![CDATA[current_bpm = 120;
 detected_bars = 16;
@@ -940,7 +1008,9 @@ ext_clock_pool_index = 0;
 ext_clock_avg = 1000.0;
 for (int i = 0; i < ext_clock_avg_steps; i++) {
     ext_clock_pool[i] = 1000;
-}]]></code.init>
+}
+ext_leader_tempo_div = 0;
+]]></code.init>
       <code.krate><![CDATA[// Thin stub: copy inlets to IO struct, call SRAM3 worker, copy outlets back
 _io.toSlot = inlet_toSlot;
 _io.setNow = inlet_setNow;
@@ -983,7 +1053,7 @@ outlet_extSync = _io.extSync;
 outlet_clockIsLeader = _io.clockIsLeader;
 outlet_continueOnStopStatus = _io.continueOnStopStatus;
 outlet_measured24ppqSMPS = _io.measured24ppqSMPS;
-outlet_v001 = _io.v001;]]></code.krate>
+outlet_v006 = _io.v006;]]></code.krate>
       <code.srate><![CDATA[srate_work();]]></code.srate>
       <code.midihandler><![CDATA[midi_work(status);]]></code.midihandler>
    </obj.normal>
