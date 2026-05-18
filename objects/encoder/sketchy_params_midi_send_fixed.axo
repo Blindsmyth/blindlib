@@ -38,6 +38,8 @@ uint8_t redraw_param;
 #define MODE_DUPLICATE     6
 #define MODE_INT           2
 #define MODE_LIST          3
+#define MODE_BOOL_PULSE_UNI 7
+#define MODE_BOOL_PULSE_BI  8
 
 void SendMidi3(uint8_t b0, uint8_t b1, uint8_t b2) {
     sdPut(&SD2, b0);
@@ -177,6 +179,13 @@ if (redraw_active) {
         // Convert based on encoder mode - list params send as 0-based integers (0, 1, 2...)
         if (config.mode == MODE_INT || config.mode == MODE_LIST) {
             midiValue = intValueToMidiCC(value, config.int_min, config.int_max);
+        } else if (config.mode == MODE_BOOL_PULSE_UNI) {
+            midiValue = (uint8_t)(value & 127);
+        } else if (config.mode == MODE_BOOL_PULSE_BI) {
+            int32_t vv = value;
+            if (vv < -64) vv = -64;
+            if (vv > 63) vv = 63;
+            midiValue = (uint8_t)(vv + 64);
         } else {
             // Float/frac params: use frac32 conversion
             midiValue = floatValueToMidiCC(value);
@@ -236,6 +245,13 @@ for (int scan_count = 0; scan_count < 2; scan_count++) {
         // Convert based on encoder mode - list params send as 0-based integers (0, 1, 2...)
         if (config.mode == MODE_INT || config.mode == MODE_LIST) {
             midiValue = intValueToMidiCC(current_value, config.int_min, config.int_max);
+        } else if (config.mode == MODE_BOOL_PULSE_UNI) {
+            midiValue = (uint8_t)(current_value & 127);
+        } else if (config.mode == MODE_BOOL_PULSE_BI) {
+            int32_t vv = current_value;
+            if (vv < -64) vv = -64;
+            if (vv > 63) vv = 63;
+            midiValue = (uint8_t)(vv + 64);
         } else {
             // Float/frac params: use frac32 conversion
             midiValue = floatValueToMidiCC(current_value);

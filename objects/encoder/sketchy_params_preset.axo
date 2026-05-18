@@ -11,7 +11,7 @@
       <bool32.rising name="load" description="Load params from SD"/>
     </inlets>
     <outlets>
-      <int32 name="v002" description="Object version (incremented each release)"/>
+      <int32 name="v003" description="Object version (incremented each release)"/>
     </outlets>
     <displays>
       <bool32 name="busy" description="True while save or load in progress"/>
@@ -27,6 +27,7 @@
     </includes>
     <depends>
       <depend>fatfs</depend>
+      <depend>sketchy_dials</depend>
     </depends>
     <code.declaration><![CDATA[#define NUM_PAGES attr_pages
 #define NUM_PARAMS attr_params
@@ -37,6 +38,9 @@ bool pprint;
 int trig_load, trig_save, ntrig;
 volatile int32_t cur_index;
 char fname[24];
+
+// Full-size backup for preset merge (presetIgnore cells restored after SD load)
+static int32_t preset_merge_backup[128][128] __attribute__((section(".sdram")));
 
 void buildFilename(int idx) {
     char *p = fname;
@@ -87,6 +91,10 @@ __attribute__((noinline)) msg_t ThreadPreset2() {
             FIL f;
             FRESULT err;
             UINT br;
+            size_t preset_bytes = (size_t)(NUM_PAGES * NUM_PARAMS * sizeof(int32_t));
+            if (preset_bytes <= sizeof(preset_merge_backup)) {
+                memcpy(preset_merge_backup, array, preset_bytes);
+            }
             err = f_open(&f, fname, FA_READ | FA_OPEN_EXISTING);
             if (err == FR_OK) {
                 int rem = (int)(NUM_PAGES * NUM_PARAMS * sizeof(int32_t));
@@ -100,6 +108,15 @@ __attribute__((noinline)) msg_t ThreadPreset2() {
                     offset += br;
                 }
                 f_close(&f);
+                if (preset_bytes <= sizeof(preset_merge_backup)) {
+                    for (uint16_t p = 0; p < NUM_PAGES; p++) {
+                        for (uint16_t prm = 0; prm < NUM_PARAMS && prm < 8; prm++) {
+                            if (parent->objectinstance_sketchy__dials_i.configs[p][prm].presetIgnore) {
+                                array[p][prm] = preset_merge_backup[p][prm];
+                            }
+                        }
+                    }
+                }
             } else
                 report_fatfs_error(err, fname);
             chThdSleepMilliseconds(33);
@@ -130,7 +147,7 @@ attr_init;
 ThdPreset = chThdCreateStatic(waThreadPreset, sizeof(waThreadPreset), LOWPRIO, (tfunc_t)ThreadPreset, (void *)this);]]></code.init>
     <code.dispose><![CDATA[chThdTerminate(ThdPreset);
 chThdWait(ThdPreset);]]></code.dispose>
-    <code.krate><![CDATA[outlet_v002 = 2;
+    <code.krate><![CDATA[outlet_v003 = 3;
 
 trig_save = inlet_save;
 trig_load = inlet_load;

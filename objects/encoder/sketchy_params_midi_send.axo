@@ -40,6 +40,8 @@ int totalParams;
 #define MODE_BAR_UNIPOLAR  4  // 0.0 to 1.0, vertical bar
 #define MODE_BAR_BIPOLAR   5  // -1.0 to 1.0, vertical bar
 #define MODE_DUPLICATE     6  // duplicate another parameter
+#define MODE_BOOL_PULSE_UNI 7
+#define MODE_BOOL_PULSE_BI  8
 #define MODE_EMPTY         255 // empty/unconfigured
 
 // No local configs array - we access the real one from sketchy_dials
@@ -128,6 +130,13 @@ if (currentPage < attr_maxpages && currentParam < attr_maxparams) {
         if (config.mode == MODE_INT || config.mode == MODE_LIST) {
             // Integer value: convert directly to 0-127 MIDI CC range
             midiValue = intValueToMidiCC(v[i], config.int_min, config.int_max);
+        } else if (config.mode == MODE_BOOL_PULSE_UNI) {
+            midiValue = (uint8_t)(v[i] & 127);
+        } else if (config.mode == MODE_BOOL_PULSE_BI) {
+            int32_t vv = v[i];
+            if (vv < -64) vv = -64;
+            if (vv > 63) vv = 63;
+            midiValue = (uint8_t)(vv + 64);
         } else if (config.mode == MODE_FRAC_UNIPOLAR || config.mode == MODE_FRAC_BIPOLAR || 
                    config.mode == MODE_BAR_UNIPOLAR || config.mode == MODE_BAR_BIPOLAR) {
             // Float value: convert directly to 0-127 range

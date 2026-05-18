@@ -32,7 +32,24 @@ uint8_t redraw_idx;    // Combined page+param index for redraw
 uint8_t prev_redraw;   // For rising edge detection
 
 // Mode constants (matching sketchy_dials)
+#define MODE_FRAC_UNIPOLAR 0
+#define MODE_FRAC_BIPOLAR  1
+#define MODE_INT           2
+#define MODE_LIST          3
+#define MODE_BAR_UNIPOLAR  4
+#define MODE_BAR_BIPOLAR   5
 #define MODE_DUPLICATE 6
+#define MODE_BOOL_PULSE_UNI 7
+#define MODE_BOOL_PULSE_BI  8
+
+uint8_t intValueToMidiCC_lean(int32_t value, int32_t int_min, int32_t int_max) {
+    if (int_min == int_max) return (uint8_t)int_min;
+    if (value < int_min) value = int_min;
+    if (value > int_max) value = int_max;
+    uint8_t mapped = (uint8_t)(value - int_min);
+    if (mapped > 127) return 127;
+    return mapped;
+}
 
 // Inline send to avoid function call overhead
 #define SEND_CC(ch, cc, val) \
@@ -135,8 +152,21 @@ if (redraw_active) {
         uint8_t cc = startcc + src_pm + (src_pg * attr_maxparams);
         
         if (cc <= 127) {
-            // Read value from the SOURCE location (not duplicate location)
-            uint8_t val = (uint8_t)(__USAT(ptbl->array[src_pg][src_pm] >> 20, 7));
+            auto& c = parent->objectinstance_sketchy__dials_i.configs[src_pg][src_pm];
+            int32_t raw = ptbl->array[src_pg][src_pm];
+            uint8_t val;
+            if (c.mode == MODE_INT || c.mode == MODE_LIST) {
+                val = intValueToMidiCC_lean(raw, c.int_min, c.int_max);
+            } else if (c.mode == MODE_BOOL_PULSE_UNI) {
+                val = (uint8_t)(raw & 127);
+            } else if (c.mode == MODE_BOOL_PULSE_BI) {
+                int32_t vv = raw;
+                if (vv < -64) vv = -64;
+                if (vv > 63) vv = 63;
+                val = (uint8_t)(vv + 64);
+            } else {
+                val = (uint8_t)(__USAT(raw >> 20, 7));
+            }
             SEND_CC(ch, cc, val);
         }
     }
@@ -185,7 +215,20 @@ for (int i = 0; i < 2; i++) {
         uint8_t cc = startcc + src_pm + (src_pg * attr_maxparams);
         
         if (cc <= 127) {
-            uint8_t mval = (uint8_t)(__USAT(val >> 20, 7));
+            auto& c = parent->objectinstance_sketchy__dials_i.configs[src_pg][src_pm];
+            uint8_t mval;
+            if (c.mode == MODE_INT || c.mode == MODE_LIST) {
+                mval = intValueToMidiCC_lean(val, c.int_min, c.int_max);
+            } else if (c.mode == MODE_BOOL_PULSE_UNI) {
+                mval = (uint8_t)(val & 127);
+            } else if (c.mode == MODE_BOOL_PULSE_BI) {
+                int32_t vv = val;
+                if (vv < -64) vv = -64;
+                if (vv > 63) vv = 63;
+                mval = (uint8_t)(vv + 64);
+            } else {
+                mval = (uint8_t)(__USAT(val >> 20, 7));
+            }
             SEND_CC(ch, cc, mval);
             prev[scan_idx] = val;
         }

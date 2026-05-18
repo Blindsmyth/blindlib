@@ -114,6 +114,10 @@
  * tap.io_sram3.axo: 5224773f-18de-4231-8f92-b1f22bb953CD
  * ldub_new_sram3.axo: 5224773f-18de-4231-8f92-b1f22bb953CE
  * brain_lpr_v3_sram3.axo: 5224773f-18de-4231-8f92-b1f22bb953CF
+ * clock_master_sram3_clean.axo: 5224773f-18de-4231-8f92-b1f22bb953D0
+ * bool param get pulse uni.axo: 5224773f-18de-4231-8f92-b1f22bb953D1
+ * bool param get pulse bi.axo: 5224773f-18de-4231-8f92-b1f22bb953D2
+ * sketchy_dials_library.axo: 5224773f-18de-4231-8f92-b1f22bb953D3
  - **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
 - **MANDATORY**: Document all new UUIDs in this file immediately after creation
 

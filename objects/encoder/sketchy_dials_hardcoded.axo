@@ -22,13 +22,14 @@
     </depends>
     <code.declaration><![CDATA[// Dial configuration structure
 typedef struct {
-    uint8_t mode;           // 0=frac unipolar, 1=frac bipolar, 2=int, 3=list, 4=bar unipolar, 5=bar bipolar, 6=duplicate
+    uint8_t mode;           // 0=frac unipolar … 6=duplicate, 7/8=bool pulse, 255=empty
     bool show_value;        // Show/hide value (for fractional modes)
     const char* label;      // Label text
     const char* options;    // List options (for mode 3) OR duplicate reference "page,dial" (for mode 6)
     float default_value;    // Default value
     int16_t int_min;        // Minimum value (for int/list modes)
     int16_t int_max;        // Maximum value (for int/list modes)
+    uint8_t presetIgnore;   // 0=preset load updates this cell; 1=leave RAM unchanged on preset load
 } encoder_dial_config_t;
 
 // Configuration storage - pointer to SDRAM array
@@ -42,6 +43,8 @@ encoder_dial_config_t (*configs)[8];
 #define MODE_BAR_UNIPOLAR  4  // 0.0 to 1.0, vertical bar
 #define MODE_BAR_BIPOLAR   5  // -1.0 to 1.0, vertical bar
 #define MODE_DUPLICATE     6  // duplicate another parameter
+#define MODE_BOOL_PULSE_UNI 7 // bool pulse: one count step per detent, dial locked at center (uni)
+#define MODE_BOOL_PULSE_BI  8 // bool pulse: signed step per detent (+/-), dial locked at bipolar center
 #define MODE_EMPTY         255 // empty/unconfigured - no display object created
 
 // Display structures - pointers to SDRAM arrays
@@ -69,6 +72,9 @@ float displayToEncoderValue(float displayValue, int mode) {
         case MODE_INT:
         case MODE_LIST:
             return 0.0f;
+        case MODE_BOOL_PULSE_UNI:
+        case MODE_BOOL_PULSE_BI:
+            return 0.5f;
         default:
             return displayValue;
     }
@@ -112,6 +118,7 @@ void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* co
             dials[array_index].height = DIAL_HEIGHT;
             dials[array_index].label = config->label;
             dials[array_index].show_value = config->show_value;
+            dials[array_index].pulseVisualMode = 0;
             encoder_pos = displayToEncoderValue(config->default_value, config->mode);
             if (encoder_pos < 0.0f) encoder_pos = 0.0f;
             if (encoder_pos > 1.0f) encoder_pos = 1.0f;
@@ -160,6 +167,22 @@ void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* co
             selects[array_index].options = config->options;
             parent->objectinstance_sketchy__render_i.select_init(&selects[array_index]);
             break;
+
+        case MODE_BOOL_PULSE_UNI:
+        case MODE_BOOL_PULSE_BI:
+            dials[array_index].page = page;
+            dials[array_index].param = dial_index;
+            dials[array_index].is_bipolar = (config->mode == MODE_BOOL_PULSE_BI);
+            dials[array_index].x = COL_X[dial_index % 4];
+            dials[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+            dials[array_index].width = DIAL_WIDTH;
+            dials[array_index].height = DIAL_HEIGHT;
+            dials[array_index].label = config->label;
+            dials[array_index].show_value = config->show_value;
+            dials[array_index].pulseVisualMode = (config->mode == MODE_BOOL_PULSE_UNI) ? 1u : 2u;
+            dials[array_index].default_value = (int32_t)(0.5f * (float)(1 << 27));
+            parent->objectinstance_sketchy__render_i.dial_init(&dials[array_index]);
+            break;
             
         case MODE_DUPLICATE:
             uint8_t ref_page, ref_dial;
@@ -191,6 +214,11 @@ void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* co
                             selects[array_index].param = ref_dial;
                             selects[array_index].page = ref_page;
                             break;
+                        case MODE_BOOL_PULSE_UNI:
+                        case MODE_BOOL_PULSE_BI:
+                            dials[array_index].param = ref_dial;
+                            dials[array_index].page = ref_page;
+                            break;
                     }
                 }
             }
@@ -212,6 +240,11 @@ void update_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* 
             
         case MODE_FRAC_UNIPOLAR:
         case MODE_FRAC_BIPOLAR:
+            parent->objectinstance_sketchy__render_i.dial_update(&dials[array_index]);
+            break;
+
+        case MODE_BOOL_PULSE_UNI:
+        case MODE_BOOL_PULSE_BI:
             parent->objectinstance_sketchy__render_i.dial_update(&dials[array_index]);
             break;
             
@@ -251,6 +284,10 @@ void update_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* 
                         case MODE_LIST:
                             parent->objectinstance_sketchy__render_i.select_update(&selects[array_index]);
                             break;
+                        case MODE_BOOL_PULSE_UNI:
+                        case MODE_BOOL_PULSE_BI:
+                            parent->objectinstance_sketchy__render_i.dial_update(&dials[array_index]);
+                            break;
                     }
                 }
             }
@@ -273,6 +310,8 @@ void init_param_table() {
                 if (default_int < config->int_min) default_int = config->int_min;
                 if (default_int > config->int_max) default_int = config->int_max;
                 param_table->array[page][enc] = default_int;
+            } else if (config->mode == MODE_BOOL_PULSE_UNI || config->mode == MODE_BOOL_PULSE_BI) {
+                param_table->array[page][enc] = 0;
             } else {
                 float encoder_pos = displayToEncoderValue(config->default_value, config->mode);
                 if (encoder_pos < 0.0f) encoder_pos = 0.0f;
@@ -300,109 +339,109 @@ configs = _configs;
 // Initialize hardcoded configuration data directly in SDRAM
 
 // PAGE 0 - Main Page
-configs[0][0] = (encoder_dial_config_t){6, false, "PNS", "5,0", 8.0f, 0, 127};
-configs[0][1] = (encoder_dial_config_t){6, false, "DEC", "5,1", 64.0f, 0, 127};
-configs[0][2] = (encoder_dial_config_t){6, false, "CUT", "5,2", 64.0f, 0, 127};
-configs[0][3] = (encoder_dial_config_t){0, false, "FX", "", 16.0f, 0, 127};
-configs[0][4] = (encoder_dial_config_t){6, false, "", "1,0", 64.0f, 0, 64};
-configs[0][5] = (encoder_dial_config_t){6, false, "2VOL", "2,0", 48.0f, 0, 64};
-configs[0][6] = (encoder_dial_config_t){6, false, "3VOL", "3,0", 35.0f, 0, 64};
-configs[0][7] = (encoder_dial_config_t){6, false, "4VOL", "4,0", 20.0f, 0, 64};
+configs[0][0] = (encoder_dial_config_t){6, false, "PNS", "5,0", 8.0f, 0, 127, 0};
+configs[0][1] = (encoder_dial_config_t){6, false, "DEC", "5,1", 64.0f, 0, 127, 0};
+configs[0][2] = (encoder_dial_config_t){6, false, "CUT", "5,2", 64.0f, 0, 127, 0};
+configs[0][3] = (encoder_dial_config_t){0, false, "FX", "", 16.0f, 0, 127, 0};
+configs[0][4] = (encoder_dial_config_t){6, false, "", "1,0", 64.0f, 0, 64, 0};
+configs[0][5] = (encoder_dial_config_t){6, false, "2VOL", "2,0", 48.0f, 0, 64, 0};
+configs[0][6] = (encoder_dial_config_t){6, false, "3VOL", "3,0", 35.0f, 0, 64, 0};
+configs[0][7] = (encoder_dial_config_t){6, false, "4VOL", "4,0", 20.0f, 0, 64, 0};
 
 // PAGE 1 - Layer 1
-configs[1][0] = (encoder_dial_config_t){4, false, "1VOL", "", 64.0f, 0, 127};
-configs[1][1] = (encoder_dial_config_t){2, false, "OCT", "", 0.0f, -4, 4};
-configs[1][2] = (encoder_dial_config_t){2, false, "PTCH", "", 0.0f, -12, 12};
-configs[1][3] = (encoder_dial_config_t){3, false, "PDIR", "FWD,REV", 0.0f, 0, 1};
-configs[1][4] = (encoder_dial_config_t){2, true,  "HITS", "", 4.0f, 1, 16};
-configs[1][5] = (encoder_dial_config_t){2, true,  "LEN", "", 16.0f, 1, 16};
-configs[1][6] = (encoder_dial_config_t){2, false, "OFST", "", 0.0f, 0, 15};
-configs[1][7] = (encoder_dial_config_t){3, false, "SDIR", "FWD,REV", 0.0f, 0, 1};
+configs[1][0] = (encoder_dial_config_t){4, false, "1VOL", "", 64.0f, 0, 127, 0};
+configs[1][1] = (encoder_dial_config_t){2, false, "OCT", "", 0.0f, -4, 4, 0};
+configs[1][2] = (encoder_dial_config_t){2, false, "PTCH", "", 0.0f, -12, 12, 0};
+configs[1][3] = (encoder_dial_config_t){3, false, "PDIR", "FWD,REV", 0.0f, 0, 1, 0};
+configs[1][4] = (encoder_dial_config_t){2, true,  "HITS", "", 4.0f, 1, 16, 0};
+configs[1][5] = (encoder_dial_config_t){2, true,  "LEN", "", 16.0f, 1, 16, 0};
+configs[1][6] = (encoder_dial_config_t){2, false, "OFST", "", 0.0f, 0, 15, 0};
+configs[1][7] = (encoder_dial_config_t){3, false, "SDIR", "FWD,REV", 0.0f, 0, 1, 0};
 
 // PAGE 2 - Layer 2
-configs[2][0] = (encoder_dial_config_t){4, false, "2VOL", "", 48.0f, 0, 127};
-configs[2][1] = (encoder_dial_config_t){2, false, "OCT", "", 0.0f, -4, 4};
-configs[2][2] = (encoder_dial_config_t){2, false, "PTCH", "", 0.0f, -12, 12};
-configs[2][3] = (encoder_dial_config_t){3, false, "PDIR", "FWD,REV", 0.0f, 0, 1};
-configs[2][4] = (encoder_dial_config_t){2, true,  "HITS", "", 4.0f, 1, 16};
-configs[2][5] = (encoder_dial_config_t){2, true,  "LEN", "", 16.0f, 1, 16};
-configs[2][6] = (encoder_dial_config_t){2, false, "OFST", "", 0.0f, 0, 15};
-configs[2][7] = (encoder_dial_config_t){3, false, "SDIR", "FWD,REV", 0.0f, 0, 1};
+configs[2][0] = (encoder_dial_config_t){4, false, "2VOL", "", 48.0f, 0, 127, 0};
+configs[2][1] = (encoder_dial_config_t){2, false, "OCT", "", 0.0f, -4, 4, 0};
+configs[2][2] = (encoder_dial_config_t){2, false, "PTCH", "", 0.0f, -12, 12, 0};
+configs[2][3] = (encoder_dial_config_t){3, false, "PDIR", "FWD,REV", 0.0f, 0, 1, 0};
+configs[2][4] = (encoder_dial_config_t){2, true,  "HITS", "", 4.0f, 1, 16, 0};
+configs[2][5] = (encoder_dial_config_t){2, true,  "LEN", "", 16.0f, 1, 16, 0};
+configs[2][6] = (encoder_dial_config_t){2, false, "OFST", "", 0.0f, 0, 15, 0};
+configs[2][7] = (encoder_dial_config_t){3, false, "SDIR", "FWD,REV", 0.0f, 0, 1, 0};
 
 // PAGE 3 - Layer 3
-configs[3][0] = (encoder_dial_config_t){4, false, "3VOL", "", 36.0f, 0, 127};
-configs[3][1] = (encoder_dial_config_t){2, false, "OCT", "", 0.0f, -4, 4};
-configs[3][2] = (encoder_dial_config_t){2, false, "PTCH", "", 0.0f, -12, 12};
-configs[3][3] = (encoder_dial_config_t){3, false, "PDIR", "FWD,REV", 0.0f, 0, 1};
-configs[3][4] = (encoder_dial_config_t){2, true,  "HITS", "", 4.0f, 1, 16};
-configs[3][5] = (encoder_dial_config_t){2, true,  "LEN", "", 16.0f, 1, 16};
-configs[3][6] = (encoder_dial_config_t){2, false, "OFST", "", 0.0f, 0, 15};
-configs[3][7] = (encoder_dial_config_t){3, false, "SDIR", "FWD,REV", 0.0f, 0, 1};
+configs[3][0] = (encoder_dial_config_t){4, false, "3VOL", "", 36.0f, 0, 127, 0};
+configs[3][1] = (encoder_dial_config_t){2, false, "OCT", "", 0.0f, -4, 4, 0};
+configs[3][2] = (encoder_dial_config_t){2, false, "PTCH", "", 0.0f, -12, 12, 0};
+configs[3][3] = (encoder_dial_config_t){3, false, "PDIR", "FWD,REV", 0.0f, 0, 1, 0};
+configs[3][4] = (encoder_dial_config_t){2, true,  "HITS", "", 4.0f, 1, 16, 0};
+configs[3][5] = (encoder_dial_config_t){2, true,  "LEN", "", 16.0f, 1, 16, 0};
+configs[3][6] = (encoder_dial_config_t){2, false, "OFST", "", 0.0f, 0, 15, 0};
+configs[3][7] = (encoder_dial_config_t){3, false, "SDIR", "FWD,REV", 0.0f, 0, 1, 0};
 
 // PAGE 4 - Layer 4
-configs[4][0] = (encoder_dial_config_t){4, false, "4VOL", "", 28.0f, 0, 127};
-configs[4][1] = (encoder_dial_config_t){2, false, "OCT", "", 0.0f, -4, 4};
-configs[4][2] = (encoder_dial_config_t){2, false, "PTCH", "", 0.0f, -12, 12};
-configs[4][3] = (encoder_dial_config_t){3, false, "PDIR", "FWD,REV", 0.0f, 0, 1};
-configs[4][4] = (encoder_dial_config_t){2, true,  "HITS", "", 4.0f, 1, 16};
-configs[4][5] = (encoder_dial_config_t){2, true,  "LEN", "", 16.0f, 1, 16};
-configs[4][6] = (encoder_dial_config_t){2, false, "OFST", "", 0.0f, 0, 15};
-configs[4][7] = (encoder_dial_config_t){3, false, "SDIR", "FWD,REV", 0.0f, 0, 1};
+configs[4][0] = (encoder_dial_config_t){4, false, "4VOL", "", 28.0f, 0, 127, 0};
+configs[4][1] = (encoder_dial_config_t){2, false, "OCT", "", 0.0f, -4, 4, 0};
+configs[4][2] = (encoder_dial_config_t){2, false, "PTCH", "", 0.0f, -12, 12, 0};
+configs[4][3] = (encoder_dial_config_t){3, false, "PDIR", "FWD,REV", 0.0f, 0, 1, 0};
+configs[4][4] = (encoder_dial_config_t){2, true,  "HITS", "", 4.0f, 1, 16, 0};
+configs[4][5] = (encoder_dial_config_t){2, true,  "LEN", "", 16.0f, 1, 16, 0};
+configs[4][6] = (encoder_dial_config_t){2, false, "OFST", "", 0.0f, 0, 15, 0};
+configs[4][7] = (encoder_dial_config_t){3, false, "SDIR", "FWD,REV", 0.0f, 0, 1, 0};
 
 // PAGE 5 - Env + Filter Controls
-configs[5][0] = (encoder_dial_config_t){0, false, "ATK", "", 8.0f, 0, 127};
-configs[5][1] = (encoder_dial_config_t){0, false, "DEC", "", 64.0f, 0, 127};
-configs[5][2] = (encoder_dial_config_t){0, false, "CUT", "", 64.0f, 0, 127};
-configs[5][3] = (encoder_dial_config_t){0, false, "Q", "", 4.0f, 0, 127};
-configs[5][4] = (encoder_dial_config_t){2, false, "THRS", "", 48.0f, 0, 5};
-configs[5][5] = (encoder_dial_config_t){1, false, "EG2F", "", 0.0f, -127, 127};
-configs[5][6] = (encoder_dial_config_t){0, false, "SLD", "", 0.0f, 0, 127};
-configs[5][7] = (encoder_dial_config_t){4, false, "NOIS", "", 0.0f, 0, 1};
+configs[5][0] = (encoder_dial_config_t){0, false, "ATK", "", 8.0f, 0, 127, 0};
+configs[5][1] = (encoder_dial_config_t){0, false, "DEC", "", 64.0f, 0, 127, 0};
+configs[5][2] = (encoder_dial_config_t){0, false, "CUT", "", 64.0f, 0, 127, 0};
+configs[5][3] = (encoder_dial_config_t){0, false, "Q", "", 4.0f, 0, 127, 0};
+configs[5][4] = (encoder_dial_config_t){2, false, "THRS", "", 48.0f, 0, 5, 0};
+configs[5][5] = (encoder_dial_config_t){1, false, "EG2F", "", 0.0f, -127, 127, 0};
+configs[5][6] = (encoder_dial_config_t){0, false, "SLD", "", 0.0f, 0, 127, 0};
+configs[5][7] = (encoder_dial_config_t){4, false, "NOIS", "", 0.0f, 0, 1, 0};
 
 // PAGE 6 - Fx Controls
-configs[6][0] = (encoder_dial_config_t){0, false, "DlyS", "", 20.0f, -127, 127};
-configs[6][1] = (encoder_dial_config_t){0, false, "DFdk", "", 20.0f, -127, 127};
-configs[6][2] = (encoder_dial_config_t){0, false, "Shim", "", 20.0f, -127, 127};
+configs[6][0] = (encoder_dial_config_t){0, false, "DlyS", "", 20.0f, -127, 127, 0};
+configs[6][1] = (encoder_dial_config_t){0, false, "DFdk", "", 20.0f, -127, 127, 0};
+configs[6][2] = (encoder_dial_config_t){0, false, "Shim", "", 20.0f, -127, 127, 0};
 configs[6][3] = (encoder_dial_config_t){3, false, "Dsub", "1/16,2/16,3/16,1/4,5/16,3/8,1/2,1/1", 2, 0, 7};
-configs[6][4] = (encoder_dial_config_t){0, false, "RvbS", "", 20.0f, 0, 3};
-configs[6][5] = (encoder_dial_config_t){0, false, "Rfbk", "", 32.0f, 0, 3};
-configs[6][6] = (encoder_dial_config_t){0, false, "D2Vb", "", 20.0f, 0, 127};
-configs[6][7] = (encoder_dial_config_t){1, false, "Dtim", "", 0.0f, 0, 100};
+configs[6][4] = (encoder_dial_config_t){0, false, "RvbS", "", 20.0f, 0, 3, 0};
+configs[6][5] = (encoder_dial_config_t){0, false, "Rfbk", "", 32.0f, 0, 3, 0};
+configs[6][6] = (encoder_dial_config_t){0, false, "D2Vb", "", 20.0f, 0, 127, 0};
+configs[6][7] = (encoder_dial_config_t){1, false, "Dtim", "", 0.0f, 0, 100, 0};
 
 // PAGE 7 - Recording / Dub controls
-configs[7][0] = (encoder_dial_config_t){0, false,  "FDBK", "", 32.0f, 0, 127};
+configs[7][0] = (encoder_dial_config_t){0, false,  "FDBK", "", 32.0f, 0, 127, 0};
 configs[7][1] = (encoder_dial_config_t){3, false, "MODE", "MAN,1BAR,2BAR,3BAR,4BAR", 1, 0, 4};
 configs[7][2] = (encoder_dial_config_t){1, false, "SOFF", "", 0, 0, 127};
-configs[7][3] = (encoder_dial_config_t){2, true,  "TRS", "", 0.0f, -24, 24};
+configs[7][3] = (encoder_dial_config_t){2, true,  "TRS", "", 0.0f, -24, 24, 0};
 configs[7][4] = (encoder_dial_config_t){3, false, "FX2L", "OFF,ON", 1, 0, 1};
-configs[7][5] = (encoder_dial_config_t){0, false, "POR", "", 0.0f, 0, 127};
-configs[7][6] = (encoder_dial_config_t){2, false, "CHN", "", 1.0f, 1, 16};
-configs[7][7] = (encoder_dial_config_t){3, false, "PLY", "Poly,Mono,Leg", 0.0f, 0, 2};
+configs[7][5] = (encoder_dial_config_t){0, false, "POR", "", 0.0f, 0, 127, 0};
+configs[7][6] = (encoder_dial_config_t){2, false, "CHN", "", 1.0f, 1, 16, 0};
+configs[7][7] = (encoder_dial_config_t){3, false, "PLY", "Poly,Mono,Leg", 0.0f, 0, 2, 0};
 
 // PAGE 8 - Seq
-configs[8][0] = (encoder_dial_config_t){2, true,  "HITS", "", 4.0f, 1, 16};
-configs[8][1] = (encoder_dial_config_t){2, true,  "LEN", "", 16.0f, 1, 16};
-configs[8][2] = (encoder_dial_config_t){2, false, "OFST", "", 0.0f, 0, 15};
-configs[8][3] = (encoder_dial_config_t){3, false, "SDIR", "FWD,REV", 0.0f, 0, 1};
-configs[8][4] = (encoder_dial_config_t){2, false, "Time", "", 4.0f, 0, 20};
-configs[8][5] = (encoder_dial_config_t){3, false,  "/Sig", "1,2,4,8,16", 4.0f, 0, 4};
-configs[8][6] = (encoder_dial_config_t){2, false, "CHN", "", 1.0f, 1, 16};
-configs[8][7] = (encoder_dial_config_t){3, false, "PLY", "Poly,Mono,Leg", 0.0f, 0, 2};
+configs[8][0] = (encoder_dial_config_t){2, true,  "HITS", "", 4.0f, 1, 16, 0};
+configs[8][1] = (encoder_dial_config_t){2, true,  "LEN", "", 16.0f, 1, 16, 0};
+configs[8][2] = (encoder_dial_config_t){2, false, "OFST", "", 0.0f, 0, 15, 0};
+configs[8][3] = (encoder_dial_config_t){3, false, "SDIR", "FWD,REV", 0.0f, 0, 1, 0};
+configs[8][4] = (encoder_dial_config_t){2, false, "Time", "", 4.0f, 0, 20, 0};
+configs[8][5] = (encoder_dial_config_t){3, false,  "/Sig", "1,2,4,8,16", 4.0f, 0, 4, 0};
+configs[8][6] = (encoder_dial_config_t){2, false, "CHN", "", 1.0f, 1, 16, 0};
+configs[8][7] = (encoder_dial_config_t){3, false, "PLY", "Poly,Mono,Leg", 0.0f, 0, 2, 0};
 
 // PAGE 9 - System Controls
-configs[9][0] = (encoder_dial_config_t){2, false,  "BPM", "", 120.0f, 0, 999};
-configs[9][1] = (encoder_dial_config_t){2, false, "fine", "", 0.0f, 0, 99};
-configs[9][2] = (encoder_dial_config_t){3, false, "Sync", "Auto,Cont,Int,Ext", 0.0f, 0, 3};
-configs[9][3] = (encoder_dial_config_t){3, false,  "Src", "Omni,Auto,UsbH,UsbD,Din", 4.0f, 0, 4};
-configs[9][4] = (encoder_dial_config_t){2, false, "Time", "", 4.0f, 0, 20};
-configs[9][5] = (encoder_dial_config_t){3, false,  "/Sig", "1,2,4,8,16", 4.0f, 0, 4};
-configs[9][6] = (encoder_dial_config_t){2, false, "CHN", "", 1.0f, 1, 16};
-configs[9][7] = (encoder_dial_config_t){3, false, "PLY", "Poly,Mono,Leg", 0.0f, 0, 2};
+configs[9][0] = (encoder_dial_config_t){2, false,  "BPM", "", 120.0f, 0, 999, 0};
+configs[9][1] = (encoder_dial_config_t){2, false, "fine", "", 0.0f, 0, 99, 0};
+configs[9][2] = (encoder_dial_config_t){3, false, "Sync", "Auto,Cont,Int,Ext", 0.0f, 0, 3, 0};
+configs[9][3] = (encoder_dial_config_t){3, false,  "Src", "Omni,Auto,UsbH,UsbD,Din", 4.0f, 0, 4, 0};
+configs[9][4] = (encoder_dial_config_t){2, false, "Time", "", 4.0f, 0, 20, 0};
+configs[9][5] = (encoder_dial_config_t){3, false,  "/Sig", "1,2,4,8,16", 4.0f, 0, 4, 0};
+configs[9][6] = (encoder_dial_config_t){2, false, "CHN", "", 1.0f, 1, 16, 0};
+configs[9][7] = (encoder_dial_config_t){3, false, "PLY", "Poly,Mono,Leg", 0.0f, 0, 2, 0};
 
 // Initialize remaining pages as empty (no display objects created)
 for (int page = 10; page < 16; page++) {
     for (int dial = 0; dial < 8; dial++) {
-        configs[page][dial] = (encoder_dial_config_t){255, false, "", "", 0.0f, 0, 127};
+        configs[page][dial] = (encoder_dial_config_t){255, false, "", "", 0.0f, 0, 127, 0};
     }
 }
 

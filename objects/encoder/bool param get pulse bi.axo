@@ -1,0 +1,31 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="bool param get pulse bi" uuid="5224773f-18de-4231-8f92-b1f22bb953D2">
+      <sDescription>Read sketchy_params cell; emits plus or minus when the stored value changes (MODE_BOOL_PULSE_BI signed counter). One k-period pulse per step direction.</sDescription>
+      <author>AI Assistant / Simon</author>
+      <license>BSD</license>
+      <inlets/>
+      <outlets>
+         <bool32 name="plus" description="High one k-period when value increases"/>
+         <bool32 name="minus" description="High one k-period when value decreases"/>
+         <int32 name="v001" description="Object version (incremented each release)"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="page" MinValue="0" MaxValue="127" DefaultValue="0"/>
+         <spinner name="param" MinValue="0" MaxValue="127" DefaultValue="0"/>
+      </attribs>
+      <depends>
+         <depend>sketchy_params</depend>
+      </depends>
+      <code.declaration><![CDATA[rootc::objectinstance_sketchy__params* param_table;
+int32_t prev_bi;]]></code.declaration>
+      <code.init><![CDATA[param_table = &parent->objectinstance_sketchy__params_i;
+prev_bi = param_table->array[attr_page][attr_param];]]></code.init>
+      <code.krate><![CDATA[int32_t v = param_table->array[attr_page][attr_param];
+outlet_plus = (v > prev_bi) ? 1 : 0;
+outlet_minus = (v < prev_bi) ? 1 : 0;
+prev_bi = v;
+outlet_v001 = 1;]]></code.krate>
+   </obj.normal>
+</objdefs>

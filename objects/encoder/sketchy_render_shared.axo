@@ -357,12 +357,14 @@ typedef struct {
     const char* label;
     bool show_value;
     int32_t default_value;
+    uint8_t pulseVisualMode;
 } dial_t;
 
 // Original dial functions for compatibility (but using shared objects)
 void dial_init(dial_t* dial) __attribute__ ((noinline)) { 
     // For shared objects, we don't need to register new objects
     // Just set up the dial state for later use
+    dial->pulseVisualMode = 0;
     dial->last_value = -999999;  // Force first update
 }
 

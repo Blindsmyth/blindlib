@@ -13,13 +13,14 @@
     <attribs/>
     <code.declaration><![CDATA[// Dial configuration structure
 typedef struct {
-    uint8_t mode;           // 0=frac unipolar, 1=frac bipolar, 2=int, 3=list, 4=bar unipolar, 5=bar bipolar, 6=duplicate
+    uint8_t mode;           // 0=frac unipolar … 6=duplicate, 7/8=bool pulse, 255=empty
     bool show_value;        // Show/hide value (for fractional modes)
     const char* label;      // Label text
     const char* options;    // List options (for mode 3) OR duplicate reference "page,dial" (for mode 6)
     float default_value;    // Default value
     int16_t int_min;        // Minimum value (for int/list modes)
     int16_t int_max;        // Maximum value (for int/list modes)
+    uint8_t presetIgnore;   // 0=preset load updates this cell; 1=leave RAM unchanged on preset load
 } encoder_dial_config_t;
 
 // Configuration for up to 16 pages, 8 encoders each (128 total configurations)
@@ -35,6 +36,9 @@ encoder_dial_config_t (*configs)[8];  // Pointer to 2D array in SDRAM
 #define MODE_BAR_UNIPOLAR  4  // 0.0 to 1.0, vertical bar
 #define MODE_BAR_BIPOLAR   5  // -1.0 to 1.0, vertical bar
 #define MODE_DUPLICATE     6  // duplicate another parameter
+#define MODE_BOOL_PULSE_UNI 7 // bool pulse: one count step per detent, dial locked at center (uni)
+#define MODE_BOOL_PULSE_BI  8 // bool pulse: signed step per detent (+/-), dial locked at bipolar center
+#define MODE_EMPTY         255 // empty/unconfigured - no display object created
 
 // Display structures for each type - 128 total (16 pages x 8 dials)
 // Using SDRAM to save precious SRAM
@@ -67,6 +71,9 @@ float displayToEncoderValue(float displayValue, int mode) {
         case MODE_LIST:
             // Not used for these modes
             return 0.0f;
+        case MODE_BOOL_PULSE_UNI:
+        case MODE_BOOL_PULSE_BI:
+            return 0.5f;
         default:
             return displayValue;
     }
@@ -92,6 +99,9 @@ void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* co
     float encoder_pos;  // Declare variable outside switch
     
     switch (config->mode) {
+        case MODE_EMPTY:
+            return;
+
         case MODE_FRAC_UNIPOLAR:
         case MODE_FRAC_BIPOLAR:
             dials[array_index].page = page;
@@ -103,6 +113,7 @@ void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* co
             dials[array_index].height = DIAL_HEIGHT;
             dials[array_index].label = config->label;
             dials[array_index].show_value = config->show_value;
+            dials[array_index].pulseVisualMode = 0;
             // Convert config default to encoder position (0-1), then to display format for renderer
             encoder_pos = displayToEncoderValue(config->default_value, config->mode);
             if (encoder_pos < 0.0f) encoder_pos = 0.0f;
@@ -153,6 +164,22 @@ void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* co
             selects[array_index].options = config->options;    // Options list
             parent->objectinstance_sketchy__render_i.select_init(&selects[array_index]);
             break;
+
+        case MODE_BOOL_PULSE_UNI:
+        case MODE_BOOL_PULSE_BI:
+            dials[array_index].page = page;
+            dials[array_index].param = dial_index;
+            dials[array_index].is_bipolar = (config->mode == MODE_BOOL_PULSE_BI);
+            dials[array_index].x = COL_X[dial_index % 4];
+            dials[array_index].y = (dial_index < 4) ? ROW1_Y : ROW2_Y;
+            dials[array_index].width = DIAL_WIDTH;
+            dials[array_index].height = DIAL_HEIGHT;
+            dials[array_index].label = config->label;
+            dials[array_index].show_value = config->show_value;
+            dials[array_index].pulseVisualMode = (config->mode == MODE_BOOL_PULSE_UNI) ? 1u : 2u;
+            dials[array_index].default_value = (int32_t)(0.5f * (float)(1 << 27));
+            parent->objectinstance_sketchy__render_i.dial_init(&dials[array_index]);
+            break;
             
         case MODE_DUPLICATE:
             // Parse the duplicate reference from options field: "page,dial"
@@ -189,6 +216,11 @@ void init_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* co
                             selects[array_index].param = ref_dial;     // Point to original param
                             selects[array_index].page = ref_page;      // Point to original page
                             break;
+                        case MODE_BOOL_PULSE_UNI:
+                        case MODE_BOOL_PULSE_BI:
+                            dials[array_index].param = ref_dial;
+                            dials[array_index].page = ref_page;
+                            break;
                     }
                 }
             }
@@ -201,8 +233,16 @@ void update_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* 
     uint8_t array_index = page * 8 + dial_index;
     
     switch (config->mode) {
+        case MODE_EMPTY:
+            return;
+
         case MODE_FRAC_UNIPOLAR:
         case MODE_FRAC_BIPOLAR:
+            parent->objectinstance_sketchy__render_i.dial_update(&dials[array_index]);
+            break;
+
+        case MODE_BOOL_PULSE_UNI:
+        case MODE_BOOL_PULSE_BI:
             parent->objectinstance_sketchy__render_i.dial_update(&dials[array_index]);
             break;
             
@@ -245,6 +285,10 @@ void update_dial(uint8_t page, uint8_t dial_index, const encoder_dial_config_t* 
                         case MODE_LIST:
                             parent->objectinstance_sketchy__render_i.select_update(&selects[array_index]);
                             break;
+                        case MODE_BOOL_PULSE_UNI:
+                        case MODE_BOOL_PULSE_BI:
+                            parent->objectinstance_sketchy__render_i.dial_update(&dials[array_index]);
+                            break;
                     }
                 }
             }
@@ -261,12 +305,16 @@ void init_param_table(uint16_t page_count) {
         for (int enc = 0; enc < 8; enc++) {
             const encoder_dial_config_t* config = &configs[page][enc];
             
-            if (config->mode == MODE_INT || config->mode == MODE_LIST) {
+            if (config->mode == MODE_EMPTY) {
+                param_table->array[page][enc] = 0;
+            } else if (config->mode == MODE_INT || config->mode == MODE_LIST) {
                 // Initialize integer/list modes to their default values (clamped to range)
                 int default_int = (int)config->default_value;
                 if (default_int < config->int_min) default_int = config->int_min;
                 if (default_int > config->int_max) default_int = config->int_max;
                 param_table->array[page][enc] = default_int;
+            } else if (config->mode == MODE_BOOL_PULSE_UNI || config->mode == MODE_BOOL_PULSE_BI) {
+                param_table->array[page][enc] = 0;
             } else {
                 // Initialize fractional modes (knobs and bars): store encoder position (0-1) directly
                 float encoder_pos = displayToEncoderValue(config->default_value, config->mode);

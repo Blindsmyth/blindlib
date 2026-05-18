@@ -973,6 +973,7 @@ typedef struct {
     const char* label;
     bool show_value;
     int32_t default_value;
+    uint8_t pulseVisualMode;
 } dial_t;
 
 void dial_init(dial_t* dial) __attribute__ ((noinline)) { 
@@ -1016,7 +1017,11 @@ void dial_init(dial_t* dial) __attribute__ ((noinline)) {
     strcpy(text_table->array[dial->label_text_id], dial->label);
     
     // Set default value and initialize change detection
-    param_table->array[dial->page][dial->param] = dial->default_value;
+    if (dial->pulseVisualMode != 0) {
+        param_table->array[dial->page][dial->param] = 0;
+    } else {
+        param_table->array[dial->page][dial->param] = dial->default_value;
+    }
     dial->last_value = -999999;  // Force first update
 }
 
@@ -1027,6 +1032,9 @@ void dial_update(dial_t* dial) __attribute__ ((noinline)) {
     rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
 
     int32_t value = param_table->array[dial->page][dial->param];
+    if (dial->pulseVisualMode != 0) {
+        value = dial->default_value;
+    }
 
     // Abort if value is the same (change detection for performance)
     if (value == dial->last_value) {

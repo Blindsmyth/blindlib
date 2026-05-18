@@ -135,29 +135,29 @@ void position_ring_for_fractional_dials(int page) {
 // Initialize configuration data
 void init_config_data() {
     // PAGE 0 - Oscillator controls
-    configs[0][0] = (encoder_dial_config_t){1, true,  "FIN", "", 0.0f, 0, 127};
-    configs[0][1] = (encoder_dial_config_t){1, true,  "WAV", "", 32.0f, 0, 127};
-    configs[0][2] = (encoder_dial_config_t){3, false, "SEL", "Sin,Tri,Saw,Sqr,Nse", 2.0f, 0, 4};
-    configs[0][3] = (encoder_dial_config_t){5, true,  "DOT", "", 32.0f, 0, 127};
-    configs[0][4] = (encoder_dial_config_t){0, false, "DET", "", 0.0f, 0, 127};
-    configs[0][5] = (encoder_dial_config_t){0, false, "SUB", "", 0.0f, 0, 127};
-    configs[0][6] = (encoder_dial_config_t){2, false, "OCT", "", 0.0f, -4, 4};
-    configs[0][7] = (encoder_dial_config_t){4, false, "DOWN", "", 0.0f, 0, 127};
+    configs[0][0] = (encoder_dial_config_t){1, true,  "FIN", "", 0.0f, 0, 127, 0};
+    configs[0][1] = (encoder_dial_config_t){1, true,  "WAV", "", 32.0f, 0, 127, 0};
+    configs[0][2] = (encoder_dial_config_t){3, false, "SEL", "Sin,Tri,Saw,Sqr,Nse", 2.0f, 0, 4, 0};
+    configs[0][3] = (encoder_dial_config_t){5, true,  "DOT", "", 32.0f, 0, 127, 0};
+    configs[0][4] = (encoder_dial_config_t){0, false, "DET", "", 0.0f, 0, 127, 0};
+    configs[0][5] = (encoder_dial_config_t){0, false, "SUB", "", 0.0f, 0, 127, 0};
+    configs[0][6] = (encoder_dial_config_t){2, false, "OCT", "", 0.0f, -4, 4, 0};
+    configs[0][7] = (encoder_dial_config_t){4, false, "DOWN", "", 0.0f, 0, 127, 0};
 
     // PAGE 1 - Filter controls  
-    configs[1][0] = (encoder_dial_config_t){0, true,  "CUT", "", 32.0f, 0, 127};
-    configs[1][1] = (encoder_dial_config_t){1, true,  "RES", "", 0.0f, 0, 127};
-    configs[1][2] = (encoder_dial_config_t){1, false, "ENV", "", 0.0f, -64, 64};
-    configs[1][3] = (encoder_dial_config_t){3, false, "TYP", "LP,HP,BP,BR", 0.0f, 0, 3};
-    configs[1][4] = (encoder_dial_config_t){0, false, "KBD", "", 16.0f, 0, 127};
-    configs[1][5] = (encoder_dial_config_t){0, false, "VEL", "", 0.0f, 0, 127};
-    configs[1][6] = (encoder_dial_config_t){0, false, "LFO", "", 0.0f, 0, 127};
-    configs[1][7] = (encoder_dial_config_t){2, false, "DRV", "", 8.0f, 0, 100};
+    configs[1][0] = (encoder_dial_config_t){0, true,  "CUT", "", 32.0f, 0, 127, 0};
+    configs[1][1] = (encoder_dial_config_t){1, true,  "RES", "", 0.0f, 0, 127, 0};
+    configs[1][2] = (encoder_dial_config_t){1, false, "ENV", "", 0.0f, -64, 64, 0};
+    configs[1][3] = (encoder_dial_config_t){3, false, "TYP", "LP,HP,BP,BR", 0.0f, 0, 3, 0};
+    configs[1][4] = (encoder_dial_config_t){0, false, "KBD", "", 16.0f, 0, 127, 0};
+    configs[1][5] = (encoder_dial_config_t){0, false, "VEL", "", 0.0f, 0, 127, 0};
+    configs[1][6] = (encoder_dial_config_t){0, false, "LFO", "", 0.0f, 0, 127, 0};
+    configs[1][7] = (encoder_dial_config_t){2, false, "DRV", "", 8.0f, 0, 100, 0};
 
     // Continue with other pages...
     for (int page = 2; page < 8; page++) {
         for (int dial = 0; dial < 8; dial++) {
-            configs[page][dial] = (encoder_dial_config_t){0, false, "TEST", "", 0.0f, 0, 127};
+            configs[page][dial] = (encoder_dial_config_t){0, false, "TEST", "", 0.0f, 0, 127, 0};
         }
     }
 }]]></code.declaration>

@@ -42,6 +42,8 @@ int lastPage = -1;
 #define MODE_BAR_UNIPOLAR  4
 #define MODE_BAR_BIPOLAR   5
 #define MODE_DUPLICATE     6
+#define MODE_BOOL_PULSE_UNI 7
+#define MODE_BOOL_PULSE_BI  8
 #define MODE_EMPTY         255
 
 // GPIO pin definitions for 8 encoders
@@ -138,9 +140,9 @@ void loadPageValues(int page) {
         // Get the actual config for the target parameter (in case of duplicate)
         auto& target_config = parent->instancesketchy__dials_i.configs[target_page][target_dial];
         
-        if (target_config.mode == MODE_INT || target_config.mode == MODE_LIST) {
-            // For INT/LIST modes, param table stores actual integer values
-            // No need to load into encoderPos - values stay in param table
+        if (target_config.mode == MODE_INT || target_config.mode == MODE_LIST
+            || target_config.mode == MODE_BOOL_PULSE_UNI || target_config.mode == MODE_BOOL_PULSE_BI) {
+            // INT/LIST/bool-pulse: values stay in param table
         } else {
             // For fractional modes, load encoder position from param table (from target location)
             int32_t stored_value = param_table->array[target_page][target_dial];
@@ -160,9 +162,8 @@ void savePageValues(int page) {
         // Access configuration via parent shared table
         auto& config = parent->instancesketchy__dials_i.configs[page][i];
         
-        if (config.mode == MODE_INT || config.mode == MODE_LIST) {
-            // INT/LIST modes: values already stored directly in param table
-            // Nothing to do here
+        if (config.mode == MODE_INT || config.mode == MODE_LIST
+            || config.mode == MODE_BOOL_PULSE_UNI || config.mode == MODE_BOOL_PULSE_BI) {
         } else {
             // Fractional modes: store encoder positions
             int32_t value = (int32_t)(encoderPos[i] * (float)(1 << 27));
@@ -258,16 +259,26 @@ if (page >= 0 && page < attr_maxpages) {
             // Get the actual config for the target parameter (in case of duplicate)
             auto& target_config = parent->instancesketchy__dials_i.configs[target_page][target_dial];
 
-            // Acceleration logic
-            uint32_t diff = timeCounter - lastTrigTime[i];
-            if (diff < attr_acceltime) {
-                accel[i]++;
-                if (accel[i] > attr_accelmultiplier) accel[i] = attr_accelmultiplier;
+            if (target_config.mode == MODE_BOOL_PULSE_UNI || target_config.mode == MODE_BOOL_PULSE_BI) {
+                int32_t v = param_table->array[target_page][target_dial];
+                if (target_config.mode == MODE_BOOL_PULSE_UNI) {
+                    v++;
+                } else {
+                    if (dir[i] == 0) v--;
+                    else v++;
+                }
+                param_table->array[target_page][target_dial] = v;
             } else {
-                accel[i] = 1;
-            }
-            
-            if (target_config.mode == MODE_INT || target_config.mode == MODE_LIST) {
+                // Acceleration logic (not used for bool pulse)
+                uint32_t diff = timeCounter - lastTrigTime[i];
+                if (diff < attr_acceltime) {
+                    accel[i]++;
+                    if (accel[i] > attr_accelmultiplier) accel[i] = attr_accelmultiplier;
+                } else {
+                    accel[i] = 1;
+                }
+
+                if (target_config.mode == MODE_INT || target_config.mode == MODE_LIST) {
                 // Integer/List mode: increment/decrement actual integer values
                 int current_value = param_table->array[target_page][target_dial];
                 
@@ -298,6 +309,7 @@ if (page >= 0 && page < attr_maxpages) {
                 // Store encoder position in param table (at target location)
                 int32_t value = (int32_t)(encoderPos[i] * (float)(1 << 27));
                 param_table->array[target_page][target_dial] = value;
+            }
             }
             
             lastTrigTime[i] = timeCounter;

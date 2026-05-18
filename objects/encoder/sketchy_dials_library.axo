@@ -1,13 +1,15 @@
 <objdefs appVersion="1.0.12">
-   <obj.normal id="sketchy_dials_exp" uuid="5224773f-18de-4231-8f92-b1f22bb95380">
-      <sDescription>Dial configuration with configurable page count. Drop-in replacement for sketchy_dials with attribute to set maximum pages (8-64).</sDescription>
+   <obj.normal id="sketchy_dials_library" uuid="5224773f-18de-4231-8f92-b1f22bb953D3">
+      <sDescription>Library template: dial configuration (same feature set as sketchy_dials_exp). Use for new patches; looper uses embedded table in .axp. Drop-in replacement for sketchy_dials with attribute to set maximum pages (8-64).</sDescription>
       <author>AI Assistant</author>
       <license>BSD</license>
       <helpPatch>logic.axh</helpPatch>
       <inlets>
          <int32 name="page"/>
       </inlets>
-      <outlets/>
+      <outlets>
+         <int32 name="v001" description="Object version (incremented each release)"/>
+      </outlets>
       <displays/>
       <params/>
       <attribs>
@@ -540,7 +542,9 @@ for (uint8_t page = 0; page < attr_maxpages; page++) {
         init_dial(page, dial, &configs[page][dial]);
     }
 }]]></code.init>
-      <code.krate><![CDATA[int page = inlet_page;
+      <code.krate><![CDATA[outlet_v001 = 1;
+
+int page = inlet_page;
 
 // Update displays for current page only
 // All encoder processing is now handled by 8encoder_input
