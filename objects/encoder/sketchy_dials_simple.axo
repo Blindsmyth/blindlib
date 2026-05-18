@@ -26,6 +26,7 @@ typedef struct {
     float default_value;    
     int16_t int_min;        
     int16_t int_max;        
+    uint8_t presetIgnore;   // align with sketchy_dials family (v1 simple UI does not use bool modes)
 } encoder_dial_config_t;
 
 // Configuration for 8 pages, 8 encoders each
