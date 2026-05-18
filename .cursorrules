@@ -118,6 +118,8 @@
  * bool param get pulse uni.axo: 5224773f-18de-4231-8f92-b1f22bb953D1
  * bool param get pulse bi.axo: 5224773f-18de-4231-8f92-b1f22bb953D2
  * sketchy_dials_library.axo: 5224773f-18de-4231-8f92-b1f22bb953D3
+ * sketchy_render_kso_fw_sram3_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953D4
+ * encoder/sum6_stereo.axo (Axolonatics mirror): 5224773f-18de-4231-8f92-b1f22bb953D5
  - **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
 - **MANDATORY**: Document all new UUIDs in this file immediately after creation
 
