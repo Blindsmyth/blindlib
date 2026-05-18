@@ -1,0 +1,150 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="table toggle shift32" uuid="5224773f-18de-4231-8f92-b1f22bb953CC">
+      <sDescription>Toggle table elements via MIDI notes with shift support. When shift is low, notes toggle steps 0-15. When shift is high, the same notes toggle steps 16-31.</sDescription>
+      <author>Robert Schirmer / Simon Reeve</author>
+      <license>BSD</license>
+      <helpPatch>launchpad.axh</helpPatch>
+      <inlets>
+         <int32 name="offset" description="table area offset"/>
+         <int32 name="startnote" description="first MIDI note in toggle range"/>
+         <int32 name="length" description="number of notes in toggle range (max 16)"/>
+         <bool32.risingfalling name="active" description="enable toggling"/>
+         <bool32 name="shift" description="0 maps to steps 0-15, 1 maps to steps 16-31"/>
+      </inlets>
+      <outlets>
+         <bool32.pulse name="trig" description="pulse when a table element is set to ON"/>
+         <int32 name="note" description="note index if inside range"/>
+         <int32 name="v001" description="Object version (incremented each release)"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <objref name="table"/>
+         <combo name="blocksize">
+            <MenuEntries>
+               <string>1</string>
+               <string>4</string>
+               <string>8</string>
+               <string>16</string>
+               <string>32</string>
+               <string>64</string>
+            </MenuEntries>
+            <CEntries>
+               <string>0</string>
+               <string>2</string>
+               <string>3</string>
+               <string>4</string>
+               <string>5</string>
+               <string>6</string>
+               <string>7</string>
+            </CEntries>
+         </combo>
+         <combo name="device">
+            <MenuEntries>
+               <string>din</string>
+               <string>usb host port 1</string>
+               <string>usb host port 2</string>
+               <string>usb host port 3</string>
+               <string>usb host port 4</string>
+               <string>internal port 1</string>
+               <string>internal port 2</string>
+               <string>usb device port 1</string>
+            </MenuEntries>
+            <CEntries>
+               <string>MIDI_DEVICE_DIN, 1</string>
+               <string>MIDI_DEVICE_USB_HOST, 1</string>
+               <string>MIDI_DEVICE_USB_HOST, 2</string>
+               <string>MIDI_DEVICE_USB_HOST, 3</string>
+               <string>MIDI_DEVICE_USB_HOST, 4</string>
+               <string>MIDI_DEVICE_INTERNAL, 1</string>
+               <string>MIDI_DEVICE_INTERNAL, 2</string>
+               <string>MIDI_DEVICE_USB_DEVICE, 1</string>
+            </CEntries>
+         </combo>
+         <spinner name="channel" MinValue="1" MaxValue="16" DefaultValue="1"/>
+      </attribs>
+      <includes/>
+      <code.declaration><![CDATA[int8_t _note1;
+uint8_t _gate1;
+uint8_t _velo1;
+uint8_t prevnote;
+uint8_t lastnote;
+
+uint8_t start;
+uint8_t end;
+
+int trig;
+int ntrig;
+bool op;
+
+uint32_t offset;
+
+const int8_t colour[128] = {
+27,27,27,27,27,27,27,27,
+27,27,27,27,27,27,27,27,
+27,27,27,27,27,27,27,27,
+27,27,27,27,27,27,27,27,
+27,27,27,27,27,27,27,27,
+27,27,27,27,27,27,27,27,
+27,27,27,27,27,27,27,27,
+27,27,27,27,27,27,27,27,
+};
+
+const int8_t mode[32] = {
+0, 0, 0, 0, 0, 0, 0, 0,
+0, 0, 0, 0, 0, 0, 0, 0,
+0, 0, 0, 0, 0, 0, 0, 0,
+0, 0, 0, 0, 0, 0, 0, 0,
+};]]></code.declaration>
+      <code.init><![CDATA[_note1 = 0;
+_gate1 = 0;
+_velo1 = 0;
+prevnote = 0;
+lastnote = 0;
+trig = 0;
+ntrig = 0;
+op = 0;]]></code.init>
+      <code.krate><![CDATA[outlet_v001 = 1;
+
+start = inlet_startnote;
+end = (start + inlet_length);
+offset = inlet_offset;
+
+int shiftOffset = (inlet_shift > 0) ? (16 << attr_blocksize) : 0;
+
+if ((_note1 >= start) && (_note1 < end)) {
+    outlet_note = _note1; lastnote = _note1;
+
+    if ((inlet_active) && (mode[_note1 - start] == 0)) {
+        if (((_gate1 > 0) && !ntrig) || (_note1 != prevnote)) {
+            ntrig = 1;
+            int tableIdx = ((_note1 - start) << attr_blocksize) + offset + shiftOffset;
+            op = attr_table.array[tableIdx];
+            op = !op;
+            attr_table.array[tableIdx] = ((op * colour[(_note1 >> 1)]) << 20) >> attr_table.GAIN;
+            if (op) trig = 1;
+        }
+        if (!(_gate1 > 0)) ntrig = 0;
+    }
+} else {
+    if (!lastnote) lastnote = start;
+    outlet_note = lastnote;
+}
+
+prevnote = _note1;
+outlet_trig = trig;
+trig = 0;]]></code.krate>
+      <code.midihandler><![CDATA[if ((status == MIDI_NOTE_ON + (attr_channel-1)) && (data2)) {
+    _note1 = data1;
+    _gate1 = 1;
+    _velo1 = data2;
+} else if (((status == MIDI_NOTE_ON + (attr_channel-1)) && (!data2)) ||
+           (status == MIDI_NOTE_OFF + (attr_channel-1))) {
+    if (_note1 == data1) {
+        _gate1 = 0;
+    }
+} else if ((status == (attr_channel-1) + MIDI_CONTROL_CHANGE) && (data1 == MIDI_C_ALL_NOTES_OFF)) {
+    _gate1 = 0;
+}]]></code.midihandler>
+   </obj.normal>
+</objdefs>

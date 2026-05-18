@@ -1,0 +1,211 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="tap.io_sram3" uuid="5224773f-18de-4231-8f92-b1f22bb953CD">
+      <sDescription>SRAM3 variant of tap.io clock object. Places timing/tempo helper functions in SRAM3 to reduce SRAM1 pressure while keeping the original tap+MIDI clock behavior.</sDescription>
+      <author>Simon Reeve</author>
+      <license>GPL</license>
+      <inlets>
+         <bool32.rising name="reset"/>
+         <bool32 name="master"/>
+         <bool32.rising name="tap"/>
+         <int32 name="samples" description="set clock by samples of 1 bar (only on change)"/>
+         <int32 name="factor"/>
+      </inlets>
+      <outlets>
+         <bool32 name="slave"/>
+         <int32 name="bpm"/>
+         <bool32.pulse name="24ppq"/>
+         <bool32 name="start"/>
+         <bool32 name="tapping"/>
+         <int32.positive name="24ppqsmp"/>
+         <int32.positive name="barsamples"/>
+         <int32 name="v002" description="Object version (incremented each release)"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs/>
+      <includes/>
+      <code.declaration><![CDATA[// Unique macro name: avoids redefinition when multiple SRAM3 objects load in one patch.
+#define TAP_IO_SRAM3_FN(n) __attribute__((noinline, section(".sram3.text.tapio" #n)))
+
+int isClockIncoming;
+
+// measure
+int16_t timer;
+int32_t tapTimer;
+const int tapTimePoolSize = 4;
+int32_t tapTimePool[4];
+int tapTimePoolIndex;
+int lastInletTap;
+int lastInletReset;
+const int waitSamplesForTap = 96000;
+int32_t lastInletSamples;
+int32_t lastInletFactor;
+const int averageSteps = 96;
+int16_t averagePool[96];
+int averagePoolWriteIndex;
+float currentAverage;
+int shouldTrigger24Ppq;
+int midiStartTrigger;
+int forceMaster;
+int barsamples;
+
+// osc
+int32_t Phase;
+int32_t oldPhase;
+
+void measureClock() TAP_IO_SRAM3_FN(1) {
+	isClockIncoming = true;
+	averagePool[averagePoolWriteIndex] = timer;
+	timer = 0;
+	averagePoolWriteIndex = (averagePoolWriteIndex >= (averageSteps - 1)) ? 0 : averagePoolWriteIndex + 1;
+	currentAverage = 0;
+	for (int i = 0; i < averageSteps; i++) {
+		currentAverage += averagePool[i];
+	}
+	barsamples = (int)(currentAverage * ((lastInletFactor > 0 ? lastInletFactor : 16) / 16.0f));
+	currentAverage /= averageSteps;
+}
+
+void calculateCurrentAverage(bool samplesUpdateNeeded, int inl_samples, int inl_factor) TAP_IO_SRAM3_FN(2) {
+	inl_factor = inl_factor ? inl_factor : 16;
+	if (inl_samples > 0 && samplesUpdateNeeded) {
+		currentAverage = (inl_samples / 24.0f / 4.0f) * inl_factor / 16.0f;
+		barsamples = (int)(inl_samples * (inl_factor / 16.0f));
+	}
+}
+
+void onMidi(int status) TAP_IO_SRAM3_FN(3) {
+	if (!forceMaster) {
+		if (status == MIDI_TIMING_CLOCK) {
+			measureClock();
+			shouldTrigger24Ppq = true;
+			Phase = 0;
+		}
+		if (status == MIDI_STOP) {
+			isClockIncoming = false;
+		}
+		if (status == MIDI_START) {
+			midiStartTrigger = true;
+		}
+	}
+}
+
+float getBpm() TAP_IO_SRAM3_FN(4) {
+	if (currentAverage <= 0.0f) return 120.0f;
+	return 48000.0f / currentAverage * 2.5f;
+}
+
+bool getStart(bool inl_reset) TAP_IO_SRAM3_FN(5) {
+	return midiStartTrigger || inl_reset;
+}
+
+bool get24ppq(bool reset) TAP_IO_SRAM3_FN(6) {
+	if (getStart(reset)) {
+		Phase = 0;
+	} else {
+		double freq = 1000.0 / (currentAverage / 48.0);
+		Phase += (int)(1431655.7653 * freq);
+	}
+
+	int internalOscPulse = (oldPhase <= 0 && Phase > 0);
+	oldPhase = Phase;
+	bool result = !forceMaster && isClockIncoming ? shouldTrigger24Ppq : internalOscPulse;
+	shouldTrigger24Ppq = false;
+	return result;
+}
+
+bool tapTempo(bool inl_tap, uint32_t factor) TAP_IO_SRAM3_FN(7) {
+	(void)factor;
+	if (inl_tap) {
+		if (tapTimer == waitSamplesForTap) {
+			for (int i = 0; i < tapTimePoolSize; i++) {
+				tapTimePool[i] = 0;
+			}
+			tapTimePoolIndex = 0;
+		} else {
+			tapTimePool[tapTimePoolIndex] = tapTimer;
+			tapTimePoolIndex++;
+			tapTimePoolIndex %= tapTimePoolSize;
+
+			double average = 0;
+			int counted = 0;
+			for (int i = 0; i < tapTimePoolSize; i++) {
+				if (tapTimePool[i] != 0) {
+					average += tapTimePool[i];
+					counted++;
+				}
+			}
+
+			if (counted > 0) {
+				average /= counted;
+				currentAverage = average / 24.0f;
+				barsamples = (int)(average * 4.0);
+			}
+		}
+		if (tapTimePoolIndex == 0) {
+			Phase = 0;
+			midiStartTrigger = true;
+		}
+		tapTimer = 0;
+	}
+
+	return tapTimer < waitSamplesForTap;
+}]]></code.declaration>
+      <code.init><![CDATA[timer = 0;
+tapTimer = waitSamplesForTap;
+averagePoolWriteIndex = 0;
+currentAverage = 1000;
+isClockIncoming = false;
+shouldTrigger24Ppq = false;
+midiStartTrigger = false;
+forceMaster = false;
+
+lastInletTap = false;
+lastInletReset = false;
+lastInletSamples = 0;
+lastInletFactor = 0;
+
+for (int i = 0; i < averageSteps; i++) {
+	averagePool[i] = (int16_t)currentAverage;
+}
+barsamples = 48000 * 2; // 120bpm]]></code.init>
+      <code.krate><![CDATA[bool reset = inlet_reset && !lastInletReset;
+bool tap = inlet_tap && !lastInletTap;
+bool samplesUpdateNeeded = inlet_samples != lastInletSamples;
+bool factorUpdateNeeded = inlet_factor != lastInletFactor;
+
+forceMaster = inlet_master;
+if (samplesUpdateNeeded || factorUpdateNeeded) {
+	calculateCurrentAverage(samplesUpdateNeeded, inlet_samples, inlet_factor);
+}
+
+outlet_bpm = (int)(getBpm() + 0.5f);
+outlet_slave = isClockIncoming;
+outlet_24ppq = get24ppq(reset);
+outlet_tapping = tapTempo(tap, inlet_factor);
+outlet_start = getStart(reset);
+outlet_24ppqsmp = (int)currentAverage;
+outlet_barsamples = barsamples;
+outlet_v002 = 2;
+
+lastInletReset = inlet_reset;
+lastInletTap = inlet_tap;
+lastInletSamples = inlet_samples;
+lastInletFactor = inlet_factor;
+
+midiStartTrigger = false;]]></code.krate>
+      <code.srate><![CDATA[if (isClockIncoming) {
+	timer++;
+} else {
+	timer = 0;
+}
+if (timer >= 12000) {
+	isClockIncoming = false;
+}
+
+if (tapTimer < waitSamplesForTap) {
+	tapTimer++;
+}]]></code.srate>
+      <code.midihandler><![CDATA[onMidi(status);]]></code.midihandler>
+   </obj.normal>
+</objdefs>

@@ -11,7 +11,7 @@
       <bool32.rising name="load" description="Load params from SD"/>
     </inlets>
     <outlets>
-      <int32 name="v003" description="Object version (incremented each release)"/>
+      <int32 name="v004" description="Object version (incremented each release)"/>
     </outlets>
     <displays>
       <bool32 name="busy" description="True while save or load in progress"/>
@@ -39,9 +39,6 @@ int trig_load, trig_save, ntrig;
 volatile int32_t cur_index;
 char fname[24];
 
-// Full-size backup for preset merge (presetIgnore cells restored after SD load)
-static int32_t preset_merge_backup[128][128] __attribute__((section(".sdram")));
-
 void buildFilename(int idx) {
     char *p = fname;
     const char *pre = "preset";
@@ -58,6 +55,9 @@ void buildFilename(int idx) {
 }
 
 __attribute__((noinline)) msg_t ThreadPreset2() {
+    /* Function-local static: avoids codegen/link treating file-scope backup as missing class member when instance name is sketchy_params. */
+    static int32_t preset_merge_backup[128][128] __attribute__((section(".sdram")));
+
     while (!chThdShouldTerminate()) {
         if (trig_save && !ntrig) {
             ntrig = 1;
@@ -147,7 +147,7 @@ attr_init;
 ThdPreset = chThdCreateStatic(waThreadPreset, sizeof(waThreadPreset), LOWPRIO, (tfunc_t)ThreadPreset, (void *)this);]]></code.init>
     <code.dispose><![CDATA[chThdTerminate(ThdPreset);
 chThdWait(ThdPreset);]]></code.dispose>
-    <code.krate><![CDATA[outlet_v003 = 3;
+    <code.krate><![CDATA[outlet_v004 = 4;
 
 trig_save = inlet_save;
 trig_load = inlet_load;

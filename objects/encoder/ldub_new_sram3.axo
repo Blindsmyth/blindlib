@@ -1,0 +1,57 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="ldub_new_sram3" uuid="5224773f-18de-4231-8f92-b1f22bb953CE">
+      <sDescription>SRAM3 variant of table overdub (ldub NEW style). Adds audio into a table at inlet pos; feedback, attack, release. Hot paths in SRAM3 to reduce SRAM1 use. Same behavior as ldub_no_params (correct attack envelope); see blindlib memory playbook.</sDescription>
+      <author>Robert Schirmer / Simon</author>
+      <license>BSD</license>
+      <helpPatch>looper.axh</helpPatch>
+      <inlets>
+         <frac32buffer.positive name="pos" description="index in fraction of table size"/>
+         <frac32buffer name="wave" description="audio in"/>
+         <bool32.risingfalling name="overdub" description="overdub"/>
+         <frac32.positive name="feedback" description="feedback amount"/>
+         <frac32.positive name="attack" description="recording fade-in time"/>
+         <frac32.positive name="release" description="recording fade-out time"/>
+      </inlets>
+      <outlets>
+         <bool32 name="state" description="recording state with fade-out"/>
+         <int32 name="v002" description="Object version (incremented each release)"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <objref name="table" description="Table to write to"/>
+      </attribs>
+      <code.declaration><![CDATA[// Unique name: patches concatenate all objects; do not use a generic SRAM3_FN.
+#define LDUB_NEW_SRAM3_FN(n) __attribute__((noinline, section(".sram3.text.ldubn" #n)))
+
+uint32_t csample;
+uint32_t dub;
+uint8_t shift;
+int32_t env;
+bool dubstate;
+uint32_t attack;
+uint32_t release;
+
+// Inlet/outlet names only exist in code.krate / code.srate; pass values in from thin stubs.
+void ldub_new_krate_proc(uint32_t in_attack, uint32_t in_release, int32_t in_overdub) LDUB_NEW_SRAM3_FN(1) {
+	attack = in_attack;
+	release = in_release;
+	if (in_overdub) env = (1<<27) - (___SMMUL((1<<27)-env,attack)<<1);
+	else env = ___SMMUL(env,release)<<1;
+	dubstate = env;
+}
+
+void ldub_new_srate_proc(int32_t in_pos, int32_t in_wave, int32_t in_fb) LDUB_NEW_SRAM3_FN(2) {
+	if (dubstate) {
+		csample = (__USAT(in_pos,27)>>shift);
+		dub = (___SMMUL((attr_table.array[csample]<<attr_table.GAIN),(in_fb))<<5);
+		attr_table.array[csample] = (__SSAT((___SMMUL((in_wave),env)<<5) + dub,28 ))>>attr_table.GAIN;
+	}
+}]]></code.declaration>
+      <code.init><![CDATA[shift = 27-attr_table.LENGTHPOW;]]></code.init>
+      <code.krate><![CDATA[ldub_new_krate_proc(inlet_attack, inlet_release, inlet_overdub);
+outlet_state = dubstate;
+outlet_v002 = 2;]]></code.krate>
+      <code.srate><![CDATA[ldub_new_srate_proc(inlet_pos, inlet_wave, inlet_feedback);]]></code.srate>
+   </obj.normal>
+</objdefs>
