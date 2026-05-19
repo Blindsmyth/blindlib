@@ -1,0 +1,68 @@
+<objdefs appVersion="1.1.0">
+   <obj.normal id="seq_step_length" uuid="5224773f-18de-4231-8f92-b1f22bb953EF">
+      <sDescription>Calculates the distance to the next active step in a 32-step pattern stored on the seq mirror page in sketchy_params (cells [seqpage][4]=PatternLo16, [5]=PatternHi16). Drop-in replacement for encoder/euclidean_step_length at the net level. Outputs the length (steps until next hit) for a given index and a flag indicating whether the current position is a step.</sDescription>
+      <author>Blindsmyth / Simon (seq_p port)</author>
+      <license>BSD</license>
+      <inlets>
+         <int32 name="index" description="current position in sequence"/>
+         <int32 name="sequencelength" description="total length of sequence (1-32)"/>
+         <int32 name="trackoffset" description="kept for net compatibility (ignored)"/>
+      </inlets>
+      <outlets>
+         <int32 name="length" description="distance to next step"/>
+         <bool32 name="isstep" description="true if current position is a step"/>
+         <int32 name="v001" description="Object version (incremented each release)"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="seqpage" description="Page in sketchy_params used as the seq mirror" MinValue="0" MaxValue="127" DefaultValue="14"/>
+      </attribs>
+      <depends>
+         <depend>sketchy_params</depend>
+      </depends>
+      <code.declaration><![CDATA[int step_length;
+bool is_current_step;]]></code.declaration>
+      <code.init><![CDATA[step_length = 1;
+is_current_step = false;]]></code.init>
+      <code.krate><![CDATA[outlet_v001 = 1;
+
+int curIdx = inlet_index;
+int curLen = inlet_sequencelength;
+if (curLen < 1)  curLen = 1;
+if (curLen > 32) curLen = 32;
+if (curIdx < 0)  curIdx = 0;
+if (curIdx >= curLen) curIdx = curLen - 1;
+
+int sp = attr_seqpage;
+int32_t cell_lo = parent->objectinstance_sketchy__params_i.array[sp][4];
+int32_t cell_hi = parent->objectinstance_sketchy__params_i.array[sp][5];
+uint32_t pat = ((uint32_t)(cell_lo & 0xFFFF)) | (((uint32_t)(cell_hi & 0xFFFF)) << 16);
+
+bool cur_is_step = (curIdx >= 0 && curIdx < 32) ? ((pat >> curIdx) & 1u) != 0 : false;
+is_current_step = cur_is_step;
+
+if (cur_is_step) {
+    int next_step_pos = -1;
+    for (int i = 1; i <= curLen; i++) {
+        int check_pos = (curIdx + i) % curLen;
+        if (check_pos >= 0 && check_pos < 32 && ((pat >> check_pos) & 1u)) {
+            next_step_pos = check_pos;
+            break;
+        }
+    }
+    if (next_step_pos < 0) {
+        step_length = curLen;
+    } else {
+        if (curIdx < next_step_pos) {
+            step_length = next_step_pos - curIdx;
+        } else {
+            step_length = curLen - curIdx + next_step_pos;
+        }
+    }
+}
+
+outlet_length = step_length;
+outlet_isstep = is_current_step ? 1 : 0;]]></code.krate>
+   </obj.normal>
+</objdefs>

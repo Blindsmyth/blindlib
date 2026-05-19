@@ -1,29 +1,26 @@
-<objdefs appVersion="1.0.12">
+<objdefs appVersion="1.1.0">
    <obj.normal id="bool param get pulse uni" uuid="5224773f-18de-4231-8f92-b1f22bb953D1">
-      <sDescription>Read sketchy_params cell; emits a bool when the stored value increases (MODE_BOOL_PULSE_UNI counter / pulse). Compares to previous k-rate sample.</sDescription>
+      <sDescription>Read sketchy_params cell; emits a one-k-period pulse when the stored counter increases (MODE_BOOL_PULSE_UNI).</sDescription>
       <author>AI Assistant / Simon</author>
-      <license>BSD</license>
+      <license>GPL</license>
       <inlets/>
       <outlets>
-         <bool32 name="pulse" description="High for one k-period when value increases"/>
-         <int32 name="v001" description="Object version (incremented each release)"/>
+         <bool32.pulse name="pulse" description="High for one k-period when value increases"/>
+         <int32 name="v002" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
       <attribs>
-         <spinner name="page" MinValue="0" MaxValue="127" DefaultValue="0"/>
-         <spinner name="param" MinValue="0" MaxValue="127" DefaultValue="0"/>
+         <spinner name="page" description="page index" MinValue="-127" MaxValue="127" DefaultValue="0"/>
+         <spinner name="param" description="parameter index (0-7)" MinValue="0" MaxValue="7" DefaultValue="0"/>
       </attribs>
-      <depends>
-         <depend>sketchy_params</depend>
-      </depends>
       <code.declaration><![CDATA[rootc::objectinstance_sketchy__params* param_table;
-int32_t prev_uni;]]></code.declaration>
+int32_t prevValue;]]></code.declaration>
       <code.init><![CDATA[param_table = &parent->objectinstance_sketchy__params_i;
-prev_uni = param_table->array[attr_page][attr_param];]]></code.init>
+prevValue = param_table->array[attr_page][attr_param];]]></code.init>
       <code.krate><![CDATA[int32_t v = param_table->array[attr_page][attr_param];
-outlet_pulse = (v > prev_uni) ? 1 : 0;
-prev_uni = v;
-outlet_v001 = 1;]]></code.krate>
+outlet_pulse = (v > prevValue);
+prevValue = v;
+outlet_v002 = 2;]]></code.krate>
    </obj.normal>
 </objdefs>

@@ -7,7 +7,9 @@
       <inlets>
          <int32 name="page"/>
       </inlets>
-      <outlets/>
+      <outlets>
+         <int32 name="v001" description="Object version (incremented each release)"/>
+      </outlets>
       <displays/>
       <params/>
       <attribs/>
@@ -21,6 +23,7 @@ typedef struct {
     int16_t int_min;        // Minimum value (for int/list modes)
     int16_t int_max;        // Maximum value (for int/list modes)
     uint8_t presetIgnore;   // 0=preset load updates this cell; 1=leave RAM unchanged on preset load
+    uint8_t domain;         // 0=param (default, snapshot-swapped by activeparamsnap), 1=seq (snapshot-swapped by activeseqsnap), 2=global (never swapped)
 } encoder_dial_config_t;
 
 // Configuration for 8 pages, 8 encoders each (64 total configurations)
@@ -441,6 +444,7 @@ if (page >= 0 && page < 8) {
     for (uint8_t dial = 0; dial < 8; dial++) {
         update_dial(page, dial, &configs[page][dial]);
     }
-}]]></code.krate>
+}
+outlet_v001 = 1;]]></code.krate>
    </obj.normal>
 </objdefs>

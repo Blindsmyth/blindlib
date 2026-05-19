@@ -10,7 +10,7 @@
          <bool32 name="active" description="Enable/disable sending"/>
       </inlets>
       <outlets>
-         <int32 name="v001" description="Object version (incremented each release)"/>
+         <int32 name="v002" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -35,6 +35,7 @@ uint8_t scan_index;
 uint8_t redraw_active;
 uint16_t redraw_page;
 uint8_t redraw_param;
+uint8_t prev_redraw_in;
 
 // Mode constants
 #define MODE_DUPLICATE     6
@@ -127,7 +128,8 @@ last_page = -1;
 scan_index = 0;
 redraw_active = 0;
 redraw_page = 0;
-redraw_param = 0;]]></code.init>
+redraw_param = 0;
+prev_redraw_in = 0;]]></code.init>
       <code.krate><![CDATA[// Exit early if not active
 if (!inlet_active) return;
 
@@ -135,17 +137,13 @@ if (!inlet_active) return;
 rootc::objectinstance_sketchy__params* param_table = &parent->objectinstance_sketchy__params_i;
 
 // --- REDRAW MODE: Send all pages systematically ---
-// Trigger redraw on rising edge
-if ((inlet_redraw > 0) && !redraw_active) {
+// Start on rising edge only; run to completion (do not abort on falling edge).
+if ((inlet_redraw > 0) && !prev_redraw_in) {
     redraw_active = 1;
     redraw_page = 0;
     redraw_param = 0;
 }
-
-// Clear redraw on falling edge (after completion)
-if (!(inlet_redraw > 0)) {
-    redraw_active = 0;
-}
+prev_redraw_in = (inlet_redraw > 0) ? 1 : 0;
 
 // If redraw is active, send parameters throttled across all pages
 if (redraw_active) {
@@ -279,7 +277,7 @@ for (int scan_count = 0; scan_count < 2; scan_count++) {
     
     scan_index++;
 }
-outlet_v001 = 1;
+outlet_v002 = 2;
 ]]></code.krate>
    </obj.normal>
 </objdefs>

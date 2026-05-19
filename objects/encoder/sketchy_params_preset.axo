@@ -11,7 +11,7 @@
       <bool32.rising name="load" description="Load params from SD"/>
     </inlets>
     <outlets>
-      <int32 name="v004" description="Object version (incremented each release)"/>
+      <int32 name="v006" description="Object version (incremented each release)"/>
     </outlets>
     <displays>
       <bool32 name="busy" description="True while save or load in progress"/>
@@ -39,6 +39,21 @@ int trig_load, trig_save, ntrig;
 volatile int32_t cur_index;
 char fname[24];
 
+uint8_t ignore_map[NUM_PAGES][8];
+uint8_t ignore_map_valid;
+uint8_t thread_started;
+
+void refreshIgnoreMap() {
+    if (ignore_map_valid) return;
+    if (!parent->objectinstance_sketchy__dials_i.configs) return;
+    for (uint16_t p = 0; p < NUM_PAGES; p++) {
+        for (uint16_t prm = 0; prm < 8; prm++) {
+            ignore_map[p][prm] = parent->objectinstance_sketchy__dials_i.configs[p][prm].presetIgnore ? 1 : 0;
+        }
+    }
+    ignore_map_valid = 1;
+}
+
 void buildFilename(int idx) {
     char *p = fname;
     const char *pre = "preset";
@@ -55,8 +70,7 @@ void buildFilename(int idx) {
 }
 
 __attribute__((noinline)) msg_t ThreadPreset2() {
-    /* Function-local static: avoids codegen/link treating file-scope backup as missing class member when instance name is sketchy_params. */
-    static int32_t preset_merge_backup[128][128] __attribute__((section(".sdram")));
+    static int32_t preset_merge_backup[NUM_PAGES][NUM_PARAMS] __attribute__((section(".sdram")));
 
     while (!chThdShouldTerminate()) {
         if (trig_save && !ntrig) {
@@ -92,12 +106,10 @@ __attribute__((noinline)) msg_t ThreadPreset2() {
             FRESULT err;
             UINT br;
             size_t preset_bytes = (size_t)(NUM_PAGES * NUM_PARAMS * sizeof(int32_t));
-            if (preset_bytes <= sizeof(preset_merge_backup)) {
-                memcpy(preset_merge_backup, array, preset_bytes);
-            }
+            memcpy(preset_merge_backup, array, preset_bytes);
             err = f_open(&f, fname, FA_READ | FA_OPEN_EXISTING);
             if (err == FR_OK) {
-                int rem = (int)(NUM_PAGES * NUM_PARAMS * sizeof(int32_t));
+                int rem = (int)preset_bytes;
                 int offset = 0;
                 while (rem > 0) {
                     int chunk = (rem > (int)sizeof(fbuff)) ? (int)sizeof(fbuff) : rem;
@@ -108,12 +120,10 @@ __attribute__((noinline)) msg_t ThreadPreset2() {
                     offset += br;
                 }
                 f_close(&f);
-                if (preset_bytes <= sizeof(preset_merge_backup)) {
-                    for (uint16_t p = 0; p < NUM_PAGES; p++) {
-                        for (uint16_t prm = 0; prm < NUM_PARAMS && prm < 8; prm++) {
-                            if (parent->objectinstance_sketchy__dials_i.configs[p][prm].presetIgnore) {
-                                array[p][prm] = preset_merge_backup[p][prm];
-                            }
+                for (uint16_t p = 0; p < NUM_PAGES; p++) {
+                    for (uint16_t prm = 0; prm < NUM_PARAMS && prm < 8; prm++) {
+                        if (ignore_map[p][prm]) {
+                            array[p][prm] = preset_merge_backup[p][prm];
                         }
                     }
                 }
@@ -142,12 +152,21 @@ memset(array, 0, (size_t)(NUM_PAGES * NUM_PARAMS * sizeof(int32_t)));
 pprint = false;
 trig_load = trig_save = ntrig = 0;
 cur_index = 0;
-attr_init;
+ignore_map_valid = 0;
+thread_started = 0;
+ThdPreset = 0;
+attr_init;]]></code.init>
+    <code.dispose><![CDATA[if (thread_started && ThdPreset) {
+    chThdTerminate(ThdPreset);
+    chThdWait(ThdPreset);
+}]]></code.dispose>
+    <code.krate><![CDATA[refreshIgnoreMap();
+if (!thread_started) {
+    ThdPreset = chThdCreateStatic(waThreadPreset, sizeof(waThreadPreset), LOWPRIO, (tfunc_t)ThreadPreset, (void *)this);
+    thread_started = 1;
+}
 
-ThdPreset = chThdCreateStatic(waThreadPreset, sizeof(waThreadPreset), LOWPRIO, (tfunc_t)ThreadPreset, (void *)this);]]></code.init>
-    <code.dispose><![CDATA[chThdTerminate(ThdPreset);
-chThdWait(ThdPreset);]]></code.dispose>
-    <code.krate><![CDATA[outlet_v004 = 4;
+outlet_v006 = 6;
 
 trig_save = inlet_save;
 trig_load = inlet_load;

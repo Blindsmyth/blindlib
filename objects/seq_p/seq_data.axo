@@ -1,0 +1,60 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="seq_data" uuid="5224773f-18de-4231-8f92-b1f22bb953EB">
+      <sDescription>Central coordinator for the seq_p family. Holds bit-packed 32-step pattern + manual-edit lock state in 4 cells of one sketchy_params page (the "seq mirror page", domain=seq). Cells: [seqpage][0]=Steps, [1]=Hits, [2]=Offset, [3]=Length, [4]=PatternLo16, [5]=PatternHi16, [6]=LockLo16, [7]=LockHi16. Provides a clearlocks pulse inlet that zeros the lock cells AND regenerates the pattern from current Euclidean params (clean slate). Other seq_p objects read/write the same cells directly.</sDescription>
+      <author>AI Assistant / Simon</author>
+      <license>BSD</license>
+      <helpPatch>logic.axh</helpPatch>
+      <inlets>
+         <bool32.rising name="clearlocks" description="Pulse: clear all manual-edit lock bits AND fully regenerate pattern from current Steps/Hits/Offset cells"/>
+      </inlets>
+      <outlets>
+         <bool32.pulse name="regen" description="High for one k-period when a clearlocks-driven regen happened"/>
+         <int32 name="v001" description="Object version (incremented each release)"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="seqpage" description="Page in sketchy_params used as the seq mirror" MinValue="0" MaxValue="127" DefaultValue="14"/>
+      </attribs>
+      <depends>
+         <depend>sketchy_params</depend>
+      </depends>
+      <code.declaration><![CDATA[uint8_t prev_clear;]]></code.declaration>
+      <code.init><![CDATA[prev_clear = 0;]]></code.init>
+      <code.krate><![CDATA[outlet_v001 = 1;
+outlet_regen = 0;
+
+uint8_t cur = (inlet_clearlocks > 0) ? 1 : 0;
+if (cur && !prev_clear) {
+    int sp = attr_seqpage;
+    int steps  = parent->objectinstance_sketchy__params_i.array[sp][0];
+    int hits   = parent->objectinstance_sketchy__params_i.array[sp][1];
+    int offset = parent->objectinstance_sketchy__params_i.array[sp][2];
+    if (steps  < 1)  steps  = 1;
+    if (steps  > 32) steps  = 32;
+    if (hits   < 0)  hits   = 0;
+    if (hits   > steps) hits = steps;
+    if (offset < 0)  offset = 0;
+    if (offset >= steps) offset = steps - 1;
+
+    uint32_t gen = 0;
+    if (hits > 0) {
+        int bucket = 0;
+        for (int i = 0; i < steps; i++) {
+            bucket += hits;
+            if (bucket >= steps) {
+                bucket -= steps;
+                int idx = (i + offset + 1) % steps;
+                if (idx >= 0 && idx < 32) gen |= (1u << idx);
+            }
+        }
+    }
+    parent->objectinstance_sketchy__params_i.array[sp][4] = (int32_t)(gen & 0xFFFF);
+    parent->objectinstance_sketchy__params_i.array[sp][5] = (int32_t)((gen >> 16) & 0xFFFF);
+    parent->objectinstance_sketchy__params_i.array[sp][6] = 0;
+    parent->objectinstance_sketchy__params_i.array[sp][7] = 0;
+    outlet_regen = 1;
+}
+prev_clear = cur;]]></code.krate>
+   </obj.normal>
+</objdefs>

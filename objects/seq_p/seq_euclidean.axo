@@ -1,0 +1,84 @@
+<objdefs appVersion="1.0.12">
+   <obj.normal id="seq_euclidean" uuid="5224773f-18de-4231-8f92-b1f22bb953EC">
+      <sDescription>Single-track Euclidean generator that writes a 32-step pattern into the seq mirror page (cells [seqpage][4]=PatternLo16, [seqpage][5]=PatternHi16). Drop-in replacement for seq/euclidean 1track at the net level. Respects per-step lock bits at [seqpage][6]/[seqpage][7]: steps that were manually edited via the Trellis are preserved across Euclidean param changes. Inlets unchanged (the original "index" inlet is ignored — the seq mirror page is fixed by attribute, not addressed by inlet).</sDescription>
+      <author>Simon / AI Assistant</author>
+      <license>BSD</license>
+      <inlets>
+         <int32 name="steps" description="number of steps in pattern (1-32)"/>
+         <int32 name="hits" description="number of hits to distribute (0-steps)"/>
+         <int32 name="offset" description="pattern rotation offset (0-steps-1)"/>
+         <int32 name="index" description="ignored in seq_p (kept for net compatibility)"/>
+         <bool32.rising name="resync" description="Latch current steps/hits/offset as baseline without regenerating (use after preset load)"/>
+      </inlets>
+      <outlets>
+         <bool32.pulse name="changed" description="pulse when pattern was regenerated"/>
+         <int32 name="v002" description="Object version (incremented each release)"/>
+      </outlets>
+      <displays/>
+      <params/>
+      <attribs>
+         <spinner name="seqpage" description="Page in sketchy_params used as the seq mirror" MinValue="0" MaxValue="127" DefaultValue="14"/>
+      </attribs>
+      <depends>
+         <depend>sketchy_params</depend>
+      </depends>
+      <code.declaration><![CDATA[int lastSteps;
+int lastHits;
+int lastOffset;]]></code.declaration>
+      <code.init><![CDATA[lastSteps = -1;
+lastHits = -1;
+lastOffset = -1;]]></code.init>
+      <code.krate><![CDATA[outlet_v002 = 2;
+outlet_changed = 0;
+
+int curSteps  = inlet_steps;
+int curHits   = inlet_hits;
+int curOffset = inlet_offset;
+
+if (curSteps  < 1)  curSteps  = 1;
+if (curSteps  > 32) curSteps  = 32;
+if (curHits   < 0)  curHits   = 0;
+if (curHits   > curSteps) curHits = curSteps;
+if (curOffset < 0)  curOffset = 0;
+if (curOffset >= curSteps) curOffset = curSteps - 1;
+
+if (inlet_resync) {
+    lastSteps = curSteps;
+    lastHits = curHits;
+    lastOffset = curOffset;
+    return;
+}
+
+if (curSteps != lastSteps || curHits != lastHits || curOffset != lastOffset) {
+    int sp = attr_seqpage;
+    int32_t cell_lo = parent->objectinstance_sketchy__params_i.array[sp][4];
+    int32_t cell_hi = parent->objectinstance_sketchy__params_i.array[sp][5];
+    int32_t lock_lo = parent->objectinstance_sketchy__params_i.array[sp][6];
+    int32_t lock_hi = parent->objectinstance_sketchy__params_i.array[sp][7];
+    uint32_t pat  = ((uint32_t)(cell_lo & 0xFFFF)) | (((uint32_t)(cell_hi & 0xFFFF)) << 16);
+    uint32_t lock = ((uint32_t)(lock_lo & 0xFFFF)) | (((uint32_t)(lock_hi & 0xFFFF)) << 16);
+
+    uint32_t gen = 0;
+    if (curHits > 0) {
+        int bucket = 0;
+        for (int i = 0; i < curSteps; i++) {
+            bucket += curHits;
+            if (bucket >= curSteps) {
+                bucket -= curSteps;
+                int idx = (i + curOffset + 1) % curSteps;
+                if (idx >= 0 && idx < 32) gen |= (1u << idx);
+            }
+        }
+    }
+    // Manual-edit-wins: locked bits keep their old value; unlocked bits take generator.
+    uint32_t newpat = (pat & lock) | (gen & ~lock);
+    parent->objectinstance_sketchy__params_i.array[sp][4] = (int32_t)(newpat & 0xFFFF);
+    parent->objectinstance_sketchy__params_i.array[sp][5] = (int32_t)((newpat >> 16) & 0xFFFF);
+
+    lastSteps = curSteps;
+    lastHits = curHits;
+    lastOffset = curOffset;
+    outlet_changed = 1;
+}]]></code.krate>
+   </obj.normal>
+</objdefs>

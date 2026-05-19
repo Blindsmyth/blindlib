@@ -141,6 +141,11 @@
  * sketchy_params_midi_send_fixed_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953E8
  * sketchy_params_midi_send_lean_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953E9
  * sketchy_params_midi_send_page_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953EA
+ * seq_p/seq_data.axo: 5224773f-18de-4231-8f92-b1f22bb953EB
+ * seq_p/seq_euclidean.axo: 5224773f-18de-4231-8f92-b1f22bb953EC
+ * seq_p/seq_launch_shift32.axo: 5224773f-18de-4231-8f92-b1f22bb953ED
+ * seq_p/seq_table_toggle_shift32.axo: 5224773f-18de-4231-8f92-b1f22bb953EE
+ * seq_p/seq_step_length.axo: 5224773f-18de-4231-8f92-b1f22bb953EF
  - **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
 - **MANDATORY**: Document all new UUIDs in this file immediately after creation
 
