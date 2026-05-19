@@ -1,0 +1,27 @@
+---
+description: Never edit existing .axp patch files; clone to a new version instead.
+alwaysApply: true
+---
+
+# Do not edit existing .axp patches
+
+`.axp` (Axoloti / Ksoloti patch) files capture a complete working patch. Editing one in place can silently break a configuration the user depends on - even tiny `type=`, `uuid=`, or net changes regenerate the whole patch's C++ on the next build.
+
+## Rules
+
+- **NEVER** modify any existing `.axp` file (no `<obj>` edits, no `<net>` rewires, no UUID swaps, no attribute changes) unless the user explicitly asks for that specific patch to be edited.
+- **OK to copy** an `.axp` to a new versioned filename and edit the copy. Bump the version suffix (e.g. `foo 1_0_1.axp` -> `foo 1_0_2.axp`) so the original stays intact as a rollback point.
+- When the user asks for behavior changes that would require updating a patch, propose the new-version-copy approach first and confirm with the user before applying.
+- This rule applies to every workspace that contains `.axp` files (looper, Axolonatics, blindlib).
+
+## Pattern
+
+```bash
+cp "Simons Patches/rbrt looper/4 track dev_sim 1_0_1 try32steps.axp" \
+   "Simons Patches/rbrt looper/4 track dev_sim 1_0_2 try32steps.axp"
+# then edit the new copy
+```
+
+## When in doubt
+
+Ask the user before touching any `.axp`. Touching old patches without permission is the breakage we are trying to prevent.

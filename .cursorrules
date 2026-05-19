@@ -120,6 +120,27 @@
  * sketchy_dials_library.axo: 5224773f-18de-4231-8f92-b1f22bb953D3
  * sketchy_render_kso_fw_sram3_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953D4
  * encoder/sum6_stereo.axo (Axolonatics mirror): 5224773f-18de-4231-8f92-b1f22bb953D5
+ * sketchy_dials_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953D6
+ * sketchy_dials_exp_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953D7
+ * sketchy_dials_hardcoded_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953D8
+ * sketchy_dials_sd_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953D9
+ * sketchy_dials_shared_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953DA
+ * sketchy_dials_simple_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953DB
+ * ksoloti/sketchy_dials_kso_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953DC
+ * sketchy_render_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953DD
+ * sketchy_render_exp_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953DE
+ * sketchy_render_optimized_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953DF
+ * sketchy_render_shared_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953E0
+ * ksoloti/sketchy_render_kso_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953E1
+ * 8encoder_integrated_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953E2
+ * 8encoder_integrated_exp_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953E3
+ * 8encoder_integrated_sync_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953E4
+ * ksoloti/8encoder_integrated_kso_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953E5
+ * sketchy_params_preset_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953E6
+ * sketchy_params_midi_send_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953E7
+ * sketchy_params_midi_send_fixed_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953E8
+ * sketchy_params_midi_send_lean_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953E9
+ * sketchy_params_midi_send_page_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953EA
  - **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
 - **MANDATORY**: Document all new UUIDs in this file immediately after creation
 
