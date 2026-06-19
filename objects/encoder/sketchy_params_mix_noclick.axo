@@ -28,7 +28,6 @@
     <depends>
       <depend>fatfs</depend>
       <depend>sketchy_dials</depend>
-      <depend>sketchy_params</depend>
     </depends>
     <code.declaration><![CDATA[#define MIX_NOCLICK_SRAM3_FN(n) __attribute__((noinline, section(".sram3.text.ppp" #n)))
 
@@ -36,7 +35,7 @@
 #define NUM_PARAMS attr_params
 #define DOMAIN_MIX 3
 
-rootc::objectinstance_sketchy__params* param_table;
+int32_t (*live_array)[NUM_PARAMS];
 
 int32_t (*file_buf)[NUM_PARAMS];
 uint8_t (*domain_map)[NUM_PARAMS];
@@ -82,7 +81,7 @@ void packMixToBuf() MIX_NOCLICK_SRAM3_FN(3) {
     for (uint16_t p = 0; p < NUM_PAGES; p++) {
         for (uint16_t q = 0; q < NUM_PARAMS; q++) {
             if (domain_map[p][q] == DOMAIN_MIX) {
-                file_buf[p][q] = param_table->array[p][q];
+                file_buf[p][q] = live_array[p][q];
             } else {
                 file_buf[p][q] = 0;
             }
@@ -94,7 +93,7 @@ void applyMixFromBuf() MIX_NOCLICK_SRAM3_FN(4) {
     for (uint16_t p = 0; p < NUM_PAGES; p++) {
         for (uint16_t q = 0; q < NUM_PARAMS; q++) {
             if (domain_map[p][q] == DOMAIN_MIX) {
-                param_table->array[p][q] = file_buf[p][q];
+                live_array[p][q] = file_buf[p][q];
             }
         }
     }
@@ -142,7 +141,7 @@ static thread_t* mix_spawn_thread(void *arg) MIX_NOCLICK_SRAM3_FN(7) {
     return chThdCreateStatic(_waMix, sizeof(_waMix), LOWPRIO, (tfunc_t)ThreadMixNoclick, arg);
 }
 ]]></code.declaration>
-    <code.init><![CDATA[param_table = &parent->objectinstance_sketchy__params_i;
+    <code.init><![CDATA[live_array = parent->objectinstance_sketchy__params_i.array;
 
 static int32_t _filebuf_sdram[NUM_PAGES][NUM_PARAMS] __attribute__ ((section (".sdram")));
 file_buf = _filebuf_sdram;
@@ -166,7 +165,7 @@ pending_load_ok = 0;]]></code.init>
 }]]></code.dispose>
     <code.krate><![CDATA[
 refreshMaps();
-if (!thread_started && maps_valid && param_table) {
+if (!thread_started && maps_valid && live_array) {
     ThdMix = mix_spawn_thread((void *)this);
     thread_started = 1;
 }
