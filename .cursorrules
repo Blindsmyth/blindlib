@@ -138,7 +138,7 @@
  * ksoloti/8encoder_integrated_kso_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953E5
  * sketchy_params_preset_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953E6
  * sketchy_params_midi_send_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953E7
- * sketchy_params_midi_send_fixed_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953E8
+ * sketchy_params_midi_send_fixed_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953E8 (v003: skip MODE_EMPTY on redraw/scan)
  * sketchy_params_midi_send_lean_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953E9
  * sketchy_params_midi_send_page_pulse.axo: 5224773f-18de-4231-8f92-b1f22bb953EA
  * seq_p/seq_data.axo: 5224773f-18de-4231-8f92-b1f22bb953EB
@@ -146,6 +146,13 @@
  * seq_p/seq_launch_shift32.axo: 5224773f-18de-4231-8f92-b1f22bb953ED
  * seq_p/seq_table_toggle_shift32.axo: 5224773f-18de-4231-8f92-b1f22bb953EE
  * seq_p/seq_step_length.axo: 5224773f-18de-4231-8f92-b1f22bb953EF
+ * midi/zoom_g_param_write.axo (Axolonatics): 5224773f-18de-4231-8f92-b1f22bb953F0
+ * midi/zoom_g_fx_resync.axo (Axolonatics): 5224773f-18de-4231-8f92-b1f22bb953F1
+ * midi/zoom_sysex_receive.axo (Axolonatics): 5224773f-18de-4231-8f92-b1f22bb953F2
+ * midi/zoom_g_fx_parse.axo (Axolonatics): 5224773f-18de-4231-8f92-b1f22bb953F3
+ * midi/zoom_g_fx_sync.axo (Axolonatics): 5224773f-18de-4231-8f92-b1f22bb953F4
+ * sketchy_params_preset_noclick.axo: 5224773f-18de-4231-8f92-b1f22bb953F5
+ * sketchy_params_mix_noclick.axo: 5224773f-18de-4231-8f92-b1f22bb953F6
  - **MANDATORY**: Generate new UUIDs by incrementing the last digit in the registry
 - **MANDATORY**: Document all new UUIDs in this file immediately after creation
 

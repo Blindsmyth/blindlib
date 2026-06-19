@@ -23,7 +23,7 @@ typedef struct {
     int16_t int_min;        // Minimum value (for int/list modes)
     int16_t int_max;        // Maximum value (for int/list modes)
     uint8_t presetIgnore;   // 0=preset load updates this cell; 1=leave RAM unchanged on preset load
-    uint8_t domain;         // 0=param (default, snapshot-swapped by activeparamsnap), 1=seq (snapshot-swapped by activeseqsnap), 2=global (never swapped)
+    uint8_t domain;         // 0=param, 1=seq, 2=global (never in snap files), 3=mix (mixN.bin only)
 } encoder_dial_config_t;
 
 // Configuration for 8 pages, 8 encoders each (64 total configurations)

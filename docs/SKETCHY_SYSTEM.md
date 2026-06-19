@@ -72,7 +72,7 @@ typedef struct {
     int16_t int_min;
     int16_t int_max;
     uint8_t presetIgnore;   // 0 = preset load writes cell; 1 = leave unchanged
-    uint8_t domain;         // 0 = param (default), 1 = seq, 2 = global (snapshot system)
+    uint8_t domain;         // 0 = param (default), 1 = seq, 2 = global, 3 = mix (mix preset system)
 } encoder_dial_config_t;
 ```
 
@@ -221,7 +221,8 @@ The `domain` field on `encoder_dial_config_t` partitions every cell into one of 
 |-------|------|----------|
 | `0` | `param` (default) | Snapshot-swapped when `activeparamsnap` changes. Saved as the param slice. Targeted by `loadparamsX` inlets. |
 | `1` | `seq` | Snapshot-swapped when `activeseqsnap` changes. Saved as the seq slice. Targeted by `loadseqX` inlets. |
-| `2` | `global` | Never swapped. Never overwritten by per-snapshot loads. Holds performance state (preset SEL, save/load triggers, the snapshot selectors themselves). |
+| `2` | `global` | Never swapped. Never overwritten by song or mix preset loads. Holds performance state (preset SEL, save/load triggers, snapshot selectors, mix SEL). |
+| `3` | `mix` | Skipped by song `snapN.bin` save/load. Saved only via `sketchy_params_mix_noclick` as `mixN.bin`. No A/B/C/D sub-snapshots. |
 
 `presetIgnore = 1` is **orthogonal**: such a cell is left alone on any load regardless of its domain.
 

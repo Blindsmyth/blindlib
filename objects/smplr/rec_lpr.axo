@@ -1,6 +1,6 @@
 <objdefs appVersion="1.0.12">
    <obj.normal id="rec_lpr" uuid="5224773f-18de-4231-8f92-b1f22bb953C0">
-      <sDescription>Static LPR recorder/overdub. Each slot records into its own fixed region of the wave buffer (slot_size = W_LENGTH / slots). Expects raw sample-index on pos inlet (from play_lpr).</sDescription>
+      <sDescription>Static LPR recorder/overdub. Each slot records into its own fixed region of the wave buffer (slot_size = W_LENGTH / slots). Expects raw sample-index on pos inlet (from play_lpr). v004: panic inlet aborts stuck recording/overdub/sync-wait immediately.</sDescription>
       <author>Robert Schirmer / Simon</author>
       <license>BSD</license>
       <helpPatch>smplr overview.axh</helpPatch>
@@ -18,6 +18,7 @@
          <frac32.positive name="phase" description="sync phase position"/>
          <frac32buffer.positive name="pos" description="playback position for overdubbing"/>
          <bool32 name="disable" description="disable recording/overdubbing"/>
+         <bool32.rising name="panic" description="abort recording/overdub immediately (e.g. slot reset)"/>
       </inlets>
       <outlets>
          <int32.positive name="recslot" description="slot currently recording to"/>
@@ -28,7 +29,7 @@
          <bool32.pulse name="recdone" description="pulse when recording is done"/>
          <bool32.pulse name="slicedone"/>
          <frac32.positive name="remain" description="remaining recording-time"/>
-         <int32 name="v003"/>
+         <int32 name="v004"/>
       </outlets>
       <displays/>
       <params/>
@@ -112,7 +113,8 @@ uint32_t csample;
 int32_t dub;
 int32_t overdub_env;
 bool overdub_state;
-uint32_t preindex;]]></code.declaration>
+uint32_t preindex;
+bool panic_latched;]]></code.declaration>
       <code.krate><![CDATA[bool rectrig = 0;
 smplr.RECDONE = 0;
 outlet_slicedone = 0;
@@ -120,6 +122,21 @@ outlet_recslot = smplr.RECSLOT;
 int8_t mslot = inlet_slot % smplr.slots;
 bool slicetrig = 0;
 ptrig = 0;
+
+if (inlet_panic && !panic_latched) {
+	panic_latched = 1;
+	smplr.REC = 0;
+	smplr.RECSTATE = 0;
+	env = 0;
+	syncmode = 0;
+	fade = 0;
+	overdub_state = false;
+	overdub_env = 0;
+	smplr.CANCEL = 0;
+	sdel = 0;
+	rcount = 0;
+}
+if (!inlet_panic) panic_latched = 0;
 
 float inv_wlength = (smplr.W_LENGTH > 0) ? (float)(1 << 27) / (float)smplr.W_LENGTH : 0.0f;
 
@@ -237,7 +254,7 @@ outlet_fadestate = smplr.RECSTATE || overdub_state;
 outlet_recdone = smplr.RECDONE;
 outlet_recslot = outslot;
 outlet_playmode = (inlet_playmode)? inlet_playmode :attr_playmode;
-outlet_v003 = 3;]]></code.krate>
+outlet_v004 = 4;]]></code.krate>
       <code.srate><![CDATA[if (smplr.RECSTATE) {
 	int rv =  __SSAT((___SMMUL(inlet_wave,env)<<5),28 ) >> smplr.W_GAIN;
      	if (smplr.REC) {

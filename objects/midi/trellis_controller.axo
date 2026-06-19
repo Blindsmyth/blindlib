@@ -6,8 +6,11 @@ Grid layout: 8 columns x 4 rows starting at note 36.
 Row 1 (36-43): Rec/Sel buttons for layers 1-4
   - Notes 36,38,40,42: Rec buttons (rec1-4 outlets)
   - Notes 37,39,41,43: Sel/Index buttons (sets index outlet to 1-4)
-  - Rec+Sel: stop (immediate), reset (hold > resetTime)
-  - Shift+Rec or Shift+Sel: reverse mode
+  - Rec+Sel: stop (immediate), reset (hold > resetTime) — also clears reverse/alt toggles for that layer
+  - Shift+Rec or Shift+Sel: reverse / alt toggles (latched until reset)
+
+External reset inlets (resetToggles1-4): rising edge clears reverse and alt toggles for that layer.
+Wire foot-controller long-press (or slot-reset done pulses) here; RBRT param writes stay in the patch.
 
 Row 2 (44-51): Reserved (no outlets currently implemented)
 
@@ -26,7 +29,12 @@ All button states available via individual outlets.</sDescription>
       <author>Simon / AI Assistant</author>
       <license>BSD</license>
       <helpPatch>midi.axh</helpPatch>
-      <inlets/>
+      <inlets>
+         <bool32.rising name="resetToggles1" description="Clear layer 1 reverse + alt toggles (e.g. foot-controller long-press)"/>
+         <bool32.rising name="resetToggles2" description="Clear layer 2 reverse + alt toggles"/>
+         <bool32.rising name="resetToggles3" description="Clear layer 3 reverse + alt toggles"/>
+         <bool32.rising name="resetToggles4" description="Clear layer 4 reverse + alt toggles"/>
+      </inlets>
       <outlets>
          <int32 name="index" description="layer/mode index: sel(1-4), main(0), fx(5), syn(6), inst(7), seq(8), system(9), ext(10-13 via shift+64..67)"/>
          <bool32 name="rec1" description="layer 1 rec (note 36 held)"/>
@@ -100,7 +108,8 @@ bool tap_latched, play_latched;
 #define KRATE_HZ 3000
 #define RESET_COMBO_TICKS (RESET_COMBO_MS * KRATE_HZ / 1000)
 uint32_t reset_combo_timer;
-bool reset_combo_triggered;]]></code.declaration>
+bool reset_combo_triggered;
+bool prev_resetToggles1, prev_resetToggles2, prev_resetToggles3, prev_resetToggles4;]]></code.declaration>
       <code.init><![CDATA[current_index = 0; // Default to Main (index 0)
 
 // Initialize gate array
@@ -128,8 +137,37 @@ prev_rev1_btn = prev_rev2_btn = prev_rev3_btn = prev_rev4_btn = 0;
 tap_latched = 0;
 play_latched = 0;
 reset_combo_timer = 0;
-reset_combo_triggered = 0;]]></code.init>
-      <code.krate><![CDATA[// Shift button state (note 62)
+reset_combo_triggered = 0;
+prev_resetToggles1 = prev_resetToggles2 = prev_resetToggles3 = prev_resetToggles4 = 0;]]></code.init>
+      <code.krate><![CDATA[if (inlet_resetToggles1 && !prev_resetToggles1) {
+    alt1_toggle = 0;
+    reverse1_toggle = 0;
+    prev_resetToggles1 = 1;
+}
+if (!inlet_resetToggles1) prev_resetToggles1 = 0;
+
+if (inlet_resetToggles2 && !prev_resetToggles2) {
+    alt2_toggle = 0;
+    reverse2_toggle = 0;
+    prev_resetToggles2 = 1;
+}
+if (!inlet_resetToggles2) prev_resetToggles2 = 0;
+
+if (inlet_resetToggles3 && !prev_resetToggles3) {
+    alt3_toggle = 0;
+    reverse3_toggle = 0;
+    prev_resetToggles3 = 1;
+}
+if (!inlet_resetToggles3) prev_resetToggles3 = 0;
+
+if (inlet_resetToggles4 && !prev_resetToggles4) {
+    alt4_toggle = 0;
+    reverse4_toggle = 0;
+    prev_resetToggles4 = 1;
+}
+if (!inlet_resetToggles4) prev_resetToggles4 = 0;
+
+// Shift button state (note 62)
 bool shift_held = gate[62];
 
 // ROW 1: Rec/Stop/Reset/Reverse with release-required logic

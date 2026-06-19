@@ -1,5 +1,7 @@
 # Sketchy Object Naming Conventions
 
+> **See also:** [docs/SKETCHY_SYSTEM.md](docs/SKETCHY_SYSTEM.md) — full architecture, pulse modes, `*_pulse` siblings, param getters, pager/presets, and build notes.
+
 ## Overview
 
 This document defines the naming conventions used throughout the sketchy object system to ensure consistency and prevent conflicts.

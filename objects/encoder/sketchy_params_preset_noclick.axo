@@ -1,6 +1,6 @@
 <objdefs appVersion="1.1.0">
-  <obj.normal id="sketchy_params_preset_pulse" uuid="5224773f-18de-4231-8f92-b1f22bb953E6">
-    <sDescription>Parameter table with snapshot system (4 param + 4 seq snapshots A/B/C/D per preset) and SD save/load. Reads per-cell domain (param/seq/global) and presetIgnore from sketchy_dials. Swaps live cells when activeparamsnap or activeseqsnap selectors change. Eight per-snapshot load inlets allow partial loads from another preset file. File format snapN.bin = flat int32_t snapshot_storage[4][NUM_PAGES][NUM_PARAMS]. Size-tolerant load (file can be smaller or larger than current layout). v009: loaded outlet pulses one k-rate after any load job completes (use for MIDI redraw and seq counter resync — load is async so do not trigger redraw from the load button pulse directly). v008: worker code in SRAM3 (.sram3.text.ppp*).</sDescription>
+  <obj.normal id="sketchy_params_preset_noclick" uuid="5224773f-18de-4231-8f92-b1f22bb953F5">
+    <sDescription>Snapshot preset system (4 param + 4 seq snapshots A/B/C/D per preset) with noclick SD I/O and k-rate apply to live array. Same IO as sketchy_params_preset_pulse. Reads per-cell domain (param/seq/global/mix) and presetIgnore from sketchy_dials. File format snapN.bin unchanged. v001: load_sd/save_sd mutex; worker never writes live array during load — k-rate applies after SD read.</sDescription>
     <author>AI Assistant / Simon</author>
     <license>BSD</license>
     <helpPatch></helpPatch>
@@ -20,7 +20,7 @@
     </inlets>
     <outlets>
       <bool32.pulse name="loaded" description="One k-rate pulse when a load job finishes (params applied to live array)"/>
-      <int32 name="v010" description="Object version (incremented each release)"/>
+      <int32 name="v001" description="Object version (incremented each release)"/>
     </outlets>
     <displays>
       <bool32 name="busy" description="True while a save or load is in progress"/>
@@ -42,8 +42,9 @@
       <depend>fatfs</depend>
       <depend>sketchy_dials</depend>
     </depends>
-    <code.declaration><![CDATA[/* Unique per object — do not reuse generic SRAM3_FN across .axo files (single TU). */
-#define PRESET_PULSE_SRAM3_FN(n) __attribute__((noinline, section(".sram3.text.ppp" #n)))
+    <code.declaration><![CDATA[#include "../table/saveload_noclick.h"
+
+#define PRESET_NOCLICK_SRAM3_FN(n) __attribute__((noinline, section(".sram3.text.ppp" #n)))
 
 #define NUM_PAGES attr_pages
 #define NUM_PARAMS attr_params
@@ -64,7 +65,9 @@ volatile int8_t job_busy;
 volatile int32_t cur_index;
 char fname[24];
 
-// Pointers; the actual SRAM3 storage is allocated as static locals in code.init.
+int32_t (*snapshot_storage)[NUM_PAGES][NUM_PARAMS];
+int32_t (*file_buf)[NUM_PAGES][NUM_PARAMS];
+
 uint8_t (*ignore_map)[NUM_PARAMS];
 uint8_t (*domain_map)[NUM_PARAMS];
 uint8_t maps_valid;
@@ -74,8 +77,13 @@ int8_t prev_param_sel;
 int8_t prev_seq_sel;
 
 volatile uint8_t load_done_flag;
+volatile int8_t pending_apply;
+volatile int8_t pending_apply_job;
+volatile int8_t pending_param_active;
+volatile int8_t pending_seq_active;
+volatile uint8_t pending_load_ok;
 
-void refreshMaps() PRESET_PULSE_SRAM3_FN(1) {
+void refreshMaps() PRESET_NOCLICK_SRAM3_FN(1) {
     if (maps_valid) return;
     if (!parent->objectinstance_sketchy__dials_i.configs) return;
     for (uint16_t p = 0; p < NUM_PAGES; p++) {
@@ -88,7 +96,7 @@ void refreshMaps() PRESET_PULSE_SRAM3_FN(1) {
     maps_valid = 1;
 }
 
-void buildFilename(int idx) PRESET_PULSE_SRAM3_FN(2) {
+void buildFilename(int idx) PRESET_NOCLICK_SRAM3_FN(2) {
     char *p = fname;
     const char *pre = "snap";
     while (*pre) *p++ = *pre++;
@@ -103,16 +111,61 @@ void buildFilename(int idx) PRESET_PULSE_SRAM3_FN(2) {
     *p = '\0';
 }
 
-msg_t ThreadPreset2() PRESET_PULSE_SRAM3_FN(3) {
-    // All-snapshots storage in SDRAM (function-local static + section attr).
-    // For 16x8 patch: 4 * 16 * 8 * 4 = 2048 bytes.
-    static int32_t snapshot_storage[NUM_SNAPS][NUM_PAGES][NUM_PARAMS] __attribute__((section(".sdram")));
-    // Temp scratch used only during loads. Also in SDRAM.
-    static int32_t file_buf[NUM_SNAPS][NUM_PAGES][NUM_PARAMS] __attribute__((section(".sdram")));
-    const size_t bank_bytes = (size_t)(NUM_SNAPS * NUM_PAGES * NUM_PARAMS * sizeof(int32_t));
+void mergeFileToStorage(int job, int param_active, int seq_active) PRESET_NOCLICK_SRAM3_FN(3) {
+    if (job == 2) {
+        for (int s = 0; s < NUM_SNAPS; s++) {
+            for (uint16_t p = 0; p < NUM_PAGES; p++) {
+                for (uint16_t q = 0; q < NUM_PARAMS; q++) {
+                    if (!ignore_map[p][q] && !SNAP_SKIP(domain_map[p][q])) {
+                        snapshot_storage[s][p][q] = file_buf[s][p][q];
+                    }
+                }
+            }
+        }
+    } else {
+        uint8_t dom = (job >= 7) ? DOMAIN_SEQ : DOMAIN_PARAM;
+        int snap_idx = (job >= 7) ? (job - 7) : (job - 3);
+        for (uint16_t p = 0; p < NUM_PAGES; p++) {
+            for (uint16_t q = 0; q < NUM_PARAMS; q++) {
+                if (domain_map[p][q] == dom && !ignore_map[p][q]) {
+                    snapshot_storage[snap_idx][p][q] = file_buf[snap_idx][p][q];
+                }
+            }
+        }
+    }
+}
 
-    // Seed all 4 snapshot slots from the current live values so changing the active
-    // selector before the first save does not zero out any cells.
+void applyLiveFromStorage(int job, int param_active, int seq_active) PRESET_NOCLICK_SRAM3_FN(4) {
+    if (job == 2) {
+        for (uint16_t p = 0; p < NUM_PAGES; p++) {
+            for (uint16_t q = 0; q < NUM_PARAMS; q++) {
+                if (ignore_map[p][q]) continue;
+                if (domain_map[p][q] == DOMAIN_PARAM) {
+                    array[p][q] = snapshot_storage[param_active][p][q];
+                } else if (domain_map[p][q] == DOMAIN_SEQ) {
+                    array[p][q] = snapshot_storage[seq_active][p][q];
+                }
+            }
+        }
+    } else {
+        uint8_t dom = (job >= 7) ? DOMAIN_SEQ : DOMAIN_PARAM;
+        int snap_idx = (job >= 7) ? (job - 7) : (job - 3);
+        int active = (dom == DOMAIN_PARAM) ? param_active : seq_active;
+        if (snap_idx == active) {
+            for (uint16_t p = 0; p < NUM_PAGES; p++) {
+                for (uint16_t q = 0; q < NUM_PARAMS; q++) {
+                    if (domain_map[p][q] == dom && !ignore_map[p][q]) {
+                        array[p][q] = snapshot_storage[snap_idx][p][q];
+                    }
+                }
+            }
+        }
+    }
+}
+
+msg_t ThreadPresetNoclick2() PRESET_NOCLICK_SRAM3_FN(5) {
+    const uint32_t bank_words = (uint32_t)(NUM_SNAPS * NUM_PAGES * NUM_PARAMS);
+
     for (int s = 0; s < NUM_SNAPS; s++) {
         for (uint16_t p = 0; p < NUM_PAGES; p++) {
             for (uint16_t q = 0; q < NUM_PARAMS; q++) {
@@ -136,7 +189,6 @@ msg_t ThreadPreset2() PRESET_PULSE_SRAM3_FN(3) {
             if (seq_active < 0 || seq_active >= NUM_SNAPS) seq_active = 0;
 
             if (job == 1) {
-                // SAVE: sync live -> active snapshot for each domain, then write full bank.
                 for (uint16_t p = 0; p < NUM_PAGES; p++) {
                     for (uint16_t q = 0; q < NUM_PARAMS; q++) {
                         if (domain_map[p][q] == DOMAIN_PARAM) {
@@ -146,113 +198,28 @@ msg_t ThreadPreset2() PRESET_PULSE_SRAM3_FN(3) {
                         }
                     }
                 }
-
-                FIL f;
-                FRESULT err;
-                UINT bw;
-                err = f_open(&f, fname, FA_WRITE | FA_CREATE_ALWAYS);
-                if (err == FR_OK) {
-                    int rem = (int)bank_bytes;
-                    int offset = 0;
-                    while (rem > 0) {
-                        int chunk = (rem > (int)sizeof(fbuff)) ? (int)sizeof(fbuff) : rem;
-                        memcpy((char*)fbuff, (char*)(&snapshot_storage[0][0][0]) + offset, chunk);
-                        err = f_write(&f, fbuff, chunk, &bw);
-                        rem -= chunk;
-                        offset += chunk;
-                    }
-                    f_close(&f);
-                } else {
-                    report_fatfs_error(err, fname);
-                }
+                save_sd(fname, (int32_t*)(&snapshot_storage[0][0][0]), bank_words);
             }
             else if (job >= 2 && job <= 10) {
-                memset(file_buf, 0, bank_bytes);
-
-                FIL f;
-                FRESULT err;
-                UINT br;
-                err = f_open(&f, fname, FA_READ | FA_OPEN_EXISTING);
-                if (err == FR_OK) {
-                    // Size-tolerant: read up to bank_bytes; remainder stays zero (memset above).
-                    int rem = (int)bank_bytes;
-                    int offset = 0;
-                    while (rem > 0) {
-                        int chunk = (rem > (int)sizeof(fbuff)) ? (int)sizeof(fbuff) : rem;
-                        err = f_read(&f, fbuff, chunk, &br);
-                        if (br == 0) break;
-                        memcpy((char*)(&file_buf[0][0][0]) + offset, (char*)fbuff, br);
-                        rem -= (int)br;
-                        offset += (int)br;
-                        if (br < (UINT)chunk) break;
-                    }
-                    f_close(&f);
-
-                    if (job == 2) {
-                        // LOADALL: copy file -> snapshot_storage for all snapshots, skip presetIgnore and global.
-                        for (int s = 0; s < NUM_SNAPS; s++) {
-                            for (uint16_t p = 0; p < NUM_PAGES; p++) {
-                                for (uint16_t q = 0; q < NUM_PARAMS; q++) {
-                                    if (!ignore_map[p][q] && !SNAP_SKIP(domain_map[p][q])) {
-                                        snapshot_storage[s][p][q] = file_buf[s][p][q];
-                                    }
-                                }
-                            }
-                        }
-                        // Refresh live from active snapshots.
-                        for (uint16_t p = 0; p < NUM_PAGES; p++) {
-                            for (uint16_t q = 0; q < NUM_PARAMS; q++) {
-                                if (ignore_map[p][q]) continue;
-                                if (domain_map[p][q] == DOMAIN_PARAM) {
-                                    array[p][q] = snapshot_storage[param_active][p][q];
-                                } else if (domain_map[p][q] == DOMAIN_SEQ) {
-                                    array[p][q] = snapshot_storage[seq_active][p][q];
-                                }
-                            }
-                        }
-                    }
-                    else {
-                        // jobs 3..6 = loadparams A..D (DOMAIN_PARAM)
-                        // jobs 7..10 = loadseq    A..D (DOMAIN_SEQ)
-                        uint8_t dom = (job >= 7) ? DOMAIN_SEQ : DOMAIN_PARAM;
-                        int snap_idx = (job >= 7) ? (job - 7) : (job - 3);
-
-                        for (uint16_t p = 0; p < NUM_PAGES; p++) {
-                            for (uint16_t q = 0; q < NUM_PARAMS; q++) {
-                                if (domain_map[p][q] == dom && !ignore_map[p][q]) {
-                                    snapshot_storage[snap_idx][p][q] = file_buf[snap_idx][p][q];
-                                }
-                            }
-                        }
-
-                        int active = (dom == DOMAIN_PARAM) ? param_active : seq_active;
-                        if (snap_idx == active) {
-                            for (uint16_t p = 0; p < NUM_PAGES; p++) {
-                                for (uint16_t q = 0; q < NUM_PARAMS; q++) {
-                                    if (domain_map[p][q] == dom && !ignore_map[p][q]) {
-                                        array[p][q] = snapshot_storage[snap_idx][p][q];
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    report_fatfs_error(err, fname);
-                }
-                if (err == FR_OK) load_done_flag = 1;
+                memset(file_buf, 0, bank_words * sizeof(int32_t));
+                load_sd(fname, (int32_t*)(&file_buf[0][0][0]), bank_words);
+                mergeFileToStorage(job, param_active, seq_active);
+                pending_apply_job = job;
+                pending_param_active = (int8_t)param_active;
+                pending_seq_active = (int8_t)seq_active;
+                pending_load_ok = 1;
+                pending_apply = 1;
             }
 
             chThdSleepMilliseconds(20);
             job_busy = 0;
         }
 
-        // Snapshot swap detection (only between jobs to avoid races on snapshot_storage).
-        if (!job_busy && maps_valid) {
+        if (!job_busy && !pending_apply && maps_valid) {
             int new_param = array[attr_selparampage][attr_selparamparam];
             if (new_param < 0) new_param = 0;
             if (new_param >= NUM_SNAPS) new_param = NUM_SNAPS - 1;
             if (new_param != prev_param_sel) {
-                // Push current live param cells into the previous slot.
                 for (uint16_t p = 0; p < NUM_PAGES; p++) {
                     for (uint16_t q = 0; q < NUM_PARAMS; q++) {
                         if (domain_map[p][q] == DOMAIN_PARAM) {
@@ -260,7 +227,6 @@ msg_t ThreadPreset2() PRESET_PULSE_SRAM3_FN(3) {
                         }
                     }
                 }
-                // Pull new slot into live.
                 for (uint16_t p = 0; p < NUM_PAGES; p++) {
                     for (uint16_t q = 0; q < NUM_PARAMS; q++) {
                         if (domain_map[p][q] == DOMAIN_PARAM) {
@@ -298,22 +264,18 @@ msg_t ThreadPreset2() PRESET_PULSE_SRAM3_FN(3) {
     chThdExit((msg_t)0);
 }
 
-static msg_t ThreadPreset(void *arg) PRESET_PULSE_SRAM3_FN(4) {
-    ((attr_parent *)arg)->ThreadPreset2();
+static msg_t ThreadPresetNoclick(void *arg) PRESET_NOCLICK_SRAM3_FN(6) {
+    ((attr_parent *)arg)->ThreadPresetNoclick2();
 }
 
 Thread *ThdPreset;
 
-// Spawn the worker thread using a function-local static working area placed in SRAM3.
-// We cannot put `__attribute__((section(".sram3")))` on a class data member (C++
-// forbids section attrs on non-static class members; cpp:546 error). A static local
-// inside a method is a plain global from the linker's POV, so the section attribute
-// is allowed. SRAM3 (0x20020000) is main on-chip SRAM, DMA-capable, safe for stacks.
-static thread_t* preset_spawn_thread(void *arg) PRESET_PULSE_SRAM3_FN(5) {
+static thread_t* preset_spawn_thread(void *arg) PRESET_NOCLICK_SRAM3_FN(7) {
     static stkalign_t _waPreset[THD_WORKING_AREA_SIZE(1024) / sizeof(stkalign_t)] __attribute__((section(".sram3")));
-    return chThdCreateStatic(_waPreset, sizeof(_waPreset), LOWPRIO, (tfunc_t)ThreadPreset, arg);
+    return chThdCreateStatic(_waPreset, sizeof(_waPreset), LOWPRIO, (tfunc_t)ThreadPresetNoclick, arg);
 }
-void preset_printAll() PRESET_PULSE_SRAM3_FN(6) {
+
+void preset_printAll() PRESET_NOCLICK_SRAM3_FN(8) {
     for (uint16_t page = 0; page < NUM_PAGES; page++) {
         for (uint16_t param = 0; param < NUM_PARAMS; param++) {
             LogTextMessage("page[%d] param[%d] = %d (dom=%d ign=%d)", page, param, array[page][param], domain_map[page][param], ignore_map[page][param]);
@@ -321,13 +283,15 @@ void preset_printAll() PRESET_PULSE_SRAM3_FN(6) {
     }
 }
 ]]></code.declaration>
-    <code.init><![CDATA[// Live param table in SDRAM (pointer in code.declaration, static-local here).
-static int32_t _param_sdram[NUM_PAGES][NUM_PARAMS] __attribute__ ((section (".sdram")));
+    <code.init><![CDATA[static int32_t _param_sdram[NUM_PAGES][NUM_PARAMS] __attribute__ ((section (".sdram")));
 array = _param_sdram;
 memset(array, 0, (size_t)(NUM_PAGES * NUM_PARAMS * sizeof(int32_t)));
 
-// Cached maps live in SRAM3 (not SRAM1) to relieve SRAM1 pressure. Same pointer-
-// in-declaration / static-local-in-init pattern as blindlib/sdram_array_strategy.md.
+static int32_t _snapshot_sdram[NUM_SNAPS][NUM_PAGES][NUM_PARAMS] __attribute__ ((section (".sdram")));
+static int32_t _filebuf_sdram[NUM_SNAPS][NUM_PAGES][NUM_PARAMS] __attribute__ ((section (".sdram")));
+snapshot_storage = _snapshot_sdram;
+file_buf = _filebuf_sdram;
+
 static uint8_t _ignore_map[NUM_PAGES][NUM_PARAMS] __attribute__ ((section (".sram3")));
 static uint8_t _domain_map[NUM_PAGES][NUM_PARAMS] __attribute__ ((section (".sram3")));
 ignore_map = _ignore_map;
@@ -344,6 +308,11 @@ ThdPreset = 0;
 prev_param_sel = 0;
 prev_seq_sel = 0;
 load_done_flag = 0;
+pending_apply = 0;
+pending_apply_job = 0;
+pending_param_active = 0;
+pending_seq_active = 0;
+pending_load_ok = 0;
 attr_init;]]></code.init>
     <code.dispose><![CDATA[if (thread_started && ThdPreset) {
     chThdTerminate(ThdPreset);
@@ -370,7 +339,17 @@ if (!job_busy && !pending_job) {
     else if (inlet_loadseqC) pending_job = 9;
     else if (inlet_loadseqD) pending_job = 10;
 }
-disp_busy = job_busy;
+
+if (pending_apply && !job_busy) {
+    applyLiveFromStorage(pending_apply_job, pending_param_active, pending_seq_active);
+    pending_apply = 0;
+    if (pending_load_ok) {
+        load_done_flag = 1;
+        pending_load_ok = 0;
+    }
+}
+
+disp_busy = job_busy || pending_apply;
 
 if (!pprint && inlet_print) {
     preset_printAll();
@@ -378,7 +357,7 @@ if (!pprint && inlet_print) {
 pprint = inlet_print;
 outlet_loaded = load_done_flag ? 1 : 0;
 if (load_done_flag) load_done_flag = 0;
-outlet_v010 = 10;
+outlet_v001 = 1;
 ]]></code.krate>
   </obj.normal>
 </objdefs>

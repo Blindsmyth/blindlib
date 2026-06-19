@@ -1,6 +1,6 @@
 <objdefs appVersion="1.0.12">
    <obj.normal id="clock_master_sram3_clean" uuid="5224773f-18de-4231-8f92-b1f22bb953D0">
-      <sDescription>SRAM3 clock: same core as clock_master_sram3 with legacy inlets removed (no setToRaw, per-k quantize/NOrecalc/skipRaw/playToggle/countIn; setTempoTo fixed to cycles). Smaller IO surface for new patches.</sDescription>
+      <sDescription>SRAM3 clock: trimmed IO vs clock_master_sram3 (no setToRaw, per-k quantize/NOrecalc/skipRaw; setTempoTo fixed to cycles). v002: restored playToggle and countIn for Trellis transport and tap count-in.</sDescription>
       <author>Simon Reeve</author>
       <license>GPL</license>
       <inlets>
@@ -13,12 +13,14 @@
          <int32.positive name="EXTdurSMPS"/>
          <bool32.rising name="play"/>
          <bool32.rising name="stop"/>
+         <bool32.rising name="playToggle"/>
          <int32 name="beats"/>
          <int32 name="measure"/>
          <int32 name="lowerBPM"/>
          <bool32.rising name="setBPM"/>
          <int32 name="bpmValue"/>
          <bool32.rising name="tap" description="Tap tempo input"/>
+         <bool32 name="countIn" description="Count-in: first bar then next tap starts clock"/>
          <int32 name="clockMode" description="0=Auto, 1=Ext, 2=Int"/>
          <bool32 name="continueOnStop" description="When high: continue at measured tempo on MIDI STOP; when low: stop playback"/>
       </inlets>
@@ -38,7 +40,7 @@
         <bool32 name="extSync" description="High when syncing to external MIDI clock"/>
         <bool32 name="clockIsLeader" description="High when internal clock running with no loop leader (clock is virtual leader; use for first-loop sync/quantize)"/>
         <int32 name="measured24ppqSMPS" description="Measured external MIDI clock interval in samples per 24ppq pulse (averaged)"/>
-        <int32 name="v001" description="Object version (incremented each release)"/>
+        <int32 name="v002" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -93,9 +95,9 @@ struct clock_io_t {
     int32_t toSlot, beats, measure, lowerBPM, bpmValue, clockMode;
     int32_t EXTdurSMPS, EXTphase;
     int32_t setNow, inSync, resetPhase;
-    int32_t EXTsync, play, stop_in, setBPM, tap, continueOnStop;
+    int32_t EXTsync, play, stop_in, playToggle, setBPM, tap, countIn, continueOnStop;
     int32_t syncSlot, syncPhase, syncDurSMPS, bpm, detectedBars, ppqPerBar;
-    int32_t measured24ppqSMPS, v001;
+    int32_t measured24ppqSMPS, v002;
     int32_t rollover, clock24ppq, reset, start, stop_out, isPlaying;
     int32_t extSync, clockIsLeader;
 } _io;
@@ -123,7 +125,7 @@ int32_t last_written_bpm;
 int32_t last_read_bpm;
 
 bool clock_playing;
-bool play_trig, stop_trig;
+bool play_trig, stop_trig, play_toggle_trig;
 int8_t prev_leader;
 uint16_t clockIsLeader_hold;
 
@@ -149,6 +151,8 @@ int32_t tap_avg;
 int32_t tap_last_out_bpm;
 int32_t tap_last_inlet_bpm;
 int32_t tap_bpm;
+int tap_count_phase;
+int tap_start_hold;
 int tap_reset_hold;
 
 int32_t eff_bpmValue;
@@ -328,12 +332,14 @@ void krate_work() CLOCK_MASTER_SRAM3_CLEAN_FN(8) {
 #define inlet_EXTdurSMPS _io.EXTdurSMPS
 #define inlet_play _io.play
 #define inlet_stop _io.stop_in
+#define inlet_playToggle _io.playToggle
 #define inlet_beats _io.beats
 #define inlet_measure _io.measure
 #define inlet_lowerBPM _io.lowerBPM
 #define inlet_setBPM _io.setBPM
 #define inlet_bpmValue _io.bpmValue
 #define inlet_tap _io.tap
+#define inlet_countIn _io.countIn
 #define inlet_clockMode _io.clockMode
 #define inlet_continueOnStop _io.continueOnStop
 #define outlet_syncSlot _io.syncSlot
@@ -351,7 +357,7 @@ void krate_work() CLOCK_MASTER_SRAM3_CLEAN_FN(8) {
 #define outlet_extSync _io.extSync
 #define outlet_clockIsLeader _io.clockIsLeader
 #define outlet_measured24ppqSMPS _io.measured24ppqSMPS
-#define outlet_v001 _io.v001
+#define outlet_v002 _io.v002
 
 // ============ BEGIN krate logic (clean SRAM3 clock) ============
 bool trig = 0;
@@ -424,15 +430,19 @@ if (!use_external && inlet_bpm > 0 && inlet_bpm != tap_last_inlet_bpm) {
 bool tap_rising = inlet_tap && !tap_last_inlet;
 tap_last_inlet = inlet_tap;
 
+if (!inlet_countIn) tap_count_phase = 0;
+
 eff_setBPM = false;
 eff_resetPhase = (tap_reset_hold > 0);
-eff_play = false;
+eff_play = (tap_start_hold > 0);
 if (tap_reset_hold > 0) tap_reset_hold--;
+if (tap_start_hold > 0) tap_start_hold--;
 
 if (tap_rising) {
     if (tap_timer >= tap_wait_samples) {
         for (int i = 0; i < tap_beats; i++) tap_pool[i] = 0;
         tap_pool_index = 0;
+        tap_count_phase = 0;
         tap_avg = 24000;
         tap_active = false;
         tap_last_out_bpm = 0;
@@ -457,7 +467,16 @@ if (tap_rising) {
                 bpm_changed = true;
             }
             if (is_beat_one && counted >= tap_beats) {
-                if (clock_playing) {
+                if (inlet_countIn) {
+                    if (tap_count_phase == 0 && !clock_playing) {
+                        eff_play = true;
+                        tap_start_hold = 8;
+                        tap_count_phase = 1;
+                    } else if (clock_playing) {
+                        eff_resetPhase = true;
+                        tap_reset_hold = 8;
+                    }
+                } else if (clock_playing) {
                     eff_resetPhase = true;
                     tap_reset_hold = 8;
                 }
@@ -524,6 +543,19 @@ if (inlet_stop && !stop_trig) {
     clock_playing = 0;
 }
 if (!inlet_stop) stop_trig = 0;
+
+if (inlet_playToggle && !play_toggle_trig) {
+    play_toggle_trig = 1;
+    clock_playing = !clock_playing;
+    if (clock_playing) {
+        clock_count = 0;
+        prev_clock_pos = 0;
+        resync = 4;
+        pos = smplr.leader_tempo - 64;
+        outlet_reset = 1;
+    }
+}
+if (!inlet_playToggle) play_toggle_trig = 0;
 
 if (smplr.leader != prev_leader && smplr.leader >= 0 && prev_leader == -1) {
     bool clock_is_master_now = (clock_playing && !use_external);
@@ -840,7 +872,7 @@ prev_clock_playing = clock_playing;
 start_pulse_request = 0;
 stop_pulse_request = 0;
 
-outlet_v001 = 1;
+outlet_v002 = 2;
 // ============ END krate logic ============
 
 #undef inlet_toSlot
@@ -852,12 +884,14 @@ outlet_v001 = 1;
 #undef inlet_EXTdurSMPS
 #undef inlet_play
 #undef inlet_stop
+#undef inlet_playToggle
 #undef inlet_beats
 #undef inlet_measure
 #undef inlet_lowerBPM
 #undef inlet_setBPM
 #undef inlet_bpmValue
 #undef inlet_tap
+#undef inlet_countIn
 #undef inlet_clockMode
 #undef inlet_continueOnStop
 #undef outlet_syncSlot
@@ -875,7 +909,7 @@ outlet_v001 = 1;
 #undef outlet_extSync
 #undef outlet_clockIsLeader
 #undef outlet_measured24ppqSMPS
-#undef outlet_v001
+#undef outlet_v002
 }]]></code.declaration>
       <code.init><![CDATA[current_bpm = 120;
 detected_bars = 16;
@@ -910,6 +944,8 @@ tap_last_out_bpm = 0;
 tap_last_inlet_bpm = 0;
 tap_bpm = 120;
 tap_reset_hold = 0;
+tap_count_phase = 0;
+tap_start_hold = 0;
 for (int i = 0; i < tap_pool_size; i++) {
     tap_pool[i] = 0;
 }
@@ -942,12 +978,14 @@ _io.EXTphase = inlet_EXTphase;
 _io.EXTdurSMPS = inlet_EXTdurSMPS;
 _io.play = inlet_play;
 _io.stop_in = inlet_stop;
+_io.playToggle = inlet_playToggle;
 _io.beats = inlet_beats;
 _io.measure = inlet_measure;
 _io.lowerBPM = inlet_lowerBPM;
 _io.setBPM = inlet_setBPM;
 _io.bpmValue = inlet_bpmValue;
 _io.tap = inlet_tap;
+_io.countIn = inlet_countIn;
 _io.clockMode = inlet_clockMode;
 _io.continueOnStop = inlet_continueOnStop;
 krate_work();
@@ -966,7 +1004,7 @@ outlet_ppqPerBar = _io.ppqPerBar;
 outlet_extSync = _io.extSync;
 outlet_clockIsLeader = _io.clockIsLeader;
 outlet_measured24ppqSMPS = _io.measured24ppqSMPS;
-outlet_v001 = _io.v001;]]></code.krate>
+outlet_v002 = _io.v002;]]></code.krate>
       <code.srate><![CDATA[srate_work();]]></code.srate>
       <code.midihandler><![CDATA[midi_work(status);]]></code.midihandler>
    </obj.normal>

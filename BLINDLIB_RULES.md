@@ -1,5 +1,7 @@
 # Blindlib Development Rules
 
+> **Sketchy UI stack:** [docs/SKETCHY_SYSTEM.md](docs/SKETCHY_SYSTEM.md)
+
 ## Include Path Rules
 
 ### RBRT Classes Include Paths

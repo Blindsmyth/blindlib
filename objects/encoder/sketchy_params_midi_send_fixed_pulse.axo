@@ -1,6 +1,6 @@
 <objdefs appVersion="1.0.12">
    <obj.normal id="sketchy_params_midi_send_fixed_pulse" uuid="5224773f-18de-4231-8f92-b1f22bb953E8">
-      <sDescription>Fixed version: Sends parameters from sketchy_param table as MIDI CC messages with improved throttling and no duplicate sends. Only scans the active page for better responsiveness.</sDescription>
+      <sDescription>Fixed version: Sends parameters from sketchy_param table as MIDI CC messages with improved throttling and no duplicate sends. Only scans the active page for better responsiveness. v003: skip MODE_EMPTY (255) cells during redraw so blank page slots do not send spurious CCs.</sDescription>
       <author>AI Assistant / Simon</author>
       <license>BSD</license>
       <inlets>
@@ -10,7 +10,7 @@
          <bool32 name="active" description="Enable/disable sending"/>
       </inlets>
       <outlets>
-         <int32 name="v002" description="Object version (incremented each release)"/>
+         <int32 name="v003" description="Object version (incremented each release)"/>
       </outlets>
       <displays/>
       <params/>
@@ -43,6 +43,7 @@ uint8_t prev_redraw_in;
 #define MODE_LIST          3
 #define MODE_BOOL_PULSE_UNI 7
 #define MODE_BOOL_PULSE_BI  8
+#define MODE_EMPTY         255
 
 void SendMidi3(uint8_t b0, uint8_t b1, uint8_t b2) {
     sdPut(&SD2, b0);
@@ -169,11 +170,14 @@ if (redraw_active) {
         int target_page, target_dial;
         resolve_duplicate_for_midi(redraw_page, redraw_param, &target_page, &target_dial);
         
-        // Get value from param table (use target location for duplicates)
+        auto& config = parent->objectinstance_sketchy__dials_i.configs[target_page][target_dial];
+        if (config.mode == MODE_EMPTY) {
+            redraw_param++;
+            continue;
+        }
+        
         int32_t value = param_table->array[target_page][target_dial];
         
-        // Get encoder configuration to determine mode
-        auto& config = parent->objectinstance_sketchy__dials_i.configs[target_page][target_dial];
         uint8_t midiValue;
         
         // Convert based on encoder mode - list params send as 0-based integers (0, 1, 2...)
@@ -233,13 +237,15 @@ for (int scan_count = 0; scan_count < 2; scan_count++) {
     int target_page, target_dial;
     bool is_duplicate = resolve_duplicate_for_midi(current_page, scan_index, &target_page, &target_dial);
     
-    // Get current value from param table (use target location for duplicates)
+    auto& config = parent->objectinstance_sketchy__dials_i.configs[target_page][target_dial];
+    if (config.mode == MODE_EMPTY) {
+        scan_index++;
+        continue;
+    }
+    
     int32_t current_value = param_table->array[target_page][target_dial];
     
-    // Check if value changed and not already triggered
     if ((current_value != prev[scan_index]) && !ntrig[scan_index]) {
-        // Get encoder configuration to determine mode
-        auto& config = parent->objectinstance_sketchy__dials_i.configs[target_page][target_dial];
         uint8_t midiValue;
         
         // Convert based on encoder mode - list params send as 0-based integers (0, 1, 2...)
@@ -277,7 +283,7 @@ for (int scan_count = 0; scan_count < 2; scan_count++) {
     
     scan_index++;
 }
-outlet_v002 = 2;
+outlet_v003 = 3;
 ]]></code.krate>
    </obj.normal>
 </objdefs>
