@@ -22,6 +22,7 @@
       <spinner name="params" description="Number of parameters per page" MinValue="1" MaxValue="128" DefaultValue="8"/>
     </attribs>
     <includes>
+      <include>../table/saveload_noclick.h</include>
       <include>chibios/ext/fatfs/src/ff.h</include>
     </includes>
     <depends>
@@ -29,9 +30,7 @@
       <depend>sketchy_dials</depend>
       <depend>sketchy_params</depend>
     </depends>
-    <code.declaration><![CDATA[#include "../table/saveload_noclick.h"
-
-#define MIX_NOCLICK_SRAM3_FN(n) __attribute__((noinline, section(".sram3.text.ppp" #n)))
+    <code.declaration><![CDATA[#define MIX_NOCLICK_SRAM3_FN(n) __attribute__((noinline, section(".sram3.text.ppp" #n)))
 
 #define NUM_PAGES attr_pages
 #define NUM_PARAMS attr_params

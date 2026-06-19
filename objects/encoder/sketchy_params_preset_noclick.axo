@@ -36,15 +36,14 @@
       <spinner name="selseqparam" description="Param of activeseqsnap selector cell" MinValue="0" MaxValue="127" DefaultValue="1"/>
     </attribs>
     <includes>
+      <include>../table/saveload_noclick.h</include>
       <include>chibios/ext/fatfs/src/ff.h</include>
     </includes>
     <depends>
       <depend>fatfs</depend>
       <depend>sketchy_dials</depend>
     </depends>
-    <code.declaration><![CDATA[#include "../table/saveload_noclick.h"
-
-#define PRESET_NOCLICK_SRAM3_FN(n) __attribute__((noinline, section(".sram3.text.ppp" #n)))
+    <code.declaration><![CDATA[#define PRESET_NOCLICK_SRAM3_FN(n) __attribute__((noinline, section(".sram3.text.ppp" #n)))
 
 #define NUM_PAGES attr_pages
 #define NUM_PARAMS attr_params
