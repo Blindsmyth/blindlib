@@ -1,9 +1,12 @@
 #ifndef SAVELOAD_NOCLICK_H
 #define SAVELOAD_NOCLICK_H
 
+/* Shared noclick SD helpers — place code in SRAM3 (.sram3.text.slnc*) to save SRAM1. */
+#define SAVELOAD_NOCLICK_SRAM3_FN(n) __attribute__((noinline, section(".sram3.text.slnc" #n)))
+
 static bool_t saveload_noclick_busy = false;
 
-void wait_busy(void) {
+static void wait_busy(void) SAVELOAD_NOCLICK_SRAM3_FN(1) {
 	volatile uint32_t count = 600000; /* 10 minutes */
 	while (saveload_noclick_busy && count) {
 		count--;
@@ -11,7 +14,7 @@ void wait_busy(void) {
 	}
 }
 
-template <typename T> __attribute__((noinline)) static void save_sd(const char* fname, T array, uint32_t LENGTH) {
+static void save_sd(const char* fname, int32_t* array, uint32_t LENGTH) SAVELOAD_NOCLICK_SRAM3_FN(2) {
 
 	wait_busy();
 	saveload_noclick_busy = true;
@@ -20,38 +23,36 @@ template <typename T> __attribute__((noinline)) static void save_sd(const char* 
 	FRESULT err;
 	UINT bytes_written;
 
-	// codec_clearbuffer(); /* no longer necessary! */
-	
 	err = f_open(&FileObject, fname, FA_WRITE | FA_CREATE_ALWAYS);
-	if (err != FR_OK) { 				/* getting error? */
+	if (err != FR_OK) {
 		report_fatfs_error(err, fname);
 		saveload_noclick_busy = false;
 		return;
 	}
-	
-	int rem_sz = sizeof(array[0]) * LENGTH; /* length of table in bytes */
+
+	int rem_sz = (int)(sizeof(int32_t) * LENGTH);
 	int offset = 0;
-	
+
 	while (rem_sz > 0) {
-		if (rem_sz > sizeof(fbuff)) { 	/* fbuff is a firmware-internal, general-purpose SD card buffer */
-			memcpy((char*) fbuff, (char*) (&array[0]) + offset, sizeof(fbuff));
+		if (rem_sz > (int)sizeof(fbuff)) {
+			memcpy((char*) fbuff, (char*) array + offset, sizeof(fbuff));
 			err = f_write(&FileObject, fbuff, sizeof(fbuff), &bytes_written);
-			rem_sz -= sizeof(fbuff);
-			offset += sizeof(fbuff);
+			rem_sz -= (int)sizeof(fbuff);
+			offset += (int)sizeof(fbuff);
 		} else {
-			memcpy((char*) fbuff, (char*) (&array[0]) + offset, rem_sz);
+			memcpy((char*) fbuff, (char*) array + offset, rem_sz);
 			err = f_write(&FileObject, fbuff, rem_sz, &bytes_written);
 			rem_sz = 0;
 		}
 	}
-	if (err != FR_OK) { 				/* getting error? */
+	if (err != FR_OK) {
 		report_fatfs_error(err, fname);
 		saveload_noclick_busy = false;
 		return;
 	}
-	
+
 	err = f_close(&FileObject);
-	if (err != FR_OK) { 				/* getting error? */
+	if (err != FR_OK) {
 		report_fatfs_error(err, fname);
 		saveload_noclick_busy = false;
 		return;
@@ -60,50 +61,48 @@ template <typename T> __attribute__((noinline)) static void save_sd(const char* 
 }
 
 
-template <typename T> __attribute__((noinline)) static void load_sd(const char* fname, T array, uint32_t LENGTH) {
+static void load_sd(const char* fname, int32_t* array, uint32_t LENGTH) SAVELOAD_NOCLICK_SRAM3_FN(3) {
 
 	wait_busy();
 	saveload_noclick_busy = true;
-	
+
 	FIL FileObject;
 	FRESULT err;
 	UINT bytes_read;
 
-	// codec_clearbuffer(); /* no longer necessary! */
-	
-	err = f_open(&FileObject, fname, FA_READ | FA_OPEN_EXISTING); /* open file */
-	if (err != FR_OK) { 				/* getting error? */
+	err = f_open(&FileObject, fname, FA_READ | FA_OPEN_EXISTING);
+	if (err != FR_OK) {
 		report_fatfs_error(err, fname);
 		saveload_noclick_busy = false;
 		return;
 	}
-	
-	int rem_sz = sizeof(array[0]) * LENGTH;	/* length of table in bytes */
+
+	int rem_sz = (int)(sizeof(int32_t) * LENGTH);
 	int offset = 0;
-	
+
 	while (rem_sz > 0) {
-		if (rem_sz > sizeof(fbuff)) { 	/* fbuff is a firmware-internal, general-purpose SD card buffer */
+		if (rem_sz > (int)sizeof(fbuff)) {
 			err = f_read(&FileObject, fbuff, sizeof(fbuff), &bytes_read);
 			if (bytes_read == 0) {
 				break;
 			}
-			memcpy((char*) (&array[0]) + offset, (char*) fbuff, bytes_read);
-			rem_sz -= bytes_read;
-			offset += bytes_read;
+			memcpy((char*) array + offset, (char*) fbuff, bytes_read);
+			rem_sz -= (int)bytes_read;
+			offset += (int)bytes_read;
 		} else {
 			err = f_read(&FileObject, fbuff, rem_sz, &bytes_read);
-			memcpy((char*) (&array[0]) + offset, (char*) fbuff, bytes_read);
+			memcpy((char*) array + offset, (char*) fbuff, bytes_read);
 			rem_sz = 0;
 		}
 	}
-	if (err != FR_OK) { 				/* getting error? */
+	if (err != FR_OK) {
 		report_fatfs_error(err, fname);
 		saveload_noclick_busy = false;
 		return;
 	}
-	
-	err = f_close(&FileObject); 
-	if (err != FR_OK) { 				/* getting error? */
+
+	err = f_close(&FileObject);
+	if (err != FR_OK) {
 		report_fatfs_error(err, fname);
 		saveload_noclick_busy = false;
 		return;

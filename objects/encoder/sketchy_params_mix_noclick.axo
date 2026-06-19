@@ -11,7 +11,7 @@
     </inlets>
     <outlets>
       <bool32.pulse name="loaded" description="One k-rate pulse when mix load finishes (wire to MIDI redraw only)"/>
-      <int32 name="v001" description="Object version (incremented each release)"/>
+      <int32 name="v002" description="Object version (incremented each release)"/>
     </outlets>
     <displays>
       <bool32 name="busy" description="True while a save or load is in progress"/>
@@ -29,7 +29,7 @@
       <depend>fatfs</depend>
       <depend>sketchy_dials</depend>
     </depends>
-    <code.declaration><![CDATA[#define MIX_NOCLICK_SRAM3_FN(n) __attribute__((noinline, section(".sram3.text.ppp" #n)))
+    <code.declaration><![CDATA[#define MIX_NOCLICK_SRAM3_FN(n) __attribute__((noinline, section(".sram3.text.pmix" #n)))
 
 #define NUM_PAGES attr_pages
 #define NUM_PARAMS attr_params
@@ -113,10 +113,10 @@ msg_t ThreadMixNoclick2() MIX_NOCLICK_SRAM3_FN(5) {
 
             if (job == 1) {
                 packMixToBuf();
-                save_sd(fname, (int32_t*)(&file_buf[0][0]), table_words);
+                save_sd(fname, &file_buf[0][0], table_words);
             } else if (job == 2) {
                 memset(file_buf, 0, table_words * sizeof(int32_t));
-                load_sd(fname, (int32_t*)(&file_buf[0][0]), table_words);
+                load_sd(fname, &file_buf[0][0], table_words);
                 pending_load_ok = 1;
                 pending_apply = 1;
             }
@@ -189,7 +189,7 @@ if (pending_apply && !job_busy) {
 disp_busy = job_busy || pending_apply;
 outlet_loaded = load_done_flag ? 1 : 0;
 if (load_done_flag) load_done_flag = 0;
-outlet_v001 = 1;
+outlet_v002 = 2;
 ]]></code.krate>
   </obj.normal>
 </objdefs>
