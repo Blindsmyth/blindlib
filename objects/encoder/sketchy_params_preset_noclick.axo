@@ -20,7 +20,7 @@
     </inlets>
     <outlets>
       <bool32.pulse name="loaded" description="One k-rate pulse when a load job finishes (params applied to live array)"/>
-      <int32 name="v002" description="Object version (incremented each release)"/>
+      <int32 name="v003" description="Object version (incremented each release)"/>
     </outlets>
     <displays>
       <bool32 name="busy" description="True while a save or load is in progress"/>
@@ -263,7 +263,7 @@ msg_t ThreadPresetNoclick2() PRESET_NOCLICK_SRAM3_FN(5) {
     chThdExit((msg_t)0);
 }
 
-static msg_t ThreadPresetNoclick(void *arg) PRESET_NOCLICK_SRAM3_FN(6) {
+static void ThreadPresetNoclick(void *arg) PRESET_NOCLICK_SRAM3_FN(6) {
     ((attr_parent *)arg)->ThreadPresetNoclick2();
 }
 
@@ -271,7 +271,7 @@ Thread *ThdPreset;
 
 static thread_t* preset_spawn_thread(void *arg) PRESET_NOCLICK_SRAM3_FN(7) {
     static stkalign_t _waPreset[THD_WORKING_AREA_SIZE(1024) / sizeof(stkalign_t)] __attribute__((section(".sram3")));
-    return chThdCreateStatic(_waPreset, sizeof(_waPreset), LOWPRIO, (tfunc_t)ThreadPresetNoclick, arg);
+    return chThdCreateStatic(_waPreset, sizeof(_waPreset), LOWPRIO, ThreadPresetNoclick, arg);
 }
 
 void preset_printAll() PRESET_NOCLICK_SRAM3_FN(8) {
@@ -356,7 +356,7 @@ if (!pprint && inlet_print) {
 pprint = inlet_print;
 outlet_loaded = load_done_flag ? 1 : 0;
 if (load_done_flag) load_done_flag = 0;
-outlet_v002 = 2;
+outlet_v003 = 3;
 ]]></code.krate>
   </obj.normal>
 </objdefs>
