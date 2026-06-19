@@ -1,12 +1,14 @@
 #ifndef SAVELOAD_NOCLICK_H
 #define SAVELOAD_NOCLICK_H
 
-/* Shared noclick SD helpers — place code in SRAM3 (.sram3.text.slnc*) to save SRAM1. */
+/* Shared noclick SD helpers — code in SRAM3 (.sram3.text.slnc*) to save SRAM1.
+ * Prefix attribute form required: C++ rejects postfix attrs on global definitions. */
 #define SAVELOAD_NOCLICK_SRAM3_FN(n) __attribute__((noinline, section(".sram3.text.slnc" #n)))
 
 static bool_t saveload_noclick_busy = false;
 
-static void wait_busy(void) SAVELOAD_NOCLICK_SRAM3_FN(1) {
+SAVELOAD_NOCLICK_SRAM3_FN(1)
+static void wait_busy(void) {
 	volatile uint32_t count = 600000; /* 10 minutes */
 	while (saveload_noclick_busy && count) {
 		count--;
@@ -14,7 +16,8 @@ static void wait_busy(void) SAVELOAD_NOCLICK_SRAM3_FN(1) {
 	}
 }
 
-static void save_sd(const char* fname, int32_t* array, uint32_t LENGTH) SAVELOAD_NOCLICK_SRAM3_FN(2) {
+SAVELOAD_NOCLICK_SRAM3_FN(2)
+static void save_sd(const char* fname, int32_t* array, uint32_t LENGTH) {
 
 	wait_busy();
 	saveload_noclick_busy = true;
@@ -61,7 +64,8 @@ static void save_sd(const char* fname, int32_t* array, uint32_t LENGTH) SAVELOAD
 }
 
 
-static void load_sd(const char* fname, int32_t* array, uint32_t LENGTH) SAVELOAD_NOCLICK_SRAM3_FN(3) {
+SAVELOAD_NOCLICK_SRAM3_FN(3)
+static void load_sd(const char* fname, int32_t* array, uint32_t LENGTH) {
 
 	wait_busy();
 	saveload_noclick_busy = true;
